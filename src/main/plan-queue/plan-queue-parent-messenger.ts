@@ -4,7 +4,7 @@ import { generateId } from '../../shared/utils/id-generator';
 import { getInputTurnRegistry } from '../instance/input-turn-registry';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueInstancePort } from './plan-queue-host';
-import { buildQuestionsMessage } from './plan-queue-messages';
+import { buildQuestionsMessage, parentCanAnswer } from './plan-queue-messages';
 import { resolveRunParent, type ParentDeps } from './plan-queue-run-parent';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -41,7 +41,7 @@ export class PlanQueueParentMessenger {
 
   onParentChanged(run: PlanQueueRun, notifying: readonly PlanQueueItem[] = []): void {
     if (this.stopped) return;
-    const questions = this.deps.listItems(run.id).filter((item) => item.question);
+    const questions = this.deps.listItems(run.id).filter(parentCanAnswer);
     this.replays.set(run.id, { parentId: run.parentInstanceId,
       questions: new Map(questions.map((item) => [identity(item), { status: 'pending' as const }])) });
     this.replay(run, notifying);
@@ -54,8 +54,11 @@ export class PlanQueueParentMessenger {
     return parentId;
   }
 
-  notify(run: PlanQueueRun, message: string, questions?: readonly PlanQueueItem[], modelVisible = false): void {
+  notify(run: PlanQueueRun, message: string, allQuestions?: readonly PlanQueueItem[], modelVisible = false): void {
     if (this.stopped) return;
+    // A question only James can answer is never handed to the parent; its fixed sentence goes as a note with no questions.
+    const questions = allQuestions?.filter(parentCanAnswer);
+    if (allQuestions?.length && !questions?.length) return;
     const parentId = this.resolve(run, questions);
     if (!parentId) return;
     const replay = this.replays.get(run.id);
@@ -70,7 +73,7 @@ export class PlanQueueParentMessenger {
   private replay(run: PlanQueueRun, notifying: readonly PlanQueueItem[]): void {
     const replay = this.replays.get(run.id);
     if (!replay || replay.parentId !== run.parentInstanceId) return;
-    const current = this.deps.listItems(run.id).filter((item) => item.question);
+    const current = this.deps.listItems(run.id).filter(parentCanAnswer);
     const keys = new Set(current.map(identity));
     for (const key of replay.questions.keys()) if (!keys.has(key)) replay.questions.delete(key);
     if (!replay.questions.size) { this.clear(run.id); return; }

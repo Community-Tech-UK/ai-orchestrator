@@ -6,6 +6,7 @@
  * It is other people's text. It is returned to the caller and goes nowhere else: no log line and no error message.
  */
 import { hashTicketText, type TicketText } from '../plan-queue-linear-ticket-hash';
+import { pinTicketRelations, type ApprovedTicketText, type PreviewedTicket, type TicketRelationKind } from '../plan-queue-ticket-approved-text';
 import type { LinearCallDependencies } from './linear-call';
 import {
   listLinearTicketComments,
@@ -50,4 +51,40 @@ export async function readTicketText(
   const { value: ticket } = await readLinearTicket(identifier, counter, dependencies);
   const { value: comments } = await listLinearTicketComments(identifier, counter, dependencies);
   return { ticket, comments, hash: hashTicketText(ticketTextOf(ticket, comments)) };
+}
+
+/**
+ * The ticket as an approved text: the description, the comments, the fields and the related tickets, which are named by
+ * their short address alone except where the preview James saw showed a title (`pinTicketRelations`). The Start preview
+ * pins this at Start, and the check before a session builds the text a change would bring from the same function.
+ */
+export function approvedTextOf(
+  read: TicketTextRead,
+  preview: { parentIdentifier?: string; linkedProjectIds: ReadonlySet<string>; tickets: readonly PreviewedTicket[] },
+): ApprovedTicketText {
+  const { ticket, comments } = read;
+  const relations: { relation: TicketRelationKind; identifier: string }[] = [
+    ...ticket.relations.blockedBy.map((related) => ({ relation: 'blocked-by' as const, identifier: related.identifier })),
+    ...ticket.relations.blocks.map((related) => ({ relation: 'blocks' as const, identifier: related.identifier })),
+    ...ticket.relations.related.map((related) => ({ relation: 'related' as const, identifier: related.identifier })),
+    ...ticket.relations.duplicateOf.map((related) => ({ relation: 'duplicate-of' as const, identifier: related.identifier })),
+  ];
+  if (preview.parentIdentifier) relations.unshift({ relation: 'parent', identifier: preview.parentIdentifier });
+  return {
+    description: ticket.description,
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      authorId: comment.author?.id ?? null,
+      authorName: comment.author?.name ?? null,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      fromBot: isBotComment(comment),
+    })),
+    labels: [...ticket.labels],
+    priority: ticket.priority,
+    projectName: ticket.project?.name ?? null,
+    relatedTickets: pinTicketRelations(relations, preview),
+    attachmentNames: [...ticket.attachmentNames],
+  };
 }

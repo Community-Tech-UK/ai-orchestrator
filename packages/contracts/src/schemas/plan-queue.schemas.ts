@@ -193,6 +193,8 @@ export const PlanQueueQuestionSchema = z.object({
     .max(4),
   /** Absent on legacy questions, which remain manual until investigated. */
   decision: PlanQueueDecisionSchema.optional(),
+  /** Only James can answer it, on the Plan Queue page: no session, tool or phone route may (a Linear ticket that changed). */
+  jamesOnly: z.boolean().optional(),
 }).superRefine((question, ctx) => {
   if (new Set(question.options.map((option) => option.id)).size !== question.options.length) {
     ctx.addIssue({ code: 'custom', path: ['options'], message: 'Question option identifiers must be unique' });

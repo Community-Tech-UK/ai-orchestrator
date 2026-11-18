@@ -10,6 +10,8 @@ import { PARK_ON_REPEATED_FINDING, repeatedFindingIds } from './plan-queue-progr
 import { selectCurrentQueueVerifier } from './plan-queue-checker-routing';
 import { holdItem, isHoldNote, parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, resumeReason, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
 import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
+import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
+import { holdTicketJob, ticketNotReady } from './plan-queue-ticket-hold';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueUsageWaits, takeUsageHold } from './plan-queue-usage-wait';
 import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
@@ -364,6 +366,8 @@ export class PlanQueueItemFlow {
         await this.parkUnlocked(this.host.getItem(item.id), 'needs-james', error.message);
         return;
       }
+      // The ticket changed or cannot be read: no session started, and the job is held, not failed.
+      if (error instanceof PlanQueueTicketHeld) { await this.holdTicket(this.host.getItem(item.id), error); return; }
       if (error instanceof PlanQueueSpawnStoppedByUser && error.instanceId) {
         this.host.save({ ...this.host.getItem(item.id), workerInstanceId: error.instanceId });
         await this.stopInstance(error.instanceId);
@@ -382,6 +386,9 @@ export class PlanQueueItemFlow {
     }
   }
 
+  /** Hold a job whose Linear ticket may not be sent to a session now (`plan-queue-ticket-hold.ts`). Lock held. */
+  private readonly holdTicket = (item: PlanQueueItem, held: PlanQueueTicketHeld) => holdTicketJob(this.host, (stopped, reason) => this.holdUnlocked(stopped, reason), item, held);
+
   /** Send the worker its next turn, respawning it with a resume prompt if its session is gone. */
   private async runWorkerTurn(item: PlanQueueItem, prompt: string): Promise<void> {
     item = this.host.save({ ...item, pendingInstruction: prompt, workerReport: null });
@@ -397,6 +404,7 @@ export class PlanQueueItemFlow {
       } catch (error) {
         await this.parkUnlocked(item, 'worker-error', `Could not refresh Copilot context: ${errorMessage(error)}`); return;
       }
+      if (await ticketNotReady(this.host, this.host.getItem(item.id), this.holdTicket, (stopped, reason) => this.parkUnlocked(stopped, 'worker-error', reason))) return;
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(this.host.getItem(item.id)); return; }
       this.host.registerRole(workerId, { role: 'worker', runId: item.runId, itemId: item.id });
       this.host.tracker.beginTurn(workerId); this.workerReports.beginTurn(workerId);
@@ -584,7 +592,7 @@ export class PlanQueueItemFlow {
       prompt: (current, currentRun, base) => this.verification.prompt(current, currentRun, base),
       hold: current => this.holdUnlocked(current), select: (current, base) => this.selectAndSpawnVerifier(current, base),
       stop: id => this.stopInstance(id), forgetCheck: id => this.verification.forgetCheck(id), erroredRound: (current, reason) => this.erroredRound(current, reason),
-      park: (current, reason, detail) => this.parkUnlocked(current, reason, detail),
+      park: (current, reason, detail) => this.parkUnlocked(current, reason, detail), ticketHeld: this.holdTicket,
       onVerifierOutcome: (id, outcome) => this.onVerifierOutcome(id, outcome),
     }, item, run, baseBranch, choice);
   }

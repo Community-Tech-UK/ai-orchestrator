@@ -104,8 +104,17 @@ export function withSkipOption(question: PlanQueueQuestion): PlanQueueQuestion {
   return { ...question, options: [...question.options, { id: 'skip', label: 'Leave this document for now' }] };
 }
 
+/**
+ * A question the run's parent session may be given and may answer. A question only James can answer (a Linear ticket that
+ * changed) is neither listed here nor sent: its one fixed sentence goes to the parent as a quiet note, and the question
+ * waits on the Plan Queue page.
+ */
+export function parentCanAnswer(item: PlanQueueItem): boolean {
+  return !!item.question && item.question.jamesOnly !== true;
+}
+
 export function buildQuestionsMessage(items: readonly PlanQueueItem[]): string {
-  const asked = items.filter((item) => item.question);
+  const asked = items.filter(parentCanAnswer);
   const lines = asked.map((item, index) => {
     const question = item.question!;
     const options = question.options.map((option) => `option_id "${option.id}": ${option.label}`).join('; ');

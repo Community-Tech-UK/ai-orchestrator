@@ -25,6 +25,8 @@ import { gitExec } from '../workspace/git/git-exec';
 import type { PreparedDocuments } from './plan-queue-doc-close';
 import type { DocumentReview } from './plan-queue-document-review';
 import { workSourceFor } from './plan-queue-work-sources';
+import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
+import { holdTicketLanding } from './plan-queue-ticket-hold';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
@@ -113,6 +115,10 @@ export class PlanQueueItemLanding {
       } else if (controller.signal.aborted && error === controller.signal.reason) {
         this.ctx.host.transition(item, 'awaiting-slot', { verifiedMainCommit: null, landedCommit: null,
           heldAt: item.heldAt ?? Date.now(), detail: 'Paused before landing.' });
+      } else if (error instanceof PlanQueueTicketHeld) {
+        // The ticket changed (a question is open for James) or could not be read: the landing is held, not failed, and the
+        // job is not set aside. It is checked again once the question is answered.
+        await holdTicketLanding(this.ctx.host, item, error);
       } else {
         logger.error('Plan queue landing failed unexpectedly', error instanceof Error ? error : undefined, { itemId });
         // A folder that is not the item's checkout cannot be checkpointed; requiring it would leave the item stuck in landing.
@@ -320,7 +326,7 @@ export class PlanQueueItemLanding {
     }
     // A recorded commit carries its closed documents, so it needs no check, unless the landing waited: they could be edited meanwhile.
     if (closeDocuments && (!item.landedCommit || item.landingWaitSince != null)) {
-      await workSourceFor(item.sourceKind).assertUnchangedSince(item, this.reviewedDocuments(item));
+      await workSourceFor(item.sourceKind).assertUnchangedSince(item, this.reviewedDocuments(item), run);
     }
     if (!item.landedCommit) {
       item = await host.worktrees.checkpoint(item, 'final');

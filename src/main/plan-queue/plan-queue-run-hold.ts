@@ -7,6 +7,7 @@ import { describePlanningMoves } from './plan-queue-planning-files';
 import { directChangesForItem } from './plan-queue-direct-changes';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths } from './plan-queue-worktree';
 import { workSourceFor } from './plan-queue-work-sources';
+import { isTicketHoldNote } from './plan-queue-ticket-ask';
 import type { PlanQueueItem } from './plan-queue.types';
 
 const USAGE_WAIT_PREFIX = 'Waiting for usage: ';
@@ -24,7 +25,7 @@ export function usageWaitNote(reason: string): string {
 
 /** A hold's note on the item: a status for James, never an instruction to send the worker, and cleared when held work restarts. */
 export function isHoldNote(detail: string | null | undefined): boolean {
-  return detail === LEGACY_WORKTREE_WAIT_NOTE || detail === 'Paused' || detail === NEVER_USE_HOLD_REASON || !!detail?.startsWith(USAGE_WAIT_PREFIX);
+  return detail === LEGACY_WORKTREE_WAIT_NOTE || detail === 'Paused' || detail === NEVER_USE_HOLD_REASON || !!detail?.startsWith(USAGE_WAIT_PREFIX) || isTicketHoldNote(detail);
 }
 
 /** Why a held or parked item is resumed: James's action, the queue moving it off a never-use account, or usage coming back. */

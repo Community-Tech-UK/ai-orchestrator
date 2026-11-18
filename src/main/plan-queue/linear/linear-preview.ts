@@ -24,9 +24,9 @@ import type {
 import { normalizeChecklistFolder } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../../logging/logger';
 import { buildTicketBrief, isBriefOverLimit } from '../plan-queue-ticket-brief';
-import { pinTicketRelations, type ApprovedTicketText, type TicketRelationKind } from '../plan-queue-ticket-approved-text';
+import type { ApprovedTicketText } from '../plan-queue-ticket-approved-text';
 import { LINEAR_DISCOVERY_CALL_LIMIT, type FolderDiscovery } from './linear-ticket-reader';
-import { isBotComment, type TicketTextRead } from './linear-ticket-text';
+import { approvedTextOf, type TicketTextRead } from './linear-ticket-text';
 import { LinearCallCounter, isLinearCallLimitError } from './linear-tickets';
 
 const logger = getLogger('LinearPreview');
@@ -204,36 +204,13 @@ export class LinearPreviewService {
   }
 
   private holdText(entry: PreviewEntry, row: PlanQueueLinearPreviewRow, read: TicketTextRead): HeldTicketText {
-    const { ticket, comments } = read;
-    const relations: { relation: TicketRelationKind; identifier: string }[] = [
-      ...ticket.relations.blockedBy.map((related) => ({ relation: 'blocked-by' as const, identifier: related.identifier })),
-      ...ticket.relations.blocks.map((related) => ({ relation: 'blocks' as const, identifier: related.identifier })),
-      ...ticket.relations.related.map((related) => ({ relation: 'related' as const, identifier: related.identifier })),
-      ...ticket.relations.duplicateOf.map((related) => ({ relation: 'duplicate-of' as const, identifier: related.identifier })),
-    ];
+    const { ticket } = read;
     const parent = ticket.parentId === null ? undefined : entry.response.rows.find((candidate) => candidate.id === ticket.parentId);
-    if (parent) relations.unshift({ relation: 'parent', identifier: parent.identifier });
-
-    const text: ApprovedTicketText = {
-      description: ticket.description,
-      comments: comments.map((comment) => ({
-        id: comment.id,
-        authorId: comment.author?.id ?? null,
-        authorName: comment.author?.name ?? null,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        updatedAt: comment.updatedAt,
-        fromBot: isBotComment(comment),
-      })),
-      labels: [...ticket.labels],
-      priority: ticket.priority,
-      projectName: ticket.project?.name ?? null,
-      relatedTickets: pinTicketRelations(relations, {
-        linkedProjectIds: new Set(entry.response.projects.map((project) => project.projectId)),
-        tickets: entry.response.rows.map((candidate) => ({ identifier: candidate.identifier, title: candidate.title, projectId: candidate.projectId })),
-      }),
-      attachmentNames: [...ticket.attachmentNames],
-    };
+    const text = approvedTextOf(read, {
+      parentIdentifier: parent?.identifier,
+      linkedProjectIds: new Set(entry.response.projects.map((project) => project.projectId)),
+      tickets: entry.response.rows.map((candidate) => ({ identifier: candidate.identifier, title: candidate.title, projectId: candidate.projectId })),
+    });
     const overLimit = isBriefOverLimit(buildTicketBrief({ identifier: ticket.identifier, title: ticket.title, text }));
     const response: PlanQueueLinearPreviewText = {
       linearId: row.id,

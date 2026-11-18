@@ -13,6 +13,7 @@ import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
 import { getLinearProviderPolicy } from './plan-queue-linear-providers';
+import { workSourceFor } from './plan-queue-work-sources';
 
 /** How long work that found no usage left waits before the queue looks again. */
 export const USAGE_RECHECK_MS = 5 * 60_000;
@@ -58,6 +59,18 @@ export async function spawnQueueInstance(
   };
   await host.ready;
   assertAllowed();
+  const itemId = config.metadata?.['planQueueItemId'];
+  const role = config.metadata?.['planQueueRole'];
+  // A Linear ticket is checked against what James approved as the last wait before each session is created, so a change
+  // made while the route or its usage is being worked out is still seen. A change opens a question and throws
+  // `PlanQueueTicketHeld`: the caller holds the job and no session starts.
+  const checkTicket = async () => {
+    const run = runOf();
+    const item = typeof itemId === 'string' ? host.getItem(itemId) : null;
+    if (run?.kind !== 'tickets' || !item || (role !== 'worker' && role !== 'verifier')) return;
+    await workSourceFor(item.sourceKind).assertReadyForSession(item, run);
+    assertAllowed();
+  };
   const checkUsage = host.routeUsage ?? defaultPlanQueueRouteUsage();
   const usage: PlanQueueRouteUsageCheck = (choice, origin, options) => checkUsage(choice, origin, {
     ...options, ...(runOf()?.config.capabilityRepairAccountRules ? { accountRules: accountRules() } : {}),
@@ -87,19 +100,22 @@ export async function spawnQueueInstance(
   for (;;) {
     const routing = JSON.stringify(runOf()?.config.routing);
     const rules = JSON.stringify(accountRules());
+    const changed = () => JSON.stringify(runOf()?.config.routing) !== routing || JSON.stringify(accountRules()) !== rules;
     worker = await chooseQueueWorker(queueWorkerChoices(config, runOf(), isExcluded), usage, String(runId), runOf()?.workspaceCwd);
     assertAllowed();
     const route = resolveRoute();
     const left = await usageLeft(route, usage);
     assertAllowed();
-    if (JSON.stringify(runOf()?.config.routing) !== routing || JSON.stringify(accountRules()) !== rules) continue;
+    if (changed()) continue;
     if (!left.usable) throw new PlanQueueSpawnOutOfUsage(left.resumeAt, route.modelOverride ? `${route.provider} (${route.modelOverride})` : String(route.provider));
+    await checkTicket();
+    if (changed()) continue;
     break;
   }
+  // Nothing is awaited from the ticket check to the session's creation.
   const route = resolveRoute();
-  const itemId = config.metadata?.['planQueueItemId'];
   const item = typeof itemId === 'string' ? host.getItem(itemId) : null;
-  const session = config.metadata?.['planQueueRole'] === 'worker' ? continuableWorkerSession(item, route) : null;
+  const session = role === 'worker' ? continuableWorkerSession(item, route) : null;
   let instance: Awaited<ReturnType<PlanQueueInstancePort['createInstance']>>;
   try {
     instance = await host.instances.createInstance(session ? {
@@ -114,6 +130,8 @@ export async function spawnQueueInstance(
     getLogger('PlanQueueSpawn').info('Plan queue: could not reopen the worker conversation; starting fresh', { itemId, provider: route.provider });
     host.clearWorkerSession(String(itemId));
     assertAllowed();
+    // Time has passed since the first check, so the ticket is checked again before this second session.
+    await checkTicket();
     instance = await host.instances.createInstance(resolveRoute());
   }
   try { assertAllowed(false); }

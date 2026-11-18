@@ -110,7 +110,18 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       // Before the cleanup skip below, which would otherwise keep the old clock through the whole pause.
       if (run.status === 'paused') for (const item of items) if (item.state === 'queued' || item.state === 'awaiting-slot') store.waits.paused(item.id);
       // A job held for James to choose waits for his Resume; nothing here starts it.
-      const awaitingChecks = items.filter(item => item.state === 'awaiting-slot' && !isHeldForJames(item));
+      // A ticket whose text changed, or that cannot be read, is held by its own question until James answers it (the source's `itemHold`).
+      const source = workSourceForRun(run);
+      // A job held by a question that lost it (a shutdown between the hold and the saving of the question) gets it back here.
+      const holdOf = (item: PlanQueueItem) => {
+        const itemHold = source.itemHold(item, items);
+        // Read again and save with no await between, so a change made since the list was read is not written over.
+        const question = itemHold?.question;
+        const fresh = question ? host.getItem(item.id) : null;
+        if (fresh && question && !fresh.question) { store.upsertItem({ ...fresh, question, updatedAt: Date.now() }); host.announceRun(fresh.runId); }
+        return itemHold;
+      };
+      const awaitingChecks = items.filter(item => item.state === 'awaiting-slot' && !isHeldForJames(item) && !holdOf(item));
       const cleanups = items.filter(hasPendingLandingCleanup);
       if (cleanups.length) {
         // Nothing new starts until this is done, and only a pass can retry it: a run reopened with such a row would otherwise never move.
@@ -130,6 +141,10 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         // A waiting landing keeps its folder (counted in totalJobs and the app-wide limit) but not its worker slot.
         let inFlight = items.filter(item => itemHoldsWorkerSlot(item) && !item.remote).length;
         for (const item of items.filter((candidate) => candidate.state === 'queued' && !isHeldForJames(candidate) && !flow.isWaitingForUsage(candidate.id))) {
+          // Waiting for a blocker, or held by a question. A job whose blocker stopped can never start: set it aside so the run can finish.
+          const itemHold = holdOf(item);
+          if (itemHold?.setAside) { host.transition(item, 'parked', { heldAt: null, parkReason: 'needs-james', detail: itemHold.note }); continue; }
+          if (itemHold) continue;
           const elsewhere = flow.willRunElsewhere?.(item, run) ?? false;
           if (overloaded && !elsewhere) continue;
           // A step job waits for the step before it to land. If that one was skipped, there is nothing to build on.

@@ -8,6 +8,7 @@ import { snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import { parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
 import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
+import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -32,6 +33,8 @@ interface CheckerSpawnDeps {
   forgetCheck(itemId: string): void;
   erroredRound(item: PlanQueueItem, reason: string): Promise<void>;
   park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
+  /** Hold the job: its Linear ticket changed or cannot be read, so no checker is started. */
+  ticketHeld(item: PlanQueueItem, held: PlanQueueTicketHeld): Promise<void>;
   onVerifierOutcome(id: string, outcome: PlanQueueTurnOutcome): Promise<void>;
 }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -85,6 +88,11 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         deps.snapshots.delete(item.id);
         deps.host.transition(deps.host.getItem(item.id), 'awaiting-slot', { detail: usageWaitNote(error.message) });
         deps.usageWaits.start(item.id, error, 'check');
+        return;
+      }
+      if (error instanceof PlanQueueTicketHeld) {
+        // No checker started. The hold puts the tree back as the check found it and counts no round.
+        await deps.ticketHeld(deps.host.getItem(item.id), error);
         return;
       }
       if (error instanceof PlanQueueProviderNotAllowed) {

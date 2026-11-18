@@ -11,7 +11,7 @@
  * Methods are added to this interface when a caller needs them, and no earlier.
  */
 
-import type { PlanQueueFinding, PlanQueueKind, PlanQueueParkReason, PlanQueueSourceKind } from '@contracts/schemas/plan-queue';
+import type { PlanQueueFinding, PlanQueueKind, PlanQueueQuestion, PlanQueueParkReason, PlanQueueSourceKind } from '@contracts/schemas/plan-queue';
 import type { DirtyOverlapResolver } from '../workspace/git/dirty-overlap.types';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PreparedDocuments } from './plan-queue-doc-close';
@@ -54,6 +54,17 @@ export type LandingCommitPrefix = (typeof LANDING_COMMIT_PREFIXES)[number];
 
 export type LandingMergeRecovery = { ok: true; mergedPaths: string[] } | { ok: false; reason: string };
 export type InterruptedMergeStore = Pick<PlanQueueStore, 'listWorkspaceRoots' | 'getItem' | 'getRun' | 'upsertItem'>;
+
+/** Why a job may not start now. `setAside`: it can never start, so the pump sets it aside instead of leaving it waiting. */
+export interface WorkItemHold {
+  note: string;
+  setAside: boolean;
+  /**
+   * The question James must answer, when the job is held by one. The pump puts it back on a job that lost it (a shutdown
+   * between the hold and the saving of the question), so a held job never waits on a question nobody can see.
+   */
+  question?: PlanQueueQuestion;
+}
 
 /** What a worker prompt is built from before the source reads the work itself. */
 export type WorkerPromptBase = Omit<ItemPromptContext, 'brief'> & {
@@ -113,6 +124,18 @@ export interface QueueWorkSource {
    * touched: the reason is the source's, and it clears itself when the source can be used again.
    */
   reasonToHold(run: PlanQueueRun): string | null;
+  /**
+   * Why this one job may not start now, or null: the item-level twin of `reasonToHold`. Asked by the pump for a check and
+   * for a worker, from stored data only, so it never calls anything outside the app. `runItems` are the run's jobs.
+   * Markdown never holds a job.
+   */
+  itemHold(item: PlanQueueItem, runItems: readonly PlanQueueItem[]): WorkItemHold | null;
+  /**
+   * Called before any session is created for the job, and before a turn is sent to a live worker. Throws
+   * `PlanQueueTicketHeld` when the work changed since it was approved or cannot be checked; the job is then held, not
+   * failed. Markdown reads its document when a prompt is built, so it has nothing to check.
+   */
+  assertReadyForSession(item: WorkItemId, run: PlanQueueRun): Promise<void>;
 
   // --- Rounds: what is reviewed, what counts as progress, what a session is told -------------------------------
   /** What the checker reviewed, as a fingerprint. A PASS cannot stand when it differs when the check ends or the work lands. */
@@ -149,8 +172,8 @@ export interface QueueWorkSource {
   removeParkNote(item: WorkItemRef, branchName: string): Promise<{ beforeSha256: string; afterSha256: string } | undefined>;
 
   // --- Closing the work at landing ---------------------------------------------------------------------------
-  /** Throws when the work changed since the checker reviewed it. */
-  assertUnchangedSince(item: WorkItemRef, reviewed: DocumentReview): Promise<void>;
+  /** Throws when the work changed since the checker reviewed it. A ticket runs the check before a session, and holds the landing. */
+  assertUnchangedSince(item: WorkItemId, reviewed: DocumentReview, run: PlanQueueRun): Promise<void>;
   /** The closed copies that go into the landing commit, or the instruction to close in place. */
   prepareClose(item: PlanQueueItem, repoRoot: string, worktreePath: string | null, reviewed: DocumentReview): Promise<PreparedDocuments>;
   /** After the code reached the base branch: retire what it superseded. Returns notes for the item. */

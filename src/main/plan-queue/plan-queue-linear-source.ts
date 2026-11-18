@@ -3,8 +3,9 @@
  * `linear:<Linear issue id>`.
  *
  * It answers the whole `QueueWorkSource` port. What a ticket is called comes from the ticket table (the identifier and
- * the title James approved); nothing is read from Linear here except by `discover`, which builds the preview list in
- * code from fixed fields (`linear/linear-discovery.ts`). A ticket has no documents, so there is nothing to close, no
+ * the title James approved); Linear is read only by `discover`, which builds the preview list in code from fixed fields
+ * (`linear/linear-discovery.ts`), and by the check before each session (`plan-queue-ticket-guard.ts`), which compares
+ * the ticket with what James approved and never feeds a prompt. A ticket has no documents, so there is nothing to close, no
  * parked note to write (Linear comments are the write-back step's), and every document question answers "none".
  *
  * Importing the Linear folder is allowed for this file and listed on purpose in `linear-not-agent-reachable.spec.ts`:
@@ -19,10 +20,12 @@ import {
   type LinearTicketReaderDependencies,
 } from './linear/linear-ticket-reader';
 import { realLinearTicketReaderDependencies } from './linear/linear-ticket-reader-singleton';
+import { readLiveTicket } from './linear/linear-ticket-live-read';
 import { LinearCallCounter } from './linear/linear-tickets';
 import { getPlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store-singleton';
 import type { LinearTicketNames } from './plan-queue-linear-ticket-store';
 import { buildStepUpInstruction } from './plan-queue-prompts';
+import { createTicketGuard, type LiveTicketRead, type TicketGuard } from './plan-queue-ticket-guard';
 import { buildTicketBrief } from './plan-queue-ticket-brief';
 import {
   buildTicketCheckerPrompt, buildTicketFixPrompt, buildTicketResumePrompt, buildTicketStepUpPrompt, buildTicketWorkerPrompt,
@@ -52,6 +55,8 @@ export interface LinearWorkSourceDependencies {
   namesFor(linearId: string): LinearTicketNames | undefined;
   /** The ticket table, which every worker turn and check is built from. Nothing a round does reads Linear. */
   ticketRound: TicketRoundDeps;
+  /** The check before every session, and what holds a job the pump must not start. */
+  ticketGuard: TicketGuard;
 }
 
 /** Letters, digits and hyphens only, cut to `max` characters with no hyphen at either end. */
@@ -102,6 +107,8 @@ export function createLinearWorkSource(deps: LinearWorkSourceDependencies): Queu
     missingNote: async () => null,
     // The connection's own sentence: fixed words, so a run's reason can carry it. This is the caller pq-e1 built it for.
     reasonToHold: () => deps.connectionReason(),
+    itemHold: (item, runItems) => deps.ticketGuard.itemHold(item, runItems),
+    assertReadyForSession: (item, run) => deps.ticketGuard.check(item, run),
 
     // What the checker reviews, and what counts as progress, is the text James approved.
     reviewFingerprint: async item => ticketReviewFingerprint(deps.ticketRound, item.id),
@@ -129,8 +136,8 @@ export function createLinearWorkSource(deps: LinearWorkSourceDependencies): Queu
     appendParkNote: async () => null,
     removeParkNote: async () => undefined,
 
-    // A ticket's text is checked against Linear before each session (a later step); nothing here is a document.
-    assertUnchangedSince: async () => undefined,
+    // The same check as before a session: a change found at landing holds the landing and asks James.
+    assertUnchangedSince: (item, _reviewed, run) => deps.ticketGuard.check(item, run),
     prepareClose: async () => ({ mode: 'commit', documents: [] }),
     finishClose: async () => [],
 
@@ -156,6 +163,27 @@ export function createLinearWorkSource(deps: LinearWorkSourceDependencies): Queu
   };
 }
 
+/** Tests stand in for Linear's answer here; a test that sets it must clear it again. */
+let readForTesting: ((identifier: string) => Promise<LiveTicketRead>) | null = null;
+export function _setLinearTicketReadForTesting(read: ((identifier: string) => Promise<LiveTicketRead>) | null): void {
+  readForTesting = read;
+}
+
+function newTicketGuard(): TicketGuard {
+  return createTicketGuard({
+    table: getPlanQueueLinearTicketStore,
+    read: (identifier) => (readForTesting ?? ((id) => readLiveTicket(id)))(identifier),
+    connectionReason: () => getLinearConnectionService().reasonToHold(),
+    noteReadFailure: () => getLinearConnectionService().noteCallFailure(),
+    now: Date.now,
+  });
+}
+let ticketGuard = newTicketGuard();
+/** A test starts with no job waiting to be tried again after an unreadable ticket. */
+export function _resetLinearTicketGuardForTesting(): void {
+  ticketGuard = newTicketGuard();
+}
+
 /** The source wired to the real connection, settings and ticket table. */
 export const linearWorkSource: QueueWorkSource = createLinearWorkSource({
   discover: (folder) => {
@@ -165,4 +193,5 @@ export const linearWorkSource: QueueWorkSource = createLinearWorkSource({
   connectionReason: () => getLinearConnectionService().reasonToHold(),
   namesFor: (linearId) => getPlanQueueLinearTicketStore()?.findNames(linearId),
   ticketRound: { record: (itemId) => getPlanQueueLinearTicketStore()?.get(itemId) },
+  ticketGuard: { check: (item, run) => ticketGuard.check(item, run), itemHold: (item, runItems) => ticketGuard.itemHold(item, runItems) },
 });

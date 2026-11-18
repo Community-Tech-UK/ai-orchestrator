@@ -4,9 +4,9 @@ import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
-function harness(questionsToParent = false) {
+function harness(questionsToParent = false, question: object = { question: 'Which account?', options: [] }) {
   const run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null } as PlanQueueRun;
-  const item = { id: 'item', runId: 'run', state: 'awaiting-input', question: { question: 'Which account?', options: [] } } as unknown as PlanQueueItem;
+  const item = { id: 'item', runId: 'run', state: 'awaiting-input', question } as unknown as PlanQueueItem;
   const sendInput = vi.fn().mockResolvedValue(undefined);
   const postNote = vi.fn();
   const messenger = new PlanQueueParentMessenger({
@@ -17,6 +17,31 @@ function harness(questionsToParent = false) {
   return { messenger, run, item, sendInput, postNote };
 }
 afterEach(() => { vi.restoreAllMocks(); });
+
+describe('a question only James can answer', () => {
+  const jamesOnly = { question: 'ORC-12 changed in Linear. Answer on the Plan Queue page.', options: [{ id: 'stop', label: 'Stop' }, { id: 'leave-waiting', label: 'Leave it' }], jamesOnly: true };
+
+  it('is never sent to the parent as a question, even when questions go to the chat, on a notice or when the owner changes', () => {
+    const h = harness(true, jamesOnly);
+    h.messenger.onParentChanged(h.run);
+    h.messenger.notify(h.run, 'ignored', [h.item]);
+    h.messenger.resolve(h.run);
+    expect(h.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('reaches the parent as its one fixed sentence in a quiet note that starts no turn', () => {
+    const h = harness(true, jamesOnly);
+    h.messenger.notify(h.run, jamesOnly.question);
+    expect(h.postNote).toHaveBeenCalledWith('parent', jamesOnly.question);
+    expect(h.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('does not stop an ordinary question from being sent when questions go to the chat', () => {
+    const h = harness(true);
+    h.messenger.onParentChanged(h.run);
+    expect(h.sendInput).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('queue parent messages', () => {
   it('keeps questions and ownership replays on the queue page by default', () => {

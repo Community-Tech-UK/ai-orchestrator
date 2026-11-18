@@ -17,7 +17,8 @@ import { _setLinearProviderPolicyForTesting, LinearProviderPolicy } from './plan
 import { hashTicketText } from './plan-queue-linear-ticket-hash';
 import { PlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store';
 import { ticketBriefPath } from './plan-queue-ticket-brief-file';
-import { RUN_ID, ticketText, writeTicketsRun, type TestTicket } from './plan-queue-ticket-round.test-helpers';
+import { _setLinearTicketReadForTesting } from './plan-queue-linear-source';
+import { FakeLinearTickets, RUN_ID, ticketText, writeTicketsRun, type TestTicket } from './plan-queue-ticket-round.test-helpers';
 
 vi.mock('./plan-queue-gate-receipts', async (original) =>
   (await import('./plan-queue-coordinator.test-mocks')).withScriptedGates(await original()));
@@ -63,6 +64,8 @@ const ORC13: TestTicket = { linearId: 'lin-13', identifier: 'ORC-13', title: 'Fi
 interface Turn { role: string; itemId: string; message: string; briefExistedAtTheTime: boolean; briefPath: string }
 let turns: Turn[];
 let dataDir: string;
+/** Linear as the check before each session sees it: the tickets are as approved, so every check passes. The prompts still never read it. */
+let linear: FakeLinearTickets;
 
 /** Records the turn, with whether the brief file existed when the prompt arrived, then does what the role does. */
 function recording(role: 'worker' | 'verifier', then: Script): Script {
@@ -114,6 +117,8 @@ beforeEach(() => {
   turns = [];
   connector.calls.length = 0;
   connector.live = { comment: '', description: '' };
+  linear = new FakeLinearTickets([ORC12, ORC13]);
+  _setLinearTicketReadForTesting(linear.read);
   dataDir = mkdtempSync(join(tmpdir(), 'ticket-round-data-'));
   _setPlanQueueDataDirForTesting(dataDir);
   tableOver.make = () => new PlanQueueLinearTicketStore(driver);
@@ -127,6 +132,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _setLinearTicketReadForTesting(null);
   _setLinearProviderPolicyForTesting(null);
   _setPlanQueueDataDirForTesting(null);
   tableOver.make = null;

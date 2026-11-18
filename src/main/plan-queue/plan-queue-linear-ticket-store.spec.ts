@@ -72,8 +72,8 @@ describe('the Linear ticket store', () => {
   });
 
   describe('the question for James', () => {
-    const ask: OpenTicketAsk = { heldTitle: 'Fix the sign-in page', heldText: { ...text, description: 'Changed.' }, heldHash: hashOf('Fix the sign-in page', 'Changed.'),
-      changed: ['title', 'description'], openedAt: 500 };
+    const ask = { kind: 'changed', heldTitle: 'Fix the sign-in page', heldText: { ...text, description: 'Changed.' }, heldHash: hashOf('Fix the sign-in page', 'Changed.'),
+      changed: ['title', 'description'], openedAt: 500 } satisfies OpenTicketAsk;
 
     it('opens, reads back, and closes with the hash of a change James left out', () => {
       addItem('item-1');
@@ -100,6 +100,25 @@ describe('the Linear ticket store', () => {
       expect(tickets.get('item-1')?.openAsk?.openedAt).toBe(500);
     });
 
+    it('opens and reads back a question for a ticket that has gone, or whose text cannot be confirmed, with no text in it', () => {
+      for (const kind of ['gone', 'unconfirmed'] as const) {
+        addItem(`item-${kind}`);
+        tickets.insert(ticket(`item-${kind}`, `lin-${kind}`));
+        tickets.openAsk(`item-${kind}`, { kind, openedAt: 500 });
+        expect(tickets.get(`item-${kind}`)?.openAsk).toEqual({ kind, openedAt: 500 });
+        expect(db.prepare('SELECT open_ask_json FROM plan_queue_linear_tickets WHERE item_id = ?').get<{ open_ask_json: string }>(`item-${kind}`)?.open_ask_json)
+          .toBe(JSON.stringify({ kind, openedAt: 500 }));
+      }
+    });
+
+    it('refuses a question of an unknown kind, and one of a kind that carries text but has none', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1'));
+      expect(() => tickets.openAsk('item-1', { kind: 'other', openedAt: 1 } as never)).toThrow();
+      expect(() => tickets.openAsk('item-1', { kind: 'changed', openedAt: 1 } as never)).toThrow();
+      expect(tickets.get('item-1')?.openAsk).toBeNull();
+    });
+
     it('refuses a question that names no kind of change', () => {
       addItem('item-1');
       tickets.insert(ticket('item-1'));
@@ -107,10 +126,45 @@ describe('the Linear ticket store', () => {
     });
   });
 
+  describe('what the pump asks about a job', () => {
+    const blockedText = { ...text, relatedTickets: [
+      { relation: 'blocked-by' as const, identifier: 'ORC-3', title: null }, { relation: 'blocks' as const, identifier: 'ORC-9', title: null },
+      { relation: 'blocked-by' as const, identifier: 'COM-5', title: null }] };
+
+    it('answers the address, the kind of question open and the tickets it is blocked by, from the table', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1', 'lin-1', { approvedText: blockedText }));
+      expect(tickets.holdState('item-1')).toEqual({ identifier: 'ORC-7', askKind: null, blockedBy: ['ORC-3', 'COM-5'] });
+      tickets.openAsk('item-1', { kind: 'gone', openedAt: 5 });
+      expect(tickets.holdState('item-1')).toMatchObject({ askKind: 'gone' });
+      tickets.closeAsk('item-1', null);
+      expect(tickets.holdState('item-1')?.askKind).toBeNull();
+    });
+
+    it('answers nothing for a job with no row, and no blockers for a job whose text was cleared', () => {
+      expect(tickets.holdState('ghost')).toBeUndefined();
+      addItem('item-1');
+      tickets.insert(ticket('item-1', 'lin-1', { approvedText: blockedText }));
+      tickets.clearText('item-1', 9);
+      expect(tickets.holdState('item-1')).toEqual({ identifier: 'ORC-7', askKind: null, blockedBy: [] });
+    });
+
+    it('finds the job that holds each ticket of one run, and none of another run\'s', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1'));
+      queue.upsertRun({ id: 'run-2', parentInstanceId: 'owner', parentHistoryThreadId: null, kind: 'tickets', workspaceCwd: '/repo', status: 'running',
+        config: DEFAULT_PLAN_QUEUE_CONFIG.tickets, relaxation: null, workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null });
+      queue.upsertItem(newPlanQueueItem('item-2', 'run-2', 'linear:lin-2', 1));
+      tickets.insert(ticket('item-2', 'lin-2', { identifier: 'ORC-8' }));
+      expect([...tickets.itemIdsByIdentifier('run-1')]).toEqual([['ORC-7', 'item-1']]);
+      expect([...tickets.itemIdsByIdentifier('run-2')]).toEqual([['ORC-8', 'item-2']]);
+    });
+  });
+
   it('clears the approved text and any held text, and keeps the title, hash and times', () => {
     addItem('item-1');
     tickets.insert(ticket('item-1'));
-    tickets.openAsk('item-1', { heldTitle: 'T', heldText: text, heldHash: hashOf('T'), changed: ['title'], openedAt: 500 });
+    tickets.openAsk('item-1', { kind: 'changed', heldTitle: 'T', heldText: text, heldHash: hashOf('T'), changed: ['title'], openedAt: 500 });
     tickets.clearText('item-1', 700);
     expect(tickets.get('item-1')).toMatchObject({ approvedText: null, openAsk: null, textClearedAt: 700,
       approvedTitle: 'Fix the login page', approvedHash: hashOf('Fix the login page'), approvedAt: 100 });

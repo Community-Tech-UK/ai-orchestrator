@@ -5,6 +5,7 @@
  */
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { hashTicketText } from './plan-queue-linear-ticket-hash';
+import type { LiveTicketRead } from './plan-queue-ticket-guard';
 import { PlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store';
 import type { ApprovedTicketText } from './plan-queue-ticket-approved-text';
 import { newPlanQueueItem } from './plan-queue-state';
@@ -25,6 +26,65 @@ export function ticketText(description: string, over: Partial<ApprovedTicketText
 
 export const RUN_ID = 'run-tickets';
 
+/** The hash of what James approved for a test ticket. */
+export function approvedHashOf(ticket: TestTicket): string {
+  return hashTicketText({ title: ticket.title, description: ticket.text.description, comments: ticket.text.comments });
+}
+
+/** What Linear holds now for a ticket, changed from the test ticket in the ways a test names. */
+export interface LiveChange {
+  title?: string;
+  description?: string;
+  comments?: ApprovedTicketText['comments'];
+  teamId?: string;
+  projectId?: string | null;
+}
+
+function liveRead(ticket: TestTicket, change: LiveChange = {}): LiveTicketRead {
+  const title = change.title ?? ticket.title;
+  const text = { ...ticket.text, description: change.description ?? ticket.text.description, comments: change.comments ?? ticket.text.comments };
+  return { kind: 'ticket', ticket: { title, text, hash: hashTicketText({ title, description: text.description, comments: text.comments }),
+    teamId: change.teamId ?? 'team-orc', projectId: change.projectId === undefined ? 'project-1' : change.projectId } };
+}
+
+/**
+ * Linear as the check before a session sees it: every ticket as approved until a test changes it. Every read is recorded.
+ * `hold()` makes reads wait, so a test can have two checks in flight at once.
+ */
+export class FakeLinearTickets {
+  readonly reads: string[] = [];
+  private readonly live = new Map<string, LiveTicketRead | Error>();
+  private gate: Promise<void> | null = null;
+  private release: (() => void) | null = null;
+
+  constructor(private readonly tickets: readonly TestTicket[]) {
+    for (const ticket of tickets) this.live.set(ticket.identifier, liveRead(ticket));
+  }
+
+  readonly read = async (identifier: string): Promise<LiveTicketRead> => {
+    this.reads.push(identifier);
+    if (this.gate) await this.gate;
+    const now = this.live.get(identifier);
+    if (now instanceof Error) throw now;
+    if (!now) throw new Error(`The fake Linear has no ${identifier}.`);
+    return now;
+  };
+
+  change(identifier: string, change: LiveChange): void { this.live.set(identifier, liveRead(this.ticket(identifier), change)); }
+  gone(identifier: string): void { this.live.set(identifier, { kind: 'gone' }); }
+  fail(identifier: string, error: Error): void { this.live.set(identifier, error); }
+  restore(identifier: string): void { this.live.set(identifier, liveRead(this.ticket(identifier))); }
+  /** Reads wait until `open()`. */
+  hold(): void { this.gate = new Promise<void>((resolve) => { this.release = resolve; }); }
+  open(): void { this.release?.(); this.gate = null; this.release = null; }
+
+  private ticket(identifier: string): TestTicket {
+    const ticket = this.tickets.find((candidate) => candidate.identifier === identifier);
+    if (!ticket) throw new Error(`No test ticket ${identifier}.`);
+    return ticket;
+  }
+}
+
 /** Writes the run, one queued item per ticket and one ticket-table row per item. Returns the run and its items. */
 export function writeTicketsRun(
   tickets: readonly TestTicket[],
@@ -32,7 +92,10 @@ export function writeTicketsRun(
 ): { run: PlanQueueRun; items: PlanQueueItem[]; table: PlanQueueLinearTicketStore } {
   const parent = fake.addParent();
   const baseConfig = {
-    ...DEFAULT_PLAN_QUEUE_CONFIG.tickets, baseBranch: 'main', routing: { workers: [{ provider: 'claude' }], verifiers: [] }, startingProviderExclusions: [],
+    ...DEFAULT_PLAN_QUEUE_CONFIG.tickets, baseBranch: 'main',
+    // What Start saves: the projects read and each ticked ticket with the hash James saw. The first check is compared with it.
+    linear: { projects: [{ projectId: 'project-1', teamId: 'team-orc' }], previewLoadedAt: 1,
+      tickets: tickets.map((ticket) => ({ linearId: ticket.linearId, identifier: ticket.identifier, previewHash: approvedHashOf(ticket) })) }, routing: { workers: [{ provider: 'claude' }], verifiers: [] }, startingProviderExclusions: [],
     // Harness's own checks are scripted in these specs; the gates are named so a check runs and passes.
     verifierGates: ['npm run lint'], postMergeGate: [],
     startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: undefined, copilotAccountProfileId: undefined },
@@ -52,7 +115,7 @@ export function writeTicketsRun(
     table.insert({
       itemId: item.id, linearId: ticket.linearId, identifier: ticket.identifier, address: `https://linear.app/x/issue/${ticket.identifier}`,
       teamId: 'team-orc', projectId: 'project-1', approvedTitle: ticket.title, approvedText: ticket.text,
-      approvedHash: hashTicketText({ title: ticket.title, description: ticket.text.description, comments: ticket.text.comments }), approvedAt: 100,
+      approvedHash: approvedHashOf(ticket), approvedAt: 100,
     });
     return item;
   });

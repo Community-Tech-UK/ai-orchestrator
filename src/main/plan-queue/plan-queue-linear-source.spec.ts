@@ -24,6 +24,7 @@ function make(overrides: Partial<LinearWorkSourceDependencies> = {}) {
     connectionReason: () => null,
     namesFor: (id) => (id === 'uuid-ORC-3' ? { identifier: 'ORC-3', approvedTitle: 'Fix the login page, now!' } : undefined),
     ticketRound: { record: () => undefined },
+    ticketGuard: { check: async () => undefined, itemHold: () => null },
     ...overrides,
   };
   return { source: createLinearWorkSource(deps), discover };
@@ -122,6 +123,32 @@ describe('the Linear work source', () => {
     });
   });
 
+  describe('the check before a session', () => {
+    const ticketItem = { ...item('linear:uuid-ORC-3'), id: 'item-1' } as unknown as PlanQueueItem;
+
+    it('asks the guard before a session, at landing and for the pump, passing the item and the run', async () => {
+      const check = vi.fn(async () => undefined);
+      const itemHold = vi.fn(() => ({ note: 'Waiting for ORC-1', setAside: false }));
+      const { source } = make({ ticketGuard: { check, itemHold } });
+      await source.assertReadyForSession(ticketItem, run);
+      await source.assertUnchangedSince(ticketItem, {} as never, run);
+      expect(check.mock.calls).toEqual([[ticketItem, run], [ticketItem, run]]);
+      expect(source.itemHold(ticketItem, [ticketItem])).toEqual({ note: 'Waiting for ORC-1', setAside: false });
+      expect(itemHold).toHaveBeenCalledWith(ticketItem, [ticketItem]);
+    });
+
+    it('lets the guard\'s refusal through, so the caller holds the job', async () => {
+      const { source } = make({ ticketGuard: { check: async () => { throw new Error('held'); }, itemHold: () => null } });
+      await expect(source.assertReadyForSession(ticketItem, run)).rejects.toThrow('held');
+      await expect(source.assertUnchangedSince(ticketItem, {} as never, run)).rejects.toThrow('held');
+    });
+
+    it('is nothing for a markdown run: no check before a session, and no job held', async () => {
+      await expect(markdownWorkSource.assertReadyForSession(ticketItem, run)).resolves.toBeUndefined();
+      expect(markdownWorkSource.itemHold(ticketItem, [ticketItem])).toBeNull();
+    });
+  });
+
   describe('closing: a ticket has no documents', () => {
     const { source } = make();
     const ticketItem = { ...item('linear:uuid-ORC-3'), id: 'item-1' } as unknown as PlanQueueItem;
@@ -133,7 +160,7 @@ describe('the Linear work source', () => {
     });
 
     it('nothing is checked against a document', async () => {
-      await expect(source.assertUnchangedSince(ticketItem, reviewed)).resolves.toBeUndefined();
+      await expect(source.assertUnchangedSince(ticketItem, reviewed, run)).resolves.toBeUndefined();
     });
 
     it('writes no parked note and has none to remove', async () => {

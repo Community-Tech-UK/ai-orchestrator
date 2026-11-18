@@ -91,6 +91,9 @@ export const markdownWorkSource: QueueWorkSource = {
   missingNote: (item, run) => missingDocumentNote(item.sourceRef, run.workspaceCwd),
   // Files on disk are always there to read; nothing outside the app can make a markdown run wait.
   reasonToHold: () => null,
+  itemHold: () => null,
+  // A document is read when a prompt is built, so there is nothing to check before a session.
+  assertReadyForSession: async () => undefined,
 
   reviewFingerprint: item => readDocumentReview(item.sourceRef),
   contentHash: item => documentContentSha256(item.sourceRef),

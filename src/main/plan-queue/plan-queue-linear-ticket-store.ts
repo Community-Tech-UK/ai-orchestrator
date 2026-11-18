@@ -12,16 +12,27 @@ import { ApprovedTicketTextSchema, type ApprovedTicketText } from './plan-queue-
 /** Which part of a ticket differs from what James approved. */
 export const TicketChangeKindSchema = z.enum(['title', 'description', 'comments']);
 
-/** A question for James: Linear's text no longer matches what he approved. The held text waits here, unseen by any session. */
-export const OpenTicketAskSchema = z.object({
-  heldTitle: z.string(),
-  heldText: ApprovedTicketTextSchema,
-  heldHash: z.string().regex(/^[0-9a-f]{64}$/),
-  changed: z.array(TicketChangeKindSchema).min(1),
-  openedAt: z.number().int().positive(),
-}).strict();
+/**
+ * A question for James. `changed`: Linear's text no longer matches what he approved, and the held text waits here, unseen
+ * by any session. `gone`: the ticket was deleted, archived, moved out of its project or team, or can no longer be read as
+ * that ticket. `unconfirmed`: the run's saved hash and the ticket table disagree, so what he approved cannot be confirmed.
+ * The last two hold no text at all.
+ */
+export const OpenTicketAskSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('changed'),
+    heldTitle: z.string(),
+    heldText: ApprovedTicketTextSchema,
+    heldHash: z.string().regex(/^[0-9a-f]{64}$/),
+    changed: z.array(TicketChangeKindSchema).min(1),
+    openedAt: z.number().int().positive(),
+  }).strict(),
+  z.object({ kind: z.literal('gone'), openedAt: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal('unconfirmed'), openedAt: z.number().int().positive() }).strict(),
+]);
 
 export type OpenTicketAsk = z.infer<typeof OpenTicketAskSchema>;
+export type OpenTicketAskKind = OpenTicketAsk['kind'];
 export type TicketChangeKind = z.infer<typeof TicketChangeKindSchema>;
 
 export interface PlanQueueLinearTicketRecord {
@@ -186,6 +197,27 @@ export class PlanQueueLinearTicketStore {
       JOIN plan_queue_items i ON i.id = t.item_id
       WHERE t.linear_id = ? ORDER BY i.created_at DESC, i.id DESC LIMIT 1`).get<{ identifier: string; approved_title: string }>(linearId);
     return row ? { identifier: row.identifier, approvedTitle: row.approved_title } : undefined;
+  }
+
+  /**
+   * What the pump needs to know about a job, without reading the ticket text: its short address, the kind of question
+   * open on it, and the addresses of the tickets it is blocked by. Asked on every pump pass, so it parses no text.
+   */
+  holdState(itemId: string): { identifier: string; askKind: OpenTicketAskKind | null; blockedBy: string[] } | undefined {
+    const row = this.db.prepare(`SELECT identifier, json_extract(open_ask_json, '$.kind') AS ask_kind FROM plan_queue_linear_tickets WHERE item_id = ?`)
+      .get<{ identifier: string; ask_kind: OpenTicketAskKind | null }>(itemId);
+    if (!row) return undefined;
+    const blockedBy = this.db.prepare(`SELECT json_extract(j.value, '$.identifier') AS identifier
+      FROM plan_queue_linear_tickets t, json_each(t.approved_text_json, '$.relatedTickets') j
+      WHERE t.item_id = ? AND json_extract(j.value, '$.relation') = 'blocked-by'`).all<{ identifier: string }>(itemId);
+    return { identifier: row.identifier, askKind: row.ask_kind, blockedBy: blockedBy.map((blocker) => blocker.identifier) };
+  }
+
+  /** The job that holds each ticket of a run, by the ticket's short address. */
+  itemIdsByIdentifier(runId: string): Map<string, string> {
+    const rows = this.db.prepare(`SELECT t.item_id, t.identifier FROM plan_queue_linear_tickets t
+      JOIN plan_queue_items i ON i.id = t.item_id WHERE i.run_id = ?`).all<{ item_id: string; identifier: string }>(runId);
+    return new Map(rows.map((row) => [row.identifier, row.item_id]));
   }
 
   /** Every team with a ticket in this run, with one of its tickets' short addresses (the address starts with the team's key). */
