@@ -402,6 +402,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1139 | P2 | **REPRODUCED LIVE TWICE 2026-11-14; NOT REPAIRED.** In a Claude session that is not on Auto-approve, allowing the `read_session` permission card makes the app restart the session to carry out the approved call, and the restart is declared failed: the session goes to `error` with "Native resume did not stabilize after deferred permission" and the approved call never runs. Allowing a Bash call in the same copy resumed cleanly three times in a row (under a second each). Owner: deferred-permission resume (`deferred-permission-handler.ts`, `instance-lifecycle.ts` `waitForResumeHealth`). | [LT-1139 detail](#lt-1139) | [Review follow-ups live check](2026-11-09-review-followups_plan_livetest.md#evidence-run--2026-11-14-round-2) |
 | LT-1040 | P2 | **FIXED ON MAIN; re-verify after landing.** Opening Settings (and any Control Center page) threw `Cannot read properties of undefined (reading 'data')` from `ControlSurfaceShellComponent.findActiveSurfaceId` because the shell read a live child route's snapshot before its outlet had activated. Main now walks the already-recognised `route.snapshot` tree (`src/renderer/app/shared/control-surface/control-surface-shell.component.ts:179-193`), with regressions in `control-surface-shell.component.spec.ts`. Same failure as LT-790 in the Local AI parity report. | [LT-1040 detail](#lt-1040) | host-process-tools-and-fence-switch livetest |
 | LT-1041 | P2 | **FIXED ON MAIN; installed-app discovery verified 2026-11-07 and 2026-11-11.** A tool search for `process` returned only the settings and Git tools, never `list_host_processes` or `stop_leftover_processes`: the ranker matches whole words and the descriptions said only "programs". The shared descriptions now contain the word `process` (`src/main/mcp/orchestrator-host-process-tools.ts:15`), with full-catalogue regressions on the deferred and stable surfaces. | [LT-1041 detail](#lt-1041) | host-process-tools-and-fence-switch livetest |
 | LT-1157 | P1 | **FIXED AND VERIFIED LIVE 2026-11-12 (source fix and rebuilt-app recheck).** A Codex session could never use Land anyway: its call was always refused with "This session's provider can't report when a turn starts". The queue asked the Codex adapter whether it reports turn starts while the adapter was being attached, before it had started, when it still says no. Found live on a Codex parent in a dev app. The check now asks at the time of the call. | [LT-1157 detail](#lt-1157) | [Land anyway live checks](2026-11-04-pq-b1-land-anyway_plan_livetest.md) |
@@ -14465,6 +14466,50 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
 
+
+<a id="lt-1139"></a>
+
+## LT-1139
+
+### LT-1139 — allowing a `read_session` permission card in a non-Auto-approve session ends the session in `error`
+
+**Status: reproduced live twice on 14 November 2026; not repaired. Found while running the review follow-ups live check; it is outside that plan (the plan's read rule is not involved).**
+
+### Observed behaviour
+
+Dev app started with `node scripts/remote-checks/dev-app.js start --port 9618 --data /tmp/aio-lt-queue-efd4d1d0` on the test Mac (copy built from the
+queue worktree; Claude signed in, no other provider; the `aio-mcp` helper linked into Electron's `Resources/aio-mcp-cli/` as a workaround for LT-1118, so
+sessions have Harness tools). Two fresh Claude sessions with `yoloMode: false`, each started with a first message carrying an `@session` chip and "Read that
+session with read_session and tell me its first message":
+
+1. `i7xh7z55e`: permission card "Claude wants to run mcp__orchestrator__read_session" appeared at 10:26:36Z. I clicked **Allow this once** at 10:27:05Z.
+   `app.log` (production profile path on the test Mac; the dev app writes there): `Resuming after deferred permission` (10:27:05.796), `Adapter exited during a recovery
+   respawn; deferring to the recovery owner` (10:27:06.302), `Native resume attempted but unconfirmed within probe window; treating as inconclusive` (10:27:16.462),
+   then `Failed to resume after deferred permission` with `Native resume did not stabilize after deferred permission` (10:27:16.468). Instance status became `error`.
+2. `i030dz29g`: the same, clicked 10:29:49Z, failure logged 10:30:00Z (about 10 s later), status `error`.
+
+In neither session did the tool run: the copy's `session_messages` read audit has no row for either session id. The same message was seen earlier the same day on a `read_session` permission card in the
+first run of the follow-ups check, so it is repeatable.
+
+Control in the same copy: a session whose pending call was `Bash` (`sleep 170; echo done`, then two follow-up Bash prompts), allowed three times, logged
+`Resumed after deferred permission successfully` each time, 0.5 to 1.7 s after the click. A session that called `mcp__orchestrator__list_settings` showed no card at all (that
+tool is allowed without asking), so it could not serve as a second control for an MCP tool.
+
+### Root cause
+
+Not isolated. What the code and log establish: the error is thrown at `src/main/instance/lifecycle/deferred-permission-handler.ts:339` (and `:274` on the resident-request
+path) when `waitForResumeHealth` returns false. `waitForResumeHealth` (`instance-lifecycle.ts:1154`) returns true only for `healthy`; the interpretation helper
+(`resume-attempt-interpretation.ts:59`) says an alive resume whose session-id echo has not arrived is `inconclusive`, and the boolean wrapper maps `inconclusive` to
+false. The handler then sets `error` and rethrows. So an alive-but-unconfirmed resume is treated as a failed one on this path. Why the echo is late only for the MCP tool
+(about 10 s here, against under 2 s for Bash) is not established; a resumed Claude process that has to bring up its MCP servers before running the approved tool call is the
+obvious suspect, but I have not measured it, and I have not tried the packaged app, where it may differ.
+
+### Required behaviour and acceptance
+
+Approving a `read_session` card (or any MCP tool card) in a non-Auto-approve session resumes the session and runs the approved call; a slow-but-alive resume is not turned
+into `error`, and if the resume truly fails the user is told the approved call did not run. Acceptance: in a copy, a non-Auto-approve Claude session asked to read another
+session with a chip shows the card, **Allow this once** leaves the session `busy` then `idle`, the read audit has a `read` row for it, and `app.log` has no
+`Native resume did not stabilize after deferred permission` line. Add a regression test with a resume whose echo arrives after the probe window.
 
 <a id="lt-1121"></a>
 

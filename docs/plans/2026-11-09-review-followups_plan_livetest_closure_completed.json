@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-09-review-followups_plan_livetest.md",
+      "sha256": "2458e5539267d88b1a780df88034fb113c51ea15be6d38888160bb0ead9062c1",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-09-review-followups_plan_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-09-review-followups_plan_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-09-review-followups_plan_livetest_completed.md",
+      "sha256": "2458e5539267d88b1a780df88034fb113c51ea15be6d38888160bb0ead9062c1"
+    }
+  ]
+}
