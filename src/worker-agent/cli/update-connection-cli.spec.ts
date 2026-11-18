@@ -93,13 +93,14 @@ describe('update-connection', () => {
       expect(execFileSync('/bin/ls', ['-lde', probe], { encoding: 'utf8' })).toContain('inherited');
       fs.unlinkSync(probe);
     }
-    const aclBefore = execFileSync('/bin/ls', ['-lde', aclPath], { encoding: 'utf8' });
+    // -n keeps the rule's raw ID: the name lookup (nobody vs a GUID) varies under load.
+    const aclBefore = execFileSync('/bin/ls', ['-lden', aclPath], { encoding: 'utf8' });
     expect(aclBefore).toContain('0:');
     const before = fs.readFileSync(configPath);
     try {
       expect(run()).toBe(1);
       expect(fs.readFileSync(configPath)).toEqual(before);
-      expect(execFileSync('/bin/ls', ['-lde', aclPath], { encoding: 'utf8' })).toBe(aclBefore);
+      expect(execFileSync('/bin/ls', ['-lden', aclPath], { encoding: 'utf8' })).toBe(aclBefore);
       expect(fs.readdirSync(directory)).toEqual(['worker-node.json']);
       expect(stdout).not.toHaveBeenCalled();
     } finally {
