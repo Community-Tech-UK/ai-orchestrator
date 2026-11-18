@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "capability-5197615a-ec72-4741-8938-0fd24e274e9b_plan.md",
+      "sha256": "8b5d5465b1f5e57d9ede05a6494d00c1bb892395f999b51c60c08d39a7657d26",
+      "retire": true
+    },
+    {
+      "relativePath": "capability-5197615a-ec72-4741-8938-0fd24e274e9b_history.md",
+      "sha256": "39fa0b117690855f16ec98f1f9cc1b76860f949665b94f54d2cb0542a6764660",
+      "retire": false
+    },
+    {
+      "relativePath": "capability-5197615a-ec72-4741-8938-0fd24e274e9b_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "capability-5197615a-ec72-4741-8938-0fd24e274e9b_plan_completed.md",
+      "sha256": "000f63338045aa0e52ffea4d16b08ef4bf0981a8ae51c861d8463d03b8e25f5c"
+    },
+    {
+      "relativePath": "capability-5197615a-ec72-4741-8938-0fd24e274e9b_plan_history_7d085e79bb62cd93db530c3f7977c51b8f6162865a6fbc32c4e3853536d19502_completed.md",
+      "sha256": "bd1f4f880207c27c30e555d3d6a887856468344e873bd312c310d15d630d9ea8"
+    }
+  ]
+}

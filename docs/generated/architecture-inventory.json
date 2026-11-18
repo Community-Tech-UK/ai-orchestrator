@@ -7348,6 +7348,10 @@
       "lines": 990
     },
     {
+      "path": "scripts/remote-checks/dev-app.spec.ts",
+      "lines": 990
+    },
+    {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
       "lines": 988
     },
@@ -7814,10 +7818,6 @@
     {
       "path": "src/main/memory/critique-agent.ts",
       "lines": 817
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.spec.ts",
-      "lines": 816
     },
     {
       "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",

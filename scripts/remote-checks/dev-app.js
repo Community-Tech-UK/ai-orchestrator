@@ -21,7 +21,9 @@
  * when the copy failed to build or start (its output says why), 2 for a usage mistake, and 75 when this Mac is the one
  * to use: start the copy here, as the live-test runbook's "On this Mac" part says. With --remote-only, and always for a
  * signed package (which has no procedure on this Mac), start waits for an eligible remote computer instead and never
- * returns 75.
+ * returns 75. `--needs codex,copilot` names the AI tools the check needs: only a computer that has every one installed
+ * may take the copy, this Mac never does, and when every computer has answered and none has them, start sends nothing
+ * and exits 3 saying what each lacks. That is installation only; whether a tool is signed in is for the copy to report.
  */
 
 const { execFileSync, spawn } = require('child_process');
@@ -36,6 +38,10 @@ const { SnapshotRefused, cleanGitEnv, snapshotFileHash, takeSnapshot } = require
 
 const STAY_HERE = 75;
 const USAGE_ERROR = 2;
+/** No computer that answered has the AI tools `--needs` names. Waiting would not change that. */
+const TOOLS_MISSING = 3;
+/** The tools `--needs` may name: the fixed list `devapp-providers` in remote-run.sh looks for. */
+const NEEDABLE_TOOLS = ['claude', 'codex', 'copilot', 'gemini', 'agy', 'opencode', 'cursor-agent', 'grok'];
 const RESULT_PREFIX = 'AIO_REMOTE_RESULT ';
 /** Covers a first install of every package, both builds and Harness starting. */
 const START_LIMIT_MS = 25 * 60_000;
@@ -56,13 +62,16 @@ const DATA_FOLDER = /^\/tmp\/aio-lt-[A-Za-z0-9._-][A-Za-z0-9._/-]*$/;
 
 const USAGE = `dev-app: a live test's Harness copy, run on another computer and driven from here.
 
-  start --port <debugging port> --data /tmp/aio-lt-<name> [--remote-only] [--mac] [--packaged] [--checked-tree <tree>]
+  start --port <debugging port> --data /tmp/aio-lt-<name> [--remote-only] [--mac] [--needs <tools>] [--packaged] [--checked-tree <tree>]
       Sends this checkout's files, builds and starts Harness on the first computer that isn't busy (the test Mac,
       then the PC, then this Mac), and connects http://127.0.0.1:<port> here to it. Takes a few minutes, longer
       after a package change. When all are busy it waits, looking again every 2 minutes, until one isn't. Exit 75
       means use this Mac. Running it again with the same files joins the copy already starting or running.
       --mac skips the PC, whose copy has no AI tool signed in: for a check that needs one.
       --remote-only waits for an eligible remote computer; it never chooses this Mac or exits 75.
+      --needs <tool,tool> (${NEEDABLE_TOOLS.join(', ')}) takes only a computer that has each installed, and never
+      this Mac. When every computer has answered and none has them, nothing is sent and it exits 3, saying what each
+      lacks. It proves installation only: whether a tool is signed in is for the copy to report.
       --packaged builds a signed directory package in the owned copy; it never installs or publishes it.
       --checked-tree sends the index only and refuses a tree mismatch before sending any files.
       --signing-password-stdin (packaged only) unlocks the signing keychain in that build's SSH session.
@@ -80,7 +89,7 @@ function parse(argv) {
   const [action, ...rest] = argv;
   if (!action || ['help', '--help', '-h'].includes(action)) return { action: 'help' };
   if (!['start', 'stop', 'shell', 'status'].includes(action)) throw new UsageError(`there is no dev-app ${action}`);
-  const options = { port: null, data: null, command: [], mode: 'dev', macOnly: false, remoteOnly: false, checkedTree: null, unlockSigning: false };
+  const options = { port: null, data: null, command: [], mode: 'dev', macOnly: false, remoteOnly: false, needs: [], checkedTree: null, unlockSigning: false };
   for (let at = 0; at < rest.length; at += 1) {
     const arg = rest[at];
     if (arg === '--remote-only') {
@@ -90,6 +99,14 @@ function parse(argv) {
       options.mode = 'packaged';
     } else if (arg === '--mac' && action === 'start') {
       options.macOnly = true;
+    } else if (arg === '--needs' && action === 'start') {
+      const value = rest[++at];
+      const names = value ? value.split(',') : [];
+      const unknown = names.filter(name => !NEEDABLE_TOOLS.includes(name));
+      if (!names.length || unknown.length) {
+        throw new UsageError(`--needs takes a comma-separated list from ${NEEDABLE_TOOLS.join(', ')}${unknown.length ? `, not ${unknown.join(', ')}` : ''}`);
+      }
+      options.needs = [...new Set(names)];
     } else if (arg === '--signing-password-stdin' && action === 'start') {
       options.unlockSigning = true;
     } else if (arg === '--checked-tree' && action === 'start') {
@@ -199,6 +216,36 @@ async function lookAt(machine, port) {
   } catch {
     return { machine, script, reachable: true, busy: `${machine.label} did not say how busy it is`, copy: null, kept: false };
   }
+}
+
+/**
+ * Which of `machines` have every tool in `needs` installed, asked of each: `{ able, lacking, unasked }`, `lacking` being
+ * `[{ machine, missing }]`. A computer that can't be asked, or answers oddly, is `unasked`, never `lacking`: it may have
+ * them, so it is waited for rather than counted out. With nothing needed every machine is able and nobody is asked.
+ */
+async function haveTools(machines, needs) {
+  if (!needs.length) return { able: machines, lacking: [], unasked: [] };
+  const able = [];
+  const lacking = [];
+  const unasked = [];
+  for (const machine of machines) {
+    const { sent } = await sendScript(machine, 'devapp-providers');
+    const line = sent.code === 0 && !sent.timedOut ? sent.stdout.split('\n').find(row => row.startsWith(RESULT_PREFIX)) : null;
+    let installed = null;
+    try {
+      installed = line ? JSON.parse(line.slice(RESULT_PREFIX.length)).installed : null;
+    } catch {
+      installed = null;
+    }
+    if (!Array.isArray(installed)) {
+      unasked.push(machine);
+      continue;
+    }
+    const missing = needs.filter(name => !installed.includes(name));
+    if (missing.length) lacking.push({ machine, missing });
+    else able.push(machine);
+  }
+  return { able, lacking, unasked };
 }
 
 function recheckMs(env) {
@@ -372,7 +419,7 @@ async function startOn({ machine, script, own, previous, root, snapshot, options
   if (fault) return { busy: fault };
 
   const receipt = {
-    tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: computerName(machine), mode,
+    tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: computerName(machine), mode, needs: options.needs,
   };
   write(`AIO_DEV_APP_START ${JSON.stringify(receipt)}\n`);
 
@@ -454,9 +501,10 @@ async function leaveEarlierCopy(config, previous, port, write) {
 }
 
 async function start({ options, root, env, write, answers, localLoad }) {
-  const { port, mode, checkedTree, unlockSigning } = options;
+  const { port, mode, checkedTree, unlockSigning, needs } = options;
   const macOnly = options.macOnly || mode === 'packaged';
-  const remoteOnly = options.remoteOnly || mode === 'packaged';
+  // This Mac can't be asked what it has installed, so a start that needs tools never lands here.
+  const remoteOnly = options.remoteOnly || mode === 'packaged' || needs.length > 0;
   const started = Date.now();
   // The port here may only be held by this checkout's own earlier copy's tunnel, which this start reuses or replaces.
   // Held by anything else, it is someone else's, and nothing is sent.
@@ -504,13 +552,23 @@ async function start({ options, root, env, write, answers, localLoad }) {
       const reasons = config ? [] : ['no test machines are set up'];
       // Every unpaused computer is asked, so this test's copy is found even where this start can't go (a rerun with
       // --mac while it is on the PC); such a copy is stopped below, as its tunnel here would hold the port.
-      const eligible = copyMachines(config, macOnly);
+      const { able: eligible, lacking, unasked } = await haveTools(copyMachines(config, macOnly), needs);
+      if (needs.length && !eligible.length && !unasked.length && lacking.length) {
+        const gaps = lacking.map(({ machine, missing }) => `${machine.label} lacks ${missing.join(' and ')}`).join('; ');
+        write(`dev-app: no computer has ${needs.join(' and ')} installed: ${gaps}. Nothing was sent. Install and sign in `
+          + `on a test computer, then run this again. This only checks installation, which is looked for on each login `
+          + 'shell\'s PATH and the usual install folders.\n');
+        logRun(env, started, null, TOOLS_MISSING, gaps, waitedMs);
+        return TOOLS_MISSING;
+      }
       const looks = [];
       for (const machine of copyMachines(config)) {
         const look = await lookAt(machine, port);
         if (eligible.includes(machine)) looks.push(look);
-        else if (look.copy?.data === options.data) await stopOlderCopy(look, port, previous, 'which this start can\'t use', write);
+        // One that couldn't be asked what it has is not known to be unfit, so a copy on it is left running.
+        else if (look.copy?.data === options.data && !unasked.includes(machine)) await stopOlderCopy(look, port, previous, 'which this start can\'t use', write);
       }
+      if (needs.length) for (const machine of unasked) reasons.push(`${machine.label} could not be asked what is installed`);
       // A computer already running this port's copy goes first, busy or not, when the start would join it (same files,
       // data folder and mode: a start cut off part-way, run again) or the copy is another data folder's, which
       // devapp-start leaves alone. Replacing a copy means a fresh build, so a busy computer's old copy is stopped and

@@ -15,7 +15,7 @@ const { main, parse, readSigningPassword } = require('./dev-app.js') as {
     cwd?: string; env?: NodeJS.ProcessEnv; write?: (text: string) => void; commonDir?: string;
     answers?: (port: number, waitMs?: number) => Promise<boolean>; localLoad?: () => Load;
   }): Promise<number>;
-  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; checkedTree: string | null } };
+  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; needs: string[]; checkedTree: string | null } };
 };
 
 const LIMIT = 60_000;
@@ -29,6 +29,8 @@ const LOADED: Load = { load: 40, cores: 10, copies: 0, limit: 3 };
  * `devapp-load` answers from `load-<host>` (quiet, with no copy there, when there is none), and a `load-<host>.next`
  * replaces it after one look. A script in `after-look-<host>` runs once, after that host's first look. A copy that
  * started (or whose start lost its connection) is kept in `copy-<host>` until a stop, and `devapp-load` reports it.
+ * `devapp-providers` answers with the result line in `tools-<host>` (nothing installed when there is none), a
+ * `tools-<host>.next` replacing it after one look, and an `ask-fails-<host>` file makes the next ask fail once.
  */
 const FAKE_SSH = String.raw`#!/bin/bash
 # The commands run with this process's environment, not the one given to main(), so the fake finds its folder itself.
@@ -49,6 +51,14 @@ case "$cmd" in
     copy=null
     [ -f "$FAKE_DIR/copy-$host" ] && copy="$(cat "$FAKE_DIR/copy-$host")"
     echo "AIO_REMOTE_RESULT ${'$'}{load%\}},\"copy\":$copy}"
+    ;;
+  *' devapp-providers')
+    bash -c "${'$'}{cmd% && bash *}" || exit 1
+    if [ -f "$FAKE_DIR/ask-fails-$host" ]; then rm -f "$FAKE_DIR/ask-fails-$host"; exit 255; fi
+    tools='{"installed":[]}'
+    [ -f "$FAKE_DIR/tools-$host" ] && tools="$(cat "$FAKE_DIR/tools-$host")"
+    [ -f "$FAKE_DIR/tools-$host.next" ] && mv "$FAKE_DIR/tools-$host.next" "$FAKE_DIR/tools-$host"
+    echo "AIO_REMOTE_RESULT $tools"
     ;;
   *' devapp-start '*)
     cat > "$FAKE_DIR/start-data"
@@ -164,6 +174,12 @@ function setLoad(setup: Setup, host: string, load: Load, next?: Load) {
   if (next) writeFileSync(join(setup.fake, `load-${host}.next`), JSON.stringify(next));
 }
 
+function setTools(setup: Setup, host: string, installed: string[] | string, next?: string[] | string) {
+  const line = (value: string[] | string) => (typeof value === 'string' ? value : JSON.stringify({ installed: value }));
+  writeFileSync(join(setup.fake, `tools-${host}`), line(installed));
+  if (next) writeFileSync(join(setup.fake, `tools-${host}.next`), line(next));
+}
+
 function runLog(setup: Setup): Record<string, unknown>[] {
   const file = join(setup.dir, 'runs.jsonl');
   return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
@@ -196,6 +212,16 @@ describe('dev-app arguments', () => {
     expect(() => parse(['stop', '--port', '9877', '--packaged'])).toThrow();
     expect(parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--mac']).options).toMatchObject({ macOnly: true, mode: 'dev' });
     expect(() => parse(['stop', '--port', '9877', '--mac'])).toThrow();
+  });
+  it('takes the AI tools a start needs from a fixed list, once each, for start only', () => {
+    const start = ['start', '--port', '9877', '--data', '/tmp/aio-lt-owned'];
+    expect(parse(start).options.needs).toEqual([]);
+    expect(parse([...start, '--needs', 'codex,copilot,codex']).options.needs).toEqual(['codex', 'copilot']);
+    expect(() => parse([...start, '--needs', 'codex,notatool'])).toThrow(/not notatool/);
+    expect(() => parse([...start, '--needs', 'codex;rm'])).toThrow(/comma-separated list/);
+    expect(() => parse([...start, '--needs'])).toThrow(/comma-separated list/);
+    expect(() => parse([...start, '--needs', ''])).toThrow(/comma-separated list/);
+    expect(() => parse(['stop', '--port', '9877', '--needs', 'codex'])).toThrow(/doesn't take --needs/);
   });
   it('takes a port and a data folder of its own under /tmp/aio-lt-', () => {
     expect(parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-batch1']).options).toMatchObject({ port: 9444, data: '/tmp/aio-lt-batch1' });
@@ -232,6 +258,100 @@ describe('dev-app start', () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain('checked tree');
     expect(result.sshLog).toBe('');
+  });
+  describe('when the check needs AI tools installed', () => {
+    const NEEDS = ['--needs', 'codex,copilot'];
+    const argv = async () => ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', ...NEEDS];
+
+    it('starts on a computer that has them, naming what the copy needed in its receipt', async () => {
+      const setup = setUp({ host: 'ct-test-mac' });
+      setTools(setup, 'ct-test-mac', ['claude', 'codex', 'copilot']);
+      const { code, output, sshLog } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(sshLog).toMatch(/^ct-test-mac: .* devapp-providers$/m);
+      const line = output.split('\n').find(row => row.startsWith('AIO_DEV_APP_RECEIPT '));
+      expect(JSON.parse(line!.slice('AIO_DEV_APP_RECEIPT '.length))).toMatchObject({ computer: 'ct-test-mac', needs: ['codex', 'copilot'] });
+    }, LIMIT);
+
+    it('passes a computer that lacks one, though it comes first in the order', async () => {
+      const setup = setUp({}, { pc: true });
+      setTools(setup, 'far', ['claude', 'codex']);
+      setTools(setup, 'pc', ['codex', 'copilot']);
+      const { code, output, sshLog } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(output).toContain('Harness is running on the Windows PC');
+      expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+    }, LIMIT);
+
+    it('sends nothing and exits 3 naming what each computer lacks when none has them all', async () => {
+      const setup = setUp({}, { pc: true });
+      setTools(setup, 'far', ['claude']);
+      setTools(setup, 'pc', ['codex']);
+      const { code, output, sshLog } = await run(setup, await argv());
+      expect(code).toBe(3);
+      expect(output).toContain('no computer has codex and copilot installed: the test Mac lacks codex and copilot; the Windows PC lacks copilot.');
+      expect(output).toContain('Nothing was sent.');
+      expect(output).toContain('only checks installation');
+      expect(sshLog).not.toMatch(/ (receive|devapp-load|devapp-start|devapp-hold) /);
+      expect(existsSync(join(setup.dir, 'dev-apps'))).toBe(false);
+      expect(runLog(setup)).toEqual([expect.objectContaining({ kind: 'dev-app', ranOn: 'none', exitCode: 3 })]);
+    }, LIMIT);
+
+    it('never falls back to this Mac, even when it is free and the computer that has them is busy', async () => {
+      const setup = setUp();
+      setTools(setup, 'far', ['codex', 'copilot']);
+      setLoad(setup, 'far', LOADED, QUIET);
+      const { code, output } = await run(setup, await argv(), { here: QUIET });
+      expect(code).toBe(0);
+      expect(output).toContain('waiting for a remote computer that can run this copy (the test Mac is busy');
+      expect(output).toContain('Harness is running on the test Mac');
+    }, LIMIT);
+
+    it('waits for a computer that could not be asked rather than counting it out', async () => {
+      const setup = setUp();
+      setTools(setup, 'far', 'not a result line', ['codex', 'copilot']);
+      const { code, output } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(output).toContain('the test Mac could not be asked what is installed');
+      expect(output).toContain('Harness is running on the test Mac');
+    }, LIMIT);
+
+    it('treats a failed ask as unknown, not as missing', async () => {
+      const setup = setUp();
+      setTools(setup, 'far', ['codex', 'copilot']);
+      writeFileSync(join(setup.fake, 'ask-fails-far'), '');
+      const { code, output } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(output).toContain('the test Mac could not be asked what is installed');
+    }, LIMIT);
+
+    it('stops this profile\'s older copy on a computer that lacks them, before starting where they are', async () => {
+      const setup = setUp({}, { pc: true });
+      setTools(setup, 'far', ['codex', 'copilot']);
+      writeFileSync(join(setup.fake, 'copy-pc'), JSON.stringify({ tree: 'old', data: '/tmp/aio-lt-spec', mode: 'dev' }));
+      const { code, sshLog } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(sshLog).toMatch(/^pc: .* devapp-stop \d+$/m);
+      expect(existsSync(join(setup.fake, 'copy-pc'))).toBe(false);
+    }, LIMIT);
+
+    it('leaves a copy on a computer that could not be asked running', async () => {
+      const setup = setUp({}, { pc: true });
+      setTools(setup, 'far', ['codex', 'copilot']);
+      setTools(setup, 'pc', 'not a result line');
+      writeFileSync(join(setup.fake, 'copy-pc'), JSON.stringify({ tree: 'old', data: '/tmp/aio-lt-spec', mode: 'dev' }));
+      const { code, sshLog } = await run(setup, await argv());
+      expect(code).toBe(0);
+      expect(sshLog).not.toMatch(/ devapp-stop /);
+      expect(existsSync(join(setup.fake, 'copy-pc'))).toBe(true);
+    }, LIMIT);
+
+    it('asks nothing about tools when none are needed', async () => {
+      const setup = setUp();
+      const { code, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
+      expect(code).toBe(0);
+      expect(sshLog).not.toContain('devapp-providers');
+    }, LIMIT);
   });
   it.each([
     ['scripts/remote-checks/live-test-copy.js', []],
@@ -684,6 +804,60 @@ describe('remote-run.sh dev-app commands', () => {
     expect(load.load).toBeGreaterThanOrEqual(0);
     expect(load.cores).toBeGreaterThan(0);
     expect(load).toMatchObject({ copies: 0, limit: 3, copy: null });
+  });
+
+  describe('devapp-providers', () => {
+    const TOOLS = ['claude', 'codex', 'copilot', 'gemini', 'agy', 'opencode', 'cursor-agent', 'grok'];
+    const SYSTEM_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
+    const stub = (dir: string, name: string) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), '#!/bin/sh\nexit 0\n');
+      chmodSync(join(dir, name), 0o755);
+    };
+    /** A login shell that starts with only the system's folders on its PATH, whatever the machine running this has. */
+    function farWithHome(homeName: string) {
+      const base = realpathSync(mkdtempSync(join(tmpdir(), 'dev-app-far-')));
+      temps.push(base);
+      copyFileSync(join(__dirname, 'remote-run.sh'), join(base, 'remote-run.sh'));
+      const home = join(base, homeName);
+      mkdirSync(home);
+      const loginShell = join(base, 'login-shell');
+      // Called as `<shell> -l -c <command> <argument 0>`, the way the script calls the account's shell.
+      writeFileSync(loginShell, '#!/bin/bash\n[ "$1 $2" = "-l -c" ] || exit 64\nexec env -i PATH=/usr/bin:/bin HOME="$HOME" /bin/bash -c "$3" "$4"\n');
+      chmodSync(loginShell, 0o755);
+      const ask = () => {
+        const ran = spawnSync('bash', [join(base, 'remote-run.sh'), 'devapp-providers'], { encoding: 'utf8', env: { ...process.env, HOME: home, SHELL: loginShell } });
+        expect(ran.status).toBe(0);
+        const line = ran.stdout.trim();
+        expect(line.startsWith('AIO_REMOTE_RESULT ')).toBe(true);
+        return (JSON.parse(line.slice('AIO_REMOTE_RESULT '.length)) as { installed: string[] }).installed;
+      };
+      /** What is on the folders this machine always has, which the test can't empty. */
+      const alreadyThere = TOOLS.filter(name => SYSTEM_DIRS.some(dir => existsSync(join(dir, name))));
+      return { home, ask, alreadyThere };
+    }
+
+    it('names the tools found on the login shell\'s PATH and the usual install folders, in a fixed order', () => {
+      const far = farWithHome('home');
+      stub(join(far.home, '.local/bin'), 'codex');
+      stub(join(far.home, '.volta/bin'), 'grok');
+      stub(join(far.home, '.nvm/versions/node/v24.0.0/bin'), 'copilot');
+      const expected = TOOLS.filter(name => ['codex', 'grok', 'copilot'].includes(name) || far.alreadyThere.includes(name));
+      expect(far.ask()).toEqual(expected);
+    });
+
+    it('does not name a tool that is not there, or a file that is not executable', () => {
+      const far = farWithHome('home');
+      mkdirSync(join(far.home, '.local/bin'), { recursive: true });
+      writeFileSync(join(far.home, '.local/bin/gemini'), 'not executable\n');
+      expect(far.ask()).toEqual(far.alreadyThere);
+    });
+
+    it('leaves out an install folder whose name could break the script written around it', () => {
+      const far = farWithHome('home with space');
+      stub(join(far.home, '.local/bin'), 'opencode');
+      expect(far.ask()).toEqual(far.alreadyThere);
+    });
   });
 
   /**

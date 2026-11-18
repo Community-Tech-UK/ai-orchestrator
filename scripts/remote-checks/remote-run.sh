@@ -14,6 +14,7 @@
 #   devapp-shell <port>                      run a script from stdin beside a copy
 #   devapp-status                            list the copies here
 #   devapp-load <port>                       how busy this machine is, and whether that port's copy is here
+#   devapp-providers                         which AI tools are installed here
 #
 # With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
 # store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
@@ -1161,6 +1162,29 @@ cmd_devapp_load() {
   printf '%s{"load":%s,"cores":%s,"copies":%s,"limit":%s,"copy":%s,"kept":%s}\n' "$RESULT_PREFIX" "$load" "$cores" "$copies" "$DEVAPP_LIMIT" "$copy" "$kept"
 }
 
+# devapp-providers: one result line naming which AI tools are installed here, so `dev-app.js start --needs` can pick a
+# computer before building anything. The names are this fixed list (never input). They are looked for on the account's
+# login-shell PATH, which is what the copy's own tool detection reads, plus the folders tools usually install into that a
+# profile may only add for interactive shells. Installed only: whether one is signed in is the copy's own business (a Mac
+# login keychain can't be read over SSH).
+DEVAPP_PROVIDERS='claude codex copilot gemini agy opencode cursor-agent grok'
+cmd_devapp_providers() {
+  local login_shell="${SHELL:-/bin/sh}" extra="" dir found name listed="" probe
+  [ -x "$login_shell" ] || login_shell=/bin/sh
+  for dir in "$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin "$HOME/.npm-global/bin" "$HOME/.bun/bin" "$HOME/.volta/bin" "$HOME"/.nvm/versions/node/*/bin; do
+    # The folder is written into the script below, so one with a quote, a dollar sign or a space is left out.
+    case "$dir" in *[!A-Za-z0-9._/-]*) continue ;; esac
+    [ -d "$dir" ] && extra="$extra:$dir"
+  done
+  # The login shell hands its PATH to a plain sh, which does the looking, so no shell's own syntax matters.
+  probe='PATH="$PATH'"$extra"'"; for name in '"$DEVAPP_PROVIDERS"'; do command -v "$name" > /dev/null 2>&1 && echo "provider:$name"; done'
+  found="$("$login_shell" -l -c 'exec /bin/sh -c "$0"' "$probe" < /dev/null 2> /dev/null)"
+  for name in $DEVAPP_PROVIDERS; do
+    printf '%s\n' "$found" | grep -qx "provider:$name" && listed="$listed${listed:+,}\"$name\""
+  done
+  printf '%s{"installed":[%s]}\n' "$RESULT_PREFIX" "$listed"
+}
+
 cmd_devapp_status() {
   local dir port found=0
   for dir in "$DEVAPPS"/apps/*; do
@@ -1203,5 +1227,6 @@ case "$command_name" in
   devapp-stop) cmd_devapp_stop "$@" ;;
   devapp-status) cmd_devapp_status ;;
   devapp-load) cmd_devapp_load "$@" ;;
-  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load" >&2; exit 2 ;;
+  devapp-providers) cmd_devapp_providers ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load|devapp-providers" >&2; exit 2 ;;
 esac

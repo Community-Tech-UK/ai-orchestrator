@@ -88,9 +88,11 @@ To run the dev app for a live test or any other check, start it with `dev-app.js
 `node "$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js" start --port <p> --data /tmp/aio-lt-<name>`,
 then drive it at `http://127.0.0.1:<p>` and `stop --port <p>` when done. It picks the first computer that isn't busy
 (the test Mac, then the Windows PC, then this Mac, which is exit 75) and keeps waiting while all are, so never judge
-load yourself or stop because a computer is busy. This overrides any older instruction to build and launch the dev app
-from your worktree. Start it here yourself only when `start` exits 75 or a check needs something only this Mac has,
-and say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
+load yourself or stop because a computer is busy. A check that needs Codex, Copilot or another AI tool adds
+`--needs codex,copilot`: only a computer with each installed takes the copy, and exit 3 means none has them (report that
+as a setup gap; it is not exit 75 and not a reason to use this Mac). It proves installation, not sign-in. This overrides
+any older instruction to build and launch the dev app from your worktree. Start it here yourself only when `start`
+exits 75 or a check needs something only this Mac has, and say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
 
 ## Documentation Formats
 
