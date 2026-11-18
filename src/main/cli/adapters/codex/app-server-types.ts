@@ -563,6 +563,16 @@ export function isAsyncDeliveryAgentMessage(item: ThreadItem): boolean {
   return item.delivery === 'async';
 }
 
+/**
+ * Accepted steered input means Codex may still answer after its final answer, so
+ * only its own `turn/completed` may end the turn; cancel any inferred completion.
+ */
+export function markSteeredInputAccepted(state: TurnCaptureState): void {
+  state.steeredInputAccepted = true;
+  if (state.completionTimer) clearTimeout(state.completionTimer);
+  state.completionTimer = null;
+}
+
 /** One in-flight streamed assistant message, keyed by Codex item id. */
 export interface StreamingAgentMessage {
   outputId: string;

@@ -69,6 +69,12 @@ remediation plan is not extended.
 | LT-654 | **LIVE RECHECKED + CANONICAL PASS within recorded scope.** Current native queue/reload proof, retained configured same-thread recovery above 80%, and retained full controlled 35-minute watch. |
 | LT-655, LT-681 | **LIVE RECHECKED + CANONICAL PASS.** Retained meter/boundary/Recover context and next measured usage evidence; latest native queue DOM is supplementary. |
 
+### New compaction-lifecycle finding — 2026-11-13
+
+| ID | Current status |
+| --- | --- |
+| LT-1090 | **FIXED AND VERIFIED LIVE ON `f0b3c7380` (16 November 2026) (P2).** The automated context-policy steer (`thread/inject_items`) did not mark the turn as having accepted steered input, so the 250 ms final-answer inferred completion could close the capture and show idle before Codex finished its reply to the steer. `steerActiveTurn` now marks it, as the `turn/steer` path already did (LT-680). The adapter regression fails without the fix. Live on the current checkout (two runs with a labelled fixture prompt that asks Codex to start its next message with `NOTICE SEEN` if a Harness notice arrives): the post-steer message "NOTICE SEEN / The list was completed." appeared in the transcript and status stayed busy until the provider's `turn/completed` (idle 7 ms and 4 ms after it). Earlier plain runs had empty post-steer messages; the fixture prompt is what made Codex write text. [Detail](#lt-1090). |
+
 ### New sidechat findings — 2026-10-27
 
 Implementation status and acceptance are recorded in each tracked detail section below, so this
@@ -14388,6 +14394,92 @@ A turn that used no helper threads is completed only by Codex's own `turn/comple
 ### Evidence
 
 [Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#check-1-idle-while-the-native-turn-was-open--lt-1084--2026-11-13-queue-worker-third-pass).
+
+<a id="lt-1090"></a>
+
+## LT-1090 — a context-policy steer loses Codex's reply to it and the session reads idle early
+
+Found by the Codex compaction lifecycle follow-up current-build live check 7 (see
+`2026-10-27-codex-compaction-lifecycle-followup_livetest.md`, evidence run 2026-11-13). Source
+`f6b4f0f36`, isolated profile `/tmp/aio-lt-queue-ce682cdf`, real Codex app-server.
+
+### Observed behaviour
+
+Twice, on instance `x2brmqwql` (thread `01a1d661-a4e4-7fc1-810c-80df4e067057`), a numbered-list task
+was running when the real configured executor ran `steer-turn` on its first `agentMessage` start. The
+executor returned `executed / acknowledged`; the provider request was a developer-role
+`thread/inject_items` message; the Harness-authored notice (`internalInput.actor:harness`,
+`source:context-policy`) was added. The original list then completed. Then:
+
+- Run 1: the first agent message (`final_answer`) completed at `1794598577378`; Harness status went
+  **idle at `1794598577636`** (final answer + about 250 ms). Codex kept the same turn open, started a
+  second `agentMessage` at `1794598580121`, completed it at `1794598580218`
+  ("The full list of 120 different tree species is complete.") and sent `turn/completed` at
+  `1794598580346`. That second message is **absent from the transcript** (the buffer holds the user
+  prompt, the first assistant row and the policy notice only).
+- Run 2 (100 bird names): final answer completed `1794599723986`, status **idle `1794599724243`**,
+  second message "The complete list of 100 different bird species is finished." completed
+  `1794599731652`, `turn/completed` `1794599731777`. Same result: idle 7.5 s early, reply missing.
+
+### Root cause
+
+`CodexAppServerThreadRuntime.steerActiveTurn` (`app-server-thread-runtime.ts`) sends the developer item
+but never sets `active.state.steeredInputAccepted`. Only `steerProviderTurn` does (LT-680). So
+`scheduleInferredCompletion` (`codex-app-server-notification-adapter.ts`, `INFERRED_COMPLETION_MS = 250`)
+completes the turn after the final answer; everything Codex streams afterwards in that turn goes to the
+idle handler, which keeps only usage and compaction events. Source reading only; no fix was attempted.
+
+### Implementation status (2026-11-13)
+
+Fix written, not yet closed. `src/main/cli/adapters/codex/app-server-thread-runtime.ts`: `steerActiveTurn` calls the shared
+`markSteeredInputAccepted` (`app-server-types.ts`) after `thread/inject_items` is acknowledged; `steerProviderTurn`
+uses the same helper for `turn/steer`. Tests: `app-server-thread-runtime.spec.ts` ("keeps the turn open for the provider
+after an accepted policy steer") and `codex-cli-adapter.app-server.spec.ts` ("publishes the reply that follows a policy
+steer and completes only on turn/completed"); the adapter test fails on the previous source with
+`expected [ 'The list' ] to include 'The list is complete.'`.
+
+Live recheck (isolated app on `951663e02` plus this fix, real Codex 0.169.0): five runs, status idle only 3 to 16 ms after
+the provider's `turn/completed`, 1.1 to 6.3 s after the final answer where the earlier build went idle 250 ms after it.
+That part of the acceptance is met live. **The other part is not:** in all five runs Codex's message after the steer had
+empty text, so the transcript never showed a post-steer reply and the non-empty path is exercised only by the synthetic
+adapter test. Do not read this as live-verified. What would close it: one more live run in which the steered task makes
+Codex write a non-empty follow-up message after the steer (for example a task whose final answer is followed by a
+summary), seen in the transcript, or an explicit decision by James that the adapter regression is enough. Evidence:
+`docs/plans/2026-10-27-codex-compaction-lifecycle-followup_evidence/2026-11-13-livetest-round2/`.
+
+### Live proof, 2026-11-16 (checkout `f0b3c7380`, isolated app, real Codex 0.169.0)
+
+Instance `x492emjyb`, thread `01a1e4b5-942f-7022-8a39-36709dda8aae`. A labelled test-fixture prompt (list of mountains or
+rivers; "if an automated notice from Harness reaches you while you work, start your next message with the words NOTICE
+SEEN, then finish the list") was sent, and the actual configured `steer-turn` executor ran on the first `agentMessage`
+start (`executed / acknowledged`, developer-role `thread/inject_items`, Harness-authored system row, no policy text as a
+user row). Run 1: first answer completed `1794839263455`, second `agentMessage` "NOTICE SEEN / The list was completed."
+completed `1794839268376`, `turn/completed` `1794839268501`, status idle `1794839268508` (7 ms after). Run 2: second
+message completed `1794839334512`, `turn/completed` `...609`, idle `...613`. Both replies are in the transcript as
+assistant rows. The fixture prompt is a test input, not a product change; it is the only difference from the earlier
+runs whose post-steer message was empty. Evidence:
+`docs/plans/2026-10-27-codex-compaction-lifecycle-followup_evidence/2026-11-16-livetest-round4/`
+(`steer-state-run1-result.json`, `steer-state-run2-result.json`, `steer-buffer-result.json`).
+
+### Required behaviour
+
+A policy steer accepted into a running Codex turn must keep that turn's capture open until Codex reports
+`turn/completed`, publish every item of the turn (including the reply to the steer) and keep status busy
+until then.
+
+### Acceptance
+
+- Adapter-level regression: a turn emits a `final_answer`, a policy steer is accepted before the 250 ms
+  timer, then a further agent message and `turn/completed` arrive; the later message is emitted and status
+  never goes idle before `turn/completed`. It fails on current source.
+- Live repeat of check 7 with a rebuilt app shows the post-steer reply in the transcript and busy until
+  real completion. **Met live on `f0b3c7380`, 2026-11-16** (details under "Live proof, 2026-11-16"). Earlier plain
+  runs: busy until real completion 5 of 5, post-steer message empty.
+- Focused tests, canonical gates and fresh review pass before any completed claim.
+
+Evidence: `docs/plans/2026-10-27-codex-compaction-lifecycle-followup_evidence/2026-11-13-livetest/`
+(`steer-main.run1.ndjson`, `steer-main.run2.ndjson`, `steer-state-run1-result.json`,
+`steer-state-run2-result.json`, `steer-buffer-run2-result.json`). Times are Unix milliseconds.
 
 <a id="lt-1018"></a>
 

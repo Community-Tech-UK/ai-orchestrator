@@ -15,6 +15,7 @@ import type {
   TurnCaptureState,
   UserInput,
 } from './app-server-types';
+import { markSteeredInputAccepted } from './app-server-types';
 import type { CodexOutputLimitState } from './codex-app-server-spawn-policy';
 import { CodexAppServerRuntimeError, isEmptyInputSteerRejection } from './app-server-runtime-errors';
 import { assertAdapterInputCurrent } from '../adapter-input-dispatch';
@@ -231,6 +232,8 @@ export class CodexAppServerThreadRuntime {
       if (this.activeTurn !== active || active.turnId !== turnId || active.state.completed) return false;
       throw error;
     }
+    // LT-1090: the 250 ms inferred completion must not drop Codex's reply to this steer.
+    markSteeredInputAccepted(active.state);
     return true;
   }
 
@@ -267,11 +270,7 @@ export class CodexAppServerThreadRuntime {
         assertAdapterInputCurrent(dispatch);
         await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
         onInputAccepted?.();
-        active.state.steeredInputAccepted = true;
-        if (active.state.completionTimer) {
-          clearTimeout(active.state.completionTimer);
-          active.state.completionTimer = null;
-        }
+        markSteeredInputAccepted(active.state);
       }
     } catch (error) {
       if (this.activeTurn !== active || active.state.completed) return { delivered: false, developerInjected };

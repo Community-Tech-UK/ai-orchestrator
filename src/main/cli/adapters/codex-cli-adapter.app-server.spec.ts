@@ -364,6 +364,57 @@ describe('CodexCliAdapter', () => {
     expect(completions[0]!.at).toBeGreaterThanOrEqual(nativeCompletedAt);
   });
 
+  // LT-1090: Codex may answer a policy steer after its final answer. The steer
+  // must stop the 250 ms inferred completion so that later message is published
+  // and the adapter stays busy until the provider's own `turn/completed`.
+  it('publishes the reply that follows a policy steer and completes only on turn/completed', async () => {
+    const client = createSyntheticTurnClient([]);
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'thread/inject_items') return { turn: { id: 'n/a', status: 'n/a' } };
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      const emit = (notificationMethod: string, params: Record<string, unknown>) =>
+        client.notificationHandler?.({ method: notificationMethod, params });
+      emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+      emit('item/completed', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'The list' },
+      });
+      // The steer lands inside the 250 ms window, Codex answers it well after.
+      setTimeout(() => { void adapter.executeContextAction('steer-turn'); }, 50);
+      setTimeout(() => {
+        emit('item/completed', {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: { id: 'message-2', type: 'agentMessage', phase: 'final_answer', text: 'The list is complete.' },
+        });
+        emit('turn/completed', {
+          threadId: 'thread-1',
+          turn: { id: 'turn-1', status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } },
+        });
+      }, 500);
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    });
+    const adapter = new CodexCliAdapter();
+    const outputs: string[] = [];
+    const completions: Array<{ content: string }> = [];
+    const statuses: string[] = [];
+    adapter.on('output', (output: { content: string }) => outputs.push(output.content));
+    adapter.on('complete', (response: { content: string }) => completions.push(response));
+    adapter.on('status', (status: string) => statuses.push(status));
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Write the list');
+
+    expect(client.request.mock.calls.some(([method]) => method === 'thread/inject_items')).toBe(true);
+    expect(outputs).toContain('The list is complete.');
+    expect(completions).toEqual([expect.objectContaining({ content: 'The list is complete.' })]);
+    expect(statuses).not.toContain('idle');
+  });
+
   it('surfaces a subagent async question without ending the root turn', async () => {
     const client = createSyntheticTurnClient([]);
     client.request.mockImplementation(async (method: string) => {

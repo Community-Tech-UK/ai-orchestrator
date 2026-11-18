@@ -218,6 +218,44 @@ describe('CodexAppServerThreadRuntime', () => {
     await capture;
   });
 
+  // LT-1090: Codex can answer a policy steer after its final answer. The steer
+  // must stop the 250 ms inferred completion, or the reply is dropped and the
+  // session reads idle before the provider's own `turn/completed`.
+  it('keeps the turn open for the provider after an accepted policy steer', async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = new CodexAppServerThreadRuntime();
+      const client = new FakeClient();
+      runtime.attach(client, { threadId: 'thread-1', resumeCursor: cursor, resumeProof });
+      client.request.mockImplementation(async (method: string) => {
+        if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress' } };
+        if (method === 'thread/inject_items') return {};
+        throw new Error(`unexpected method ${method}`);
+      });
+
+      const capture = runtime.captureTurn(captureOptions());
+      client.emit('turn/started', { threadId: 'thread-1', turn: { id: 'turn-1' } });
+      const state = runtime.getActiveTurnState();
+      if (!state) throw new Error('expected an active turn');
+      const inferredCompletion = vi.fn();
+      state.finalAnswerSeen = true;
+      state.completionTimer = setTimeout(inferredCompletion, 250) as unknown as NodeJS.Timeout;
+      expect(state.steeredInputAccepted).toBe(false);
+
+      expect(await runtime.steerActiveTurn()).toBe(true);
+      expect(state.steeredInputAccepted).toBe(true);
+      expect(state.completionTimer).toBeNull();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(inferredCompletion).not.toHaveBeenCalled();
+      expect(state.completed).toBe(false);
+
+      client.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } });
+      await capture;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // LT-657: a Harness-authored turn (continuation, check-in, orchestrator
   // response) starts from a developer item with no user input at all.
   it('starts a Harness-authored turn from a developer item with empty user input', async () => {

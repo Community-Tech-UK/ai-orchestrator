@@ -6390,7 +6390,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 15762
+      "lines": 15854
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6445,12 +6445,12 @@
       "lines": 3716
     },
     {
-      "path": "src/main/instance/rlm-process-ownership.spec.ts",
-      "lines": 3686
+      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
+      "lines": 3715
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3664
+      "path": "src/main/instance/rlm-process-ownership.spec.ts",
+      "lines": 3686
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
