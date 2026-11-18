@@ -12,21 +12,22 @@ interface MeasurementAdapter { requestContextUsage?: () => Promise<ClaudeControl
 export class ProviderContextMeasurementService {
   private readonly cache = new Map<string, { stamp: string; reply: Promise<ContextProviderMeasurement> }>();
   measure(instance: MeasurementInstance, adapter: MeasurementAdapter | undefined,
-    estimate: () => Promise<ContextAttributionReport>): Promise<ContextProviderMeasurement> {
-    const stamp = `${instance.sessionId}:${instance.requestCount}:${instance.restartEpoch}:${instance.adapterGeneration}`;
+    estimate: () => Promise<ContextAttributionReport>, showCost = false): Promise<ContextProviderMeasurement> {
+    const stamp = `${instance.sessionId}:${instance.requestCount}:${instance.restartEpoch}:${instance.adapterGeneration}:${showCost}`;
     const prior = this.cache.get(instance.id);
     if (prior?.stamp === stamp) return prior.reply;
-    const reply = this.query(instance, adapter, estimate);
+    const reply = this.query(instance, adapter, estimate, showCost);
     this.cache.delete(instance.id); this.cache.set(instance.id, { stamp, reply });
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value!);
     return reply;
   }
   private async query(instance: MeasurementInstance, adapter: MeasurementAdapter | undefined,
-    estimate: () => Promise<ContextAttributionReport>): Promise<ContextProviderMeasurement> {
+    estimate: () => Promise<ContextAttributionReport>, showCost: boolean): Promise<ContextProviderMeasurement> {
     let status: Exclude<ContextProviderMeasurement['status'], 'measured'> = adapter ? 'not-supported' : 'not-running';
     const lastRewrite = getCacheAnalyticsService().getReport(instance.id).lastBreak;
-    const facts = { instance, ...(lastRewrite?.cause && lastRewrite.missedTokens !== undefined
-      ? { cacheRewrite: { cause: lastRewrite.cause, missedTokens: lastRewrite.missedTokens } } : {}) };
+    const facts = { instance, showCost, ...(lastRewrite?.cause && lastRewrite.missedTokens !== undefined
+      ? { cacheRewrite: { cause: lastRewrite.cause, missedTokens: lastRewrite.missedTokens,
+        ...(lastRewrite.extraCostUsd !== undefined ? { extraCostUsd: lastRewrite.extraCostUsd } : {}) } } : {}) };
     if (typeof adapter?.requestContextUsage === 'function') {
       try {
         const reply = await adapter.requestContextUsage();

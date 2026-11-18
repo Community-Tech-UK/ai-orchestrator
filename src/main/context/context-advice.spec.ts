@@ -14,4 +14,11 @@ describe('context advice', () => {
   it('suppresses advice for machine sessions with the canonical session rule', () => {
     expect(buildContextAdvice({ totalTokens: 120000, toolResultTokens: 40000, categories: [] }, { instance: { metadata: { planQueueRole: 'worker' } } })).toEqual([]);
   });
+  it('prices the cache re-send only when cost display is on and a price exists', () => {
+    const cacheRewrite = { cause: 'idle 72 min', missedTokens: 120000, extraCostUsd: 1.2 };
+    const text = (facts: Parameters<typeof buildContextAdvice>[1]) => buildContextAdvice({ totalTokens: 1000, categories: [] }, facts).find(a => a.id === 'cache')?.text;
+    expect(text({ cacheRewrite, showCost: true })).toContain('idle 72 min · 120K tokens (≈$1.20 API-price equivalent)');
+    expect(text({ cacheRewrite, showCost: false })).not.toContain('$');
+    expect(text({ cacheRewrite: { cause: 'idle 72 min', missedTokens: 120000 }, showCost: true })).not.toContain('$');
+  });
 });

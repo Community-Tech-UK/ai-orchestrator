@@ -32,7 +32,7 @@ export class ContextMeasuredViewComponent implements OnInit {
   readonly error = signal('');
   private readonly ipc = inject(ElectronIpcService);
   private readonly instances = inject(InstanceStore);
-  readonly canMeasure = computed(() => ['idle', 'ready', 'waiting_for_input'].includes(this.instances.getInstance(this.instanceId())?.status ?? ''));
+  readonly canMeasure = computed(() => ['idle', 'ready'].includes(this.instances.getInstance(this.instanceId())?.status ?? ''));
   readonly asleep = computed(() => ['hibernated', 'hibernating'].includes(this.instances.getInstance(this.instanceId())?.status ?? ''));
   ngOnInit(): void { if (this.canMeasure()) void this.measure(); }
   async measure(): Promise<void> {

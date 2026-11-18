@@ -22,4 +22,16 @@ describe('measured context view', () => {
     compact.find(button => button.textContent === 'Compact now')!.click(); await fixture.whenStable();
     expect(compactInstance).toHaveBeenCalledWith('i');
   });
+  it('offers the measure button only while the session is idle', async () => {
+    const contextProviderMeasure = vi.fn();
+    TestBed.configureTestingModule({ imports: [ContextMeasuredViewComponent], providers: [
+      { provide: InstanceStore, useValue: { getInstance: () => ({ status: 'waiting_for_input' }), compactInstance: vi.fn() } },
+      { provide: ElectronIpcService, useValue: { getApi: () => ({ contextProviderMeasure }) } },
+    ] });
+    const fixture = TestBed.createComponent(ContextMeasuredViewComponent);
+    (fixture.componentInstance as unknown as { instanceId: () => string }).instanceId = () => 'i';
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
+    expect(contextProviderMeasure).not.toHaveBeenCalled();
+  });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProviderContextMeasurementService } from './provider-context-measurement';
+import { getCacheAnalyticsService } from './cache-analytics-service';
 describe('provider context measurement caching', () => {
   const instance = { id: 'i', sessionId: 's', requestCount: 1, restartEpoch: 0, adapterGeneration: 1 };
   const estimate = async () => ({ instanceId: 'i', computedAt: 0, buckets: [] });
@@ -20,5 +21,15 @@ describe('provider context measurement caching', () => {
     expect((await new ProviderContextMeasurementService().measure(instance, undefined, estimate)).status).toBe('not-running');
     expect((await new ProviderContextMeasurementService().measure(instance, {}, estimate)).status).toBe('not-supported');
     expect((await new ProviderContextMeasurementService().measure(instance, { requestContextUsage: async () => ({ ok: true, payload: {} }) }, estimate)).status).toBe('error');
+  });
+  it('passes the priced last cache break into the advice, honouring the cost setting', async () => {
+    const lastBreak = { cause: 'idle 72 min', missedTokens: 120000, extraCostUsd: 1.2 };
+    const spy = vi.spyOn(getCacheAnalyticsService(), 'getReport').mockReturnValue({ lastBreak } as never);
+    const adapter = { requestContextUsage: async () => ({ ok: true as const, payload: { totalTokens: 100, maxTokens: 1000, categories: [{ name: 'Messages', tokens: 100 }] } }) };
+    const priced = await new ProviderContextMeasurementService().measure(instance, adapter, estimate, true);
+    expect(priced.advice.find(a => a.id === 'cache')?.text).toContain('≈$1.20 API-price equivalent');
+    const hidden = await new ProviderContextMeasurementService().measure(instance, adapter, estimate, false);
+    expect(hidden.advice.find(a => a.id === 'cache')?.text).not.toContain('$');
+    spy.mockRestore();
   });
 });

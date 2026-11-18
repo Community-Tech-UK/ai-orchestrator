@@ -91,7 +91,7 @@ export function registerDiagnosticsHandlers(deps: DiagnosticsHandlerDependencies
       const instance = deps.instanceManager?.getInstance(instanceId);
       if (!instance) return toErrorResponse('CONTEXT_PROVIDER_UNKNOWN_INSTANCE', new Error('Session not found.'));
       const adapter = deps.instanceManager?.getAdapter(instanceId) as { requestContextUsage?: () => Promise<import('../../cli/adapters/claude-control-channel').ClaudeControlReply> } | undefined;
-      return { success: true, data: await measurement.measure(instance, adapter, () => estimateAttribution(instance)) };
+      return { success: true, data: await measurement.measure(instance, adapter, () => estimateAttribution(instance), getSettingsManager().get('showCost') === true) };
     }));
   ipcMain.handle(
     IPC_CHANNELS.DIAGNOSTICS_GET_DOCTOR_REPORT,
