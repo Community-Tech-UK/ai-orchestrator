@@ -22,6 +22,7 @@ import { createWorkflowDomain } from './domains/workflow.preload';
 import { createPromptHistoryDomain } from './domains/prompt-history.preload';
 import { createPauseDomain } from './domains/pause.preload';
 import { createGlobalPauseDomain } from './domains/global-pause.preload';
+import { createLiveTestQuestionDomain } from './domains/live-test-question.preload';
 import { createSessionWatcherDomain } from './domains/session-watcher.preload';
 import { createDiagnosticsDomain } from './domains/diagnostics.preload';
 import { createMemoryDomain } from './domains/memory.preload';
@@ -77,6 +78,7 @@ const withAuth = (
  */
 const electronAPI = {
   ...createInstanceDomain(ipcRenderer, IPC_CHANNELS, withAuth),
+  ...createLiveTestQuestionDomain(ipcRenderer, IPC_CHANNELS, withAuth),
   ...createQuickAskDomain(ipcRenderer, IPC_CHANNELS),
   ...createFileDomain(ipcRenderer, IPC_CHANNELS),
   ...createSessionDomain(ipcRenderer, IPC_CHANNELS),

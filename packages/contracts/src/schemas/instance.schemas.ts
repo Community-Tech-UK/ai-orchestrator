@@ -375,6 +375,18 @@ export type InstanceSetComputerUseModePayload = z.infer<
   typeof InstanceSetComputerUseModePayloadSchema
 >;
 
+// ============ Live-test question sessions ============
+
+export const LiveTestQuestionSessionCreatePayloadSchema = z.object({
+  /** Added by the preload bridge; sender trust remains the authority boundary. */
+  ipcAuthToken: z.string().optional(),
+}).strict();
+
+export const LiveTestQuestionSessionRemovePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  ipcAuthToken: z.string().optional(),
+}).strict();
+
 // ============ Input Required Response ============
 
 export const InputRequiredResponsePayloadSchema = z.object({

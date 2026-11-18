@@ -54,6 +54,7 @@ import {
 import { getInstanceCreateIdempotencyCache } from './instance-create-idempotency';
 import type { ComputerUseAutonomyLevel } from '../../../shared/types/desktop-gateway-settings.types';
 import { registerInstanceComputerUseHandler } from './instance-computer-use-handler';
+import { registerLiveTestQuestionSessionHandlers } from './live-test-question-session-handlers';
 import { prepareUserClose } from './instance-close-all';
 import { sendInstanceInput } from './instance-send-continuation';
 import { GlobalPauseService } from '../../global-pause/global-pause-service';
@@ -75,6 +76,7 @@ export function registerInstanceHandlers(deps: {
 }): void {
   const { instanceManager } = deps;
   registerInstanceComputerUseHandler(deps);
+  registerLiveTestQuestionSessionHandlers(deps);
 
   // ============================================
   // Instance Lifecycle Handlers

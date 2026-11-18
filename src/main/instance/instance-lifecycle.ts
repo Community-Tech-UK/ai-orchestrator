@@ -119,6 +119,7 @@ import { removeInstanceHardened, setInstanceHardened } from './lifecycle/hardene
 import { configureInstanceTaskTools, removeInstanceTaskTools } from './lifecycle/task-tools-scoping';
 import { removeInstanceContainedExecution, setInstanceContainedExecution } from './lifecycle/contained-execution-scoping';
 import { removeInstanceSignalFence, setInstanceSignalFence } from './lifecycle/signal-fence-scoping';
+import { isLiveTestQuestionFolder } from '../cli/adapters/live-test-question-fixtures';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
 import { getFailoverManager } from '../providers/failover-manager';
@@ -819,6 +820,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     if (instance.executionLocation.type === 'remote' && instance.provider !== 'auto') {
       return instance.provider as CliType;
     }
+    // A live-test question session has no installed CLI to detect; it must keep its requested provider.
+    if (isLiveTestQuestionFolder(instance.workingDirectory)) return instance.provider as CliType;
     const settingsAll = this.settings.getAll();
     return resolveCliType(instance.provider, settingsAll.defaultCli);
   }
@@ -1526,7 +1529,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           default: settingsAll.defaultCli,
           preserveForcedRemoteProvider,
         });
-        const resolvedCliType = preserveForcedRemoteProvider
+        const resolvedCliType = preserveForcedRemoteProvider || isLiveTestQuestionFolder(instance.workingDirectory)
           ? config.provider as CliType
           : await resolveCliType(config.provider, settingsAll.defaultCli);
 

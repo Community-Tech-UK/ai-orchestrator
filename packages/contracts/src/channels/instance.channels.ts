@@ -67,6 +67,10 @@ export const INSTANCE_CHANNELS = {
   /** Main → renderer: a pending input request was settled without the user (timeout, auto-approve, turn cancelled, CLI exit). */
   INPUT_REQUIRED_RESOLVED: 'instance:input-required-resolved',
 
+  /** Live-test app only: start or remove a disposable session that raises a real question card. */
+  LIVE_TEST_QUESTION_SESSION_CREATE: 'instance:live-test-question-session-create',
+  LIVE_TEST_QUESTION_SESSION_REMOVE: 'instance:live-test-question-session-remove',
+
   // Queue persistence (Pause on VPN feature)
   INSTANCE_QUEUE_SAVE: 'instance:queue-save',
   INSTANCE_QUEUE_LOAD_ALL: 'instance:queue-load-all',

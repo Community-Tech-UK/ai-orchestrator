@@ -32,6 +32,7 @@ import { remoteClaudeSpawnPolicyFor } from './remote-claude-spawn-policy';
 import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { getLogger } from '../../logging/logger';
 import { configureHardenedAdapter } from './hardened-adapter-config';
+import { createLiveTestQuestionAdapter } from './live-test-question-adapter';
 import { hardenedModeUnsupportedMessage, isHardenedModeSupported } from '../../../shared/hardened-mode-support';
 import { providerToolName } from '../../../shared/display-names';
 import { isInstanceHardened } from '../../instance/lifecycle/hardened-mode-scoping';
@@ -653,6 +654,8 @@ export function createCliAdapter(
   options: UnifiedSpawnOptions,
   executionLocation?: ExecutionLocation,
 ): CliAdapter {
+  const questionFixture = createLiveTestQuestionAdapter(cliType, options, executionLocation);
+  if (questionFixture) return questionFixture;
   // WS-C7: a contained-execution-profile instance (registered by
   // AutomationRunner via contained-execution-scoping.ts) always spawns with a
   // filtered environment, on every provider adapter and across respawns —

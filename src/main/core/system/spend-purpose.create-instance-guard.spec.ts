@@ -59,6 +59,8 @@ const PERSON_SITES: Record<string, SiteKind[]> = {
   // Step 15b: James clicks "Build in a new session" on an approved plan.
   'instance/plan-handoff/plan-build-handoff.ts': ['chat'],
   'ipc/handlers/instance-create-with-message.ts': ['chat'],
+  // A live-test control creates a disposable session over a scripted agent; no model is called, so nothing is spent.
+  'ipc/handlers/live-test-question-session-handlers.ts': ['chat'],
   // James clicks Start on the Set aside page; the session has no spend tag, so its turns file under Chat.
   'plan-queue/plan-queue-set-aside.ts': ['chat'],
   // The renderer's create call; `child` when it passes `parentInstanceId`, otherwise a root chat.
