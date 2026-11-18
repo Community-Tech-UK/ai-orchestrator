@@ -11,6 +11,7 @@ import type {
   PlanQueueLinearPreviewTextPayload,
   PlanQueueLinearTeamsSavePayload,
   PlanQueuePreviewPayload,
+  PlanQueueRouteChoice,
 } from '@contracts/schemas/plan-queue';
 
 export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
@@ -38,6 +39,18 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
 
     planQueueStartSetAsideAgent: (payload: { workspaceCwd: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_START_SET_ASIDE_AGENT, payload),
+
+    /** Live-test copies only; every other app refuses. See plan-queue-livetest-fixture.ts. */
+    planQueueLiveTestFixtureStart: (payload: {
+      parentInstanceId: string;
+      routing: { workers: PlanQueueRouteChoice[]; verifiers: PlanQueueRouteChoice[]; stepUp?: PlanQueueRouteChoice };
+      workload?: 'small' | 'long';
+    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LIVETEST_FIXTURE_START, payload),
+
+    planQueueLiveTestFixtureRemove: (payload: { fixtureId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LIVETEST_FIXTURE_REMOVE, payload),
+
+    planQueueLiveTestFixtureList: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LIVETEST_FIXTURE_LIST, {}),
 
     planQueueAnswer: (payload: { itemId: string; optionId: string }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_ANSWER, payload),

@@ -81,6 +81,9 @@ export function initializeHarnessLiveTest(options: {
 
 export function isHarnessLiveTest(): boolean { return context !== null; }
 
+/** The verified, owner-checked profile folder of a live-test copy; null in every other app. */
+export function harnessLiveTestDataPath(): string | null { return context?.dataPath ?? null; }
+
 /** Folder inside the owned profile that holds test-only stand-ins. The runner empties it on every start. */
 export const LIVE_TEST_OVERRIDES_DIR = 'live-test-overrides';
 const CLAUDE_STAND_IN_FILE = 'claude';

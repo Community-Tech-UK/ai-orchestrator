@@ -18,6 +18,11 @@ import {
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { getPlanQueueCoordinator } from '../../plan-queue/plan-queue-coordinator';
+import {
+  getPlanQueueLiveTestFixtures,
+  PlanQueueLiveTestFixtureRemoveSchema,
+  PlanQueueLiveTestFixtureStartSchema,
+} from '../../plan-queue/plan-queue-livetest-fixture';
 import type { WindowManager } from '../../window-manager';
 import { previewPlanQueueDocuments } from '../../plan-queue/plan-queue-discovery';
 import { repositoryRoot } from '../../plan-queue/plan-queue-git';
@@ -59,6 +64,14 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
     const validated = validateIpcPayload(PlanQueueStartSetAsideAgentPayloadSchema, payload, 'PLAN_QUEUE_START_SET_ASIDE_AGENT');
     return { instanceId: await coordinator.setAsideAgents.start(validated.workspaceCwd) };
   });
+
+  // Live-test copies only; the fixtures refuse everywhere else (plan-queue-livetest-fixture.ts).
+  const fixtures = () => getPlanQueueLiveTestFixtures(coordinator);
+  handle(IPC_CHANNELS.PLAN_QUEUE_LIVETEST_FIXTURE_START, 'PLAN_QUEUE_LIVETEST_FIXTURE_START_FAILED', (payload) =>
+    fixtures().start(validateIpcPayload(PlanQueueLiveTestFixtureStartSchema, payload, 'PLAN_QUEUE_LIVETEST_FIXTURE_START')));
+  handle(IPC_CHANNELS.PLAN_QUEUE_LIVETEST_FIXTURE_REMOVE, 'PLAN_QUEUE_LIVETEST_FIXTURE_REMOVE_FAILED', (payload) =>
+    fixtures().remove(validateIpcPayload(PlanQueueLiveTestFixtureRemoveSchema, payload, 'PLAN_QUEUE_LIVETEST_FIXTURE_REMOVE').fixtureId));
+  handle(IPC_CHANNELS.PLAN_QUEUE_LIVETEST_FIXTURE_LIST, 'PLAN_QUEUE_LIVETEST_FIXTURE_LIST_FAILED', () => ({ fixtures: fixtures().list() }));
 
   handle(IPC_CHANNELS.PLAN_QUEUE_PREVIEW, 'PLAN_QUEUE_PREVIEW_FAILED', async (payload) => {
     const validated = validateIpcPayload(PlanQueuePreviewPayloadSchema, payload, 'PLAN_QUEUE_PREVIEW');

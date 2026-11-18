@@ -28,6 +28,12 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_START: 'plan-queue:start',
   /** Start, or return, the agent that sorts out one folder's set-aside jobs. */
   PLAN_QUEUE_START_SET_ASIDE_AGENT: 'plan-queue:start-set-aside-agent',
+  /** Live-test copy only: make a disposable repository with a plan and start a run on it. */
+  PLAN_QUEUE_LIVETEST_FIXTURE_START: 'plan-queue:livetest-fixture-start',
+  /** Live-test copy only: cancel and take away a run made by the fixture start, and its repository. */
+  PLAN_QUEUE_LIVETEST_FIXTURE_REMOVE: 'plan-queue:livetest-fixture-remove',
+  /** Live-test copy only: the fixtures this copy made, which survive a restart. */
+  PLAN_QUEUE_LIVETEST_FIXTURE_LIST: 'plan-queue:livetest-fixture-list',
   /** Answer an item's question (radio choice in the panel). */
   PLAN_QUEUE_ANSWER: 'plan-queue:answer',
   /** Pause / resume / cancel a run; skip / resume / land-anyway / discard an item. */

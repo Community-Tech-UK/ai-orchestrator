@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  initializeHarnessLiveTest, isHarnessLiveTest, LIVE_TEST_OVERRIDES_DIR, resolveLiveTestClaudeStandIn, writeHarnessLiveTestReceipt,
+  harnessLiveTestDataPath, initializeHarnessLiveTest, isHarnessLiveTest, LIVE_TEST_OVERRIDES_DIR, resolveLiveTestClaudeStandIn,
+  writeHarnessLiveTestReceipt,
 } from './live-test-context';
 
 const dirs: string[] = [];
@@ -34,6 +35,7 @@ describe('owned live-test context', () => {
     const f = fixture();
     expect(initializeHarnessLiveTest(f.options)?.dataPath).toBe(f.data);
     expect(isHarnessLiveTest()).toBe(true);
+    expect(harnessLiveTestDataPath()).toBe(f.data);
     writeHarnessLiveTestReceipt({ pid: process.pid, isPackaged: true, version: 'test', ready: true });
     expect(JSON.parse(readFileSync(join(f.root, 'runtime.json'), 'utf8'))).toMatchObject({
       pid: process.pid, isPackaged: true, ready: true, tree: f.owner.tree, dataPath: f.data, executablePath: f.executable,
@@ -48,6 +50,7 @@ describe('owned live-test context', () => {
     expect(() => initializeHarnessLiveTest({ ...f.options, execPath: process.execPath })).toThrow(/executable/);
     expect(() => initializeHarnessLiveTest({ ...f.options, isPackaged: false })).toThrow(/mode/);
     expect(isHarnessLiveTest()).toBe(false);
+    expect(harnessLiveTestDataPath()).toBeNull();
   });
 
   it('refuses normal-profile overlap and a symlinked profile', () => {
