@@ -6463,7 +6463,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3723
+      "lines": 3742
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6563,7 +6563,7 @@
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
-      "lines": 2478
+      "lines": 2502
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -6871,7 +6871,7 @@
     },
     {
       "path": "src/main/automations/automation-runner.spec.ts",
-      "lines": 1365
+      "lines": 1368
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -7014,11 +7014,11 @@
       "lines": 1256
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1250
+      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
+      "lines": 1253
     },
     {
-      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1250
     },
     {
@@ -7462,6 +7462,10 @@
       "lines": 947
     },
     {
+      "path": "src/shared/types/instance.types.ts",
+      "lines": 947
+    },
+    {
       "path": "src/worker-agent/provider-runtime-diagnostics.spec.ts",
       "lines": 944
     },
@@ -7471,7 +7475,7 @@
     },
     {
       "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 941
+      "lines": 942
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
@@ -7498,10 +7502,6 @@
       "lines": 935
     },
     {
-      "path": "src/shared/types/instance.types.ts",
-      "lines": 935
-    },
-    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 931
     },
@@ -7518,8 +7518,16 @@
       "lines": 922
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 920
+    },
+    {
       "path": "src/main/memory/skills-loader.spec.ts",
       "lines": 919
+    },
+    {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 917
     },
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
@@ -7536,14 +7544,6 @@
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
       "lines": 911
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 911
-    },
-    {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 910
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
@@ -7666,6 +7666,10 @@
       "lines": 874
     },
     {
+      "path": "src/main/automations/automation-runner.ts",
+      "lines": 874
+    },
+    {
       "path": "src/main/instance/lifecycle/__tests__/interrupt-respawn-handler.spec.ts",
       "lines": 874
     },
@@ -7720,10 +7724,6 @@
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 854
-    },
-    {
-      "path": "src/main/automations/automation-runner.ts",
-      "lines": 853
     },
     {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
@@ -7870,16 +7870,16 @@
       "lines": 807
     },
     {
+      "path": "packages/contracts/src/schemas/instance.schemas.ts",
+      "lines": 806
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",
       "lines": 805
     },
     {
       "path": "src/renderer/app/features/training/training-page.component.ts",
       "lines": 805
-    },
-    {
-      "path": "packages/contracts/src/schemas/instance.schemas.ts",
-      "lines": 804
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",

@@ -158,6 +158,7 @@ import {
 import type { AppSettings } from '@shared/types/settings.types';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import { createInitialUserMessage } from '../instance/lifecycle/initial-user-message';
+import { WorkAdmission } from '../work-admission/work-admission';
 
 describe('createOrchestratorToolsStep settings node-config integration', () => {
   beforeEach(() => {
@@ -1318,6 +1319,29 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
     const firstMessage = createInitialUserMessage(config);
     expect(firstMessage?.content).toBe('read [session: Foreign · foreign] first');
     expect(firstMessage?.metadata?.inputOrigin).toBeUndefined();
+  });
+
+  it('counts run_on_node sessions that are still starting against the helper-agent limit', async () => {
+    const admission = new WorkAdmission({ cpuCount: () => 8, loadAverage: () => [0, 0] });
+    admission.setWorkloadLevel(1);
+    vi.spyOn(WorkAdmission, 'getInstance').mockReturnValue(admission);
+    try {
+      captured.registry.getAllNodes.mockReturnValue([makeNode()]);
+      const release: Array<() => void> = [];
+      const createInstance = vi.fn((config: Record<string, unknown>) => new Promise(resolve => {
+        release.push(() => resolve({ id: `inst-${release.length}`, status: 'initializing', ...config }));
+      }));
+      await startStep({ createInstance });
+      const spawn = captured.initializeOptions!.spawnRemoteInstance!;
+      const first = spawn({ node: 'windows-pc', prompt: 'one' });
+      const second = spawn({ node: 'windows-pc', prompt: 'two' });
+      const third = spawn({ node: 'windows-pc', prompt: 'three' });
+      await expect(third).rejects.toThrow('at most 2 helper agents');
+      release.forEach(done => done());
+      await Promise.allSettled([first, second]);
+    } finally {
+      vi.mocked(WorkAdmission.getInstance).mockRestore();
+    }
   });
 
   it('injects only canonical enabled instance evidence ownership into MCP', async () => {

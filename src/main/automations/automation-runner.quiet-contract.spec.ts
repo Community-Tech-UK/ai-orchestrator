@@ -93,6 +93,7 @@ describe('AutomationRunner quiet-reply contract wiring (8c)', () => {
     get: vi.fn(),
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
+    listPendingRuns: vi.fn(() => []),
     failRunningRuns: vi.fn(),
     listRunningLoopLinkedRuns: vi.fn(() => []),
     recordRunOutcome: vi.fn(),

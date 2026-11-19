@@ -382,6 +382,8 @@ export interface CreateInstanceWithMessageOptions {
 
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
+  /** Start on a computer that takes agent sessions when one can run it; this Mac otherwise. */
+  preferOtherComputer?: boolean;
   /**
    * Stable per-submission key from `ComposerSubmissionService`. Sent to the
    * main process so a retry after a slow acknowledgement returns the original

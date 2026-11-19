@@ -412,6 +412,7 @@ export const SETTINGS_TOOL_POLICY = {
   thinkingDefaultExpanded: open(z.boolean()),
   showWorkingTips: open(z.boolean()),
   claudeShowTaskList: open(z.boolean()),
+  preferOtherComputers: open(z.boolean()),
   showCost: open(z.boolean()),
   maxRecentDirectories: open(numberSettingSchema('maxRecentDirectories')),
   keybindingCustomizations: open(keybindingCustomizationsSchema),

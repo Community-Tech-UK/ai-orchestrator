@@ -623,6 +623,12 @@ export interface AppSettings
   remoteNodesRegisteredNodes: string;
   /** Paired computers in the order Harness tries them for new work; this Mac comes after all of them. */
   computers: ComputerChoice[];
+  /**
+   * A new session you start, or a scheduled job, that names no computer starts on one that takes agent sessions when one
+   * can run it now (signed in, has the folder, has room). Off until the code a session works on is sent to the other
+   * computer and brought back.
+   */
+  preferOtherComputers: boolean;
 
   // Thin-client WebSocket API (web/mobile/event transport)
   thinClientWsEnabled: boolean;

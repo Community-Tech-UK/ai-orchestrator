@@ -311,8 +311,9 @@ export class AutomationScheduler {
     maxAttempts: number,
   ): Promise<void> {
     const admission = getWorkAdmission();
-    if (!admission.check('automation-run', { remote: Boolean(originalRun.configSnapshot?.action.forceNodeId) }).allowed) {
-      admission.defer(`automation-retry-fire:${originalRun.id}`, 'automation-run', () => this.onRetryTimer(originalRun, nextAttempt, maxAttempts), { remote: Boolean(originalRun.configSnapshot?.action.forceNodeId) });
+    const otherComputer = originalRun.configSnapshot ? await this.runner.runsOnOtherComputer(originalRun.configSnapshot.action, originalRun.configSnapshot.destination.kind) : false;
+    if (!admission.check('automation-run', { otherComputer }).allowed) {
+      admission.defer(`automation-retry-fire:${originalRun.id}`, 'automation-run', () => this.onRetryTimer(originalRun, nextAttempt, maxAttempts), { otherComputer });
       return;
     }
     this.retryHandles.delete(originalRun.id);

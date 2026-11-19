@@ -8,6 +8,7 @@ import type {
   NodePlatform,
 } from '../../shared/types/worker-node.types';
 import type { ComputerChoice } from '../../shared/types/settings.types';
+import { nodeHasFolder, nodeSignInState } from './node-eligibility';
 
 const logger = getLogger('WorkerNodeRegistry');
 
@@ -198,6 +199,11 @@ export class WorkerNodeRegistry extends EventEmitter {
       prefs.requiresWorkingDirectory &&
       !caps.workingDirectories.includes(prefs.requiresWorkingDirectory)
     ) {
+      return -Infinity;
+    }
+
+    if (prefs.requiresFolderUnder && !nodeHasFolder(caps, prefs.requiresFolderUnder)) return -Infinity;
+    if (prefs.requiresSignIn && nodeSignInState(caps, prefs.requiresSignIn.provider, prefs.requiresSignIn.profileId) !== 'signed-in') {
       return -Infinity;
     }
 

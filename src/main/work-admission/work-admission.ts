@@ -12,7 +12,13 @@ export type WorkKind = 'queue-job' | 'queue-check' | 'queue-checklist' | 'queue-
 export type AdmissionDecision = { allowed: true } | {
   allowed: false; reason: 'maintenance' | 'held' | 'paused' | 'over-limit' | 'computer-busy'; detail: string;
 };
-export interface AdmissionContext { remote?: boolean; activeCount?: number }
+export interface AdmissionContext {
+  /** Exempt from the "at once" limits and this Mac's load: work the engines own, or checks that only ask whether work is paused. */
+  remote?: boolean;
+  /** Runs on another computer: still counts against the "at once" limits, but this Mac's load doesn't matter to it. */
+  otherComputer?: boolean;
+  activeCount?: number;
+}
 interface AdmissionOptions { cpuCount?: () => number; loadAverage?: () => number[] }
 interface DeferredWork { kind: WorkKind; run: () => void | Promise<void>; context?: AdmissionContext }
 
@@ -120,7 +126,7 @@ export class WorkAdmission extends EventEmitter {
         : 'Waiting for running work to finish at the current workload.';
       return { allowed: false, reason: 'over-limit', detail };
     }
-    if (limits.loadPerCore !== null) {
+    if (limits.loadPerCore !== null && !context.otherComputer) {
       const threshold = limits.loadPerCore * Math.max(1, this.options.cpuCount?.() ?? cpus().length);
       const [one = 0, five = 0] = this.options.loadAverage?.() ?? loadavg();
       if (one > threshold || five > threshold) return {

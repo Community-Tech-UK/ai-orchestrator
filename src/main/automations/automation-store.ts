@@ -540,6 +540,16 @@ export class AutomationStore {
     return tx();
   }
 
+  /** Pending runs in the order `claimNextPending` considers them. */
+  listPendingRuns(automationId?: string): AutomationRun[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM automation_runs
+      WHERE status = 'pending' ${automationId ? 'AND automation_id = ?' : ''}
+      ORDER BY scheduled_at ASC, created_at ASC
+    `).all<AutomationRunRow>(...(automationId ? [automationId] : []));
+    return rows.map(row => this.mapRun(row));
+  }
+
   cancelPending(automationId: string, now = Date.now()): AutomationRun[] {
     return cancelPendingRuns(this.db, automationId, now);
   }

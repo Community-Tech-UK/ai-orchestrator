@@ -57,7 +57,7 @@ export function createInstanceDomain(
       yoloMode?: boolean;
       bareMode?: boolean;
       fastMode?: boolean;
-      forceNodeId?: string;
+      forceNodeId?: string; preferOtherComputer?: boolean;
       browserToolsMode?: 'eager' | 'deferred' | 'off';
       hardened?: boolean; signalFence?: boolean;
       /** Stable per-submission key; a retry with the same key is deduplicated. */

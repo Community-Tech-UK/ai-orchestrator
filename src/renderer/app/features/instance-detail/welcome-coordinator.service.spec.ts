@@ -3,6 +3,7 @@ import { signal } from '@angular/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -91,11 +92,13 @@ describe('WelcomeCoordinatorService workflow launch', () => {
   let recentDirs: {
     addDirectory: ReturnType<typeof vi.fn>;
   };
+  let settingValues: Record<string, unknown>;
   let remoteNodeStore: {
     nodeById: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
+    settingValues = {};
     store = {
       createInstanceWithMessageResult: vi.fn().mockResolvedValue({ ok: true, instanceId: 'inst-new' }),
       createInstanceAndReturnId: vi.fn().mockResolvedValue('inst-new'),
@@ -149,6 +152,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
         WelcomeCoordinatorService,
         { provide: InstanceStore, useValue: store },
         { provide: RemoteNodeStore, useValue: remoteNodeStore },
+        { provide: SettingsStore, useValue: { get: (key: string) => settingValues[key] } },
         { provide: RecentDirectoriesIpcService, useValue: recentDirs },
         { provide: VcsIpcService, useValue: { vcsIsRepo: vi.fn(), vcsGetStatus: vi.fn() } },
         {
@@ -287,6 +291,48 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       launchMode: 'interactive',
       forceNodeId: undefined,
       typedByPerson: true,
+    });
+  });
+
+  describe('asking for another computer', () => {
+    const launch = async () => {
+      await service.submitWelcomeMessage('Look at this', vi.fn());
+      return store.createInstanceWithMessageResult.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    };
+
+    it('asks when the setting is on and no computer was chosen', async () => {
+      settingValues['preferOtherComputers'] = true;
+      expect((await launch())['preferOtherComputer']).toBe(true);
+    });
+
+    it('does not ask when the setting is off', async () => {
+      expect('preferOtherComputer' in (await launch())).toBe(false);
+    });
+
+    it('keeps the session here when the person picked This Mac, until they pick otherwise or launch', async () => {
+      settingValues['preferOtherComputers'] = true;
+      service.onWelcomeNodeChange(null);
+      expect('preferOtherComputer' in (await launch())).toBe(false);
+      // The launch clears the pick, so the next session asks again.
+      expect((await launch())['preferOtherComputer']).toBe(true);
+    });
+
+    it('forgets a This Mac pick when the visible session changes', async () => {
+      settingValues['preferOtherComputers'] = true;
+      service.onWelcomeNodeChange(null);
+      service.resetState();
+      expect((await launch())['preferOtherComputer']).toBe(true);
+    });
+
+    it('does not ask when a computer is named or a local model is chosen', async () => {
+      settingValues['preferOtherComputers'] = true;
+      remoteNodeStore.nodeById.mockReturnValue(makeRemoteNode('connected', true));
+      service.onWelcomeNodeChange('node-1');
+      expect('preferOtherComputer' in (await launch())).toBe(false);
+      service.onWelcomeNodeChange(null);
+      service.onWelcomeNodeChange(null);
+      newSessionDraft.modelRuntimeTarget.set({ kind: 'local-model', source: 'this-device', endpointProvider: 'ollama', endpointId: 'e', modelId: 'm', selectorId: 's' } as never);
+      expect('preferOtherComputer' in (await launch())).toBe(false);
     });
   });
 

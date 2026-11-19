@@ -58,6 +58,9 @@ import {
 
 const logger = getLogger('ProviderAccountRouting');
 
+/** Stands for "some other computer" when a choice is read before one is picked; remote choices ignore bindings. */
+const REMOTE_PLACEMENT_NODE_ID = 'remote-placement';
+
 export interface AccountRouteRequest {
   provider: PooledProvider;
   /** Model the session will use; scopes ledger lookups. */
@@ -247,6 +250,34 @@ export class ProviderAccountRoutingService {
     }
   }
 
+  /**
+   * The account a brand-new session would run on if it ran on another computer, read without waiting and without side
+   * effects: placement uses it to pick a computer signed in to that account. A computer's own sign-in is checked by the
+   * computer when the session starts, so the answer does not depend on which one. Null when no account can run it.
+   */
+  peekNewSessionProfileId(
+    request: Pick<AccountRouteRequest, 'provider' | 'model' | 'origin' | 'restrictTo' | 'avoid' | 'useLast'>,
+  ): string | null {
+    let profiles: ProviderAccountProfile[];
+    try {
+      profiles = this.store().listProfiles(request.provider);
+    } catch {
+      profiles = [];
+    }
+    if (!profiles.some((profile) => !profile.isLegacy)) {
+      const blocked = request.avoid?.includes(LEGACY_ACCOUNT_PROFILE_ID)
+        || (request.restrictTo?.length && !request.restrictTo.includes(LEGACY_ACCOUNT_PROFILE_ID));
+      return blocked ? null : LEGACY_ACCOUNT_PROFILE_ID;
+    }
+    if (request.restrictTo?.length) {
+      const allowed = new Set(request.restrictTo);
+      profiles = profiles.filter((profile) => allowed.has(profile.id));
+    }
+    if (profiles.length === 0) return null;
+    const { outcome } = this.selectDefault({ ...request, newSession: true }, profiles, REMOTE_PLACEMENT_NODE_ID, new Map());
+    return outcome.ok ? outcome.route.profileId : null;
+  }
+
   /** The route a spawn would get, with the selector's reasoning. No side effects beyond binding checks. */
   async preview(request: AccountRouteRequest): Promise<AccountRoutePreview> {
     const nodeId = request.executionNodeId ?? LOCAL_ACCOUNT_NODE_ID;
@@ -347,7 +378,6 @@ export class ProviderAccountRoutingService {
     profiles: ProviderAccountProfile[],
     nodeId: string,
   ): Promise<AccountRoutePreview> {
-    const model = request.model ?? null;
     const remote = nodeId !== LOCAL_ACCOUNT_NODE_ID;
     const bindings = new Map<string, AccountBindingState>();
     if (!remote) {
@@ -356,6 +386,21 @@ export class ProviderAccountRoutingService {
         bindings.set(profile.id, status.state);
       }));
     }
+    return this.selectDefault(request, profiles, nodeId, bindings);
+  }
+
+  /**
+   * The new-session account choice once bindings are known. Nothing here waits, so a remote choice (which ignores
+   * bindings) can also be read without waiting by `peekNewSessionProfileId`.
+   */
+  private selectDefault(
+    request: AccountRouteRequest,
+    profiles: ProviderAccountProfile[],
+    nodeId: string,
+    bindings: Map<string, AccountBindingState>,
+  ): AccountRoutePreview {
+    const model = request.model ?? null;
+    const remote = nodeId !== LOCAL_ACCOUNT_NODE_ID;
     const parked = this.readParked(request.provider, model);
     const parkedSince = parked.length > 0 ? this.readParkedSince(request.provider, model) : undefined;
     const quotaByProfile = new Map<string, AccountQuotaEvidence>();

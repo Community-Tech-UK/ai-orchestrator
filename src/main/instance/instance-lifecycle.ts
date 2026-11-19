@@ -20,6 +20,7 @@ import {
 } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { trackAutomaticStartupInitialization } from '../work-admission/automatic-startup';
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { addAdapterRollbackResource } from './lifecycle/adapter-rollback';
 import {
   initializeInstanceEvidenceOwnership,
@@ -105,7 +106,7 @@ import { createModelSelectionDegradationNotice, type ModelSelectionDegradation }
 import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
-import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
+import { resolveNewSessionPlacement, stayedHereMessage } from './lifecycle/default-computer-placement';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import {
   removeInstanceBrowserToolsMode,
@@ -1519,7 +1520,23 @@ export class InstanceLifecycleManager extends EventEmitter {
         const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
           ? config.modelRuntimeTarget
           : null;
-        const executionLocation = resolveExecutionLocation(config);
+        const { location: executionLocation, stayedHereBecause, accountProfileId: placedAccountProfileId } = resolveNewSessionPlacement(config, settingsAll.defaultCli, resolvedAgent.modelOverride);
+        if (stayedHereBecause) {
+          const placementNotice: OutputMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'system',
+            content: stayedHereMessage(stayedHereBecause),
+            metadata: { systemMessageKind: 'computer-choice' },
+          };
+          this.deps.addToOutputBuffer(instance, placementNotice);
+          this.emit('output', { instanceId: instance.id, message: placementNotice });
+        }
+        // Admission skipped this Mac's load check because the job was going elsewhere. It is here after all (the computer
+        // filled or signed out in between), so the check applies now, before anything starts.
+        if (config.admittedAsOtherComputer && executionLocation.type === 'local') {
+          await getWorkAdmission().wait('timed-wakeup', {}, signal);
+        }
         const preserveForcedRemoteProvider = executionLocation.type === 'remote'
           && config.forceNodeId !== undefined
           && config.provider !== undefined
@@ -1710,7 +1727,9 @@ export class InstanceLifecycleManager extends EventEmitter {
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(instance.id),
           modelRuntimeTarget: config.modelRuntimeTarget,
         };
-        const preflight = await this.spawnPreflight.prepare({ config, instance, provider: resolvedCliType, spawnOptions, executionLocation });
+        // A computer picked for its sign-in runs the session on that account, not on whatever the pool prefers by now.
+        const preflightConfig = placedAccountProfileId ? { ...config, accountProfileId: placedAccountProfileId } : config;
+        const preflight = await this.spawnPreflight.prepare({ config: preflightConfig, instance, provider: resolvedCliType, spawnOptions, executionLocation });
         stampRtkArm(instance, preflight.kind === 'warm' ? undefined : preflight.spawnOptions.rtk, resolvedCliType,
           preflight.kind !== 'warm' && preflight.executionLocation.type === 'local');
         let adapter: CliAdapter;

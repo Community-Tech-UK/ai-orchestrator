@@ -662,11 +662,14 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
       await writeFile(wrapperPath, [
         '#!/usr/bin/env node',
         'const { spawn } = require("node:child_process");',
-        'const { writeFileSync } = require("node:fs");',
+        'const { existsSync, writeFileSync } = require("node:fs");',
         'const child = spawn(process.execPath, ["-e",',
         `  ${JSON.stringify(`const {writeFileSync}=require("node:fs");let n=0;setInterval(()=>{writeFileSync(${JSON.stringify(heartbeatPath)},String(++n));${exitOnceProcessGone()}},25)`)}`,
         '], { stdio: "ignore", env: process.env });',
         `writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid));`,
+        // Close script input only once the descendant has written its first heartbeat, so a slow start under load cannot
+        // let cleanup kill it before the file exists.
+        `for (let i = 0; i < 500 && !existsSync(${JSON.stringify(heartbeatPath)}); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);`,
         'require("node:fs").closeSync(0);',
         `${IDLE_UNTIL_TEST_PROCESS_GONE};`,
       ].join('\n'));
@@ -677,7 +680,7 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
         const execution = execFileCaptureWithBoundedTermination(
           wrapperPath,
           [],
-          { input: 'x'.repeat(8 * 1024 * 1024), timeoutMs: 2_000 },
+          { input: 'x'.repeat(8 * 1024 * 1024), timeoutMs: 8_000 },
           {
             platform: process.platform,
             spawnProcess: processes.spawn,
@@ -709,7 +712,7 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
         }
       }
     },
-    10_000,
+    20_000,
   );
 
   it('preserves non-zero exit and stderr for a verified stdin script', async () => {

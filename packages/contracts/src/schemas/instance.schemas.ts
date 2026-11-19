@@ -226,6 +226,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   bareMode: z.boolean().optional(),
   fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
+  /** Start on a computer that takes agent sessions when one can run it; this Mac otherwise. */
+  preferOtherComputer: z.boolean().optional(),
   nodePlacement: NodePlacementPrefsSchema.optional(),
   browserToolsMode: z.enum(['eager', 'deferred', 'off']).optional(),
   hardened: z.boolean().optional(),

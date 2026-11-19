@@ -5,7 +5,7 @@ import type { EventEmitter } from 'node:events';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { getWorkAdmission } from '../work-admission/work-admission';
-import { ownedByEngine } from '../work-admission/engine-ownership';
+import { isRunningHelperAgent } from '../work-admission/helper-admission';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getAutomationEvents } from '../automations/automation-events';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
@@ -26,9 +26,7 @@ export function initializeGlobalPauseRuntime(manager: InstanceManager): GlobalPa
   service.on('state-changed', refire);
   const refresh = (): void => service.refreshState();
   admission.on('admission-changed', refresh);
-  const unregisterCounter = admission.registerCounter('helper-agent', () => manager.getAllInstances()
-    .filter((instance) => instance.parentId && instance.executionLocation?.type !== 'remote' && !ownedByEngine(instance)
-      && ['busy', 'processing', 'thinking_deeply', 'initializing', 'waiting_for_input', 'waiting_for_permission'].includes(instance.status)).length);
+  const unregisterCounter = admission.registerCounter('helper-agent', () => manager.getAllInstances().filter(isRunningHelperAgent).length);
   const sentinel = join(app.getPath('userData'), 'hold-new-work');
   const engageSentinel = (): void => { if (existsSync(sentinel)) service.hold('Held by a file in the data folder'); };
   engageSentinel();

@@ -280,6 +280,41 @@ describe('ProviderAccountRoutingService', () => {
   });
 });
 
+describe('ProviderAccountRoutingService: the account a new session would run on, read without waiting', () => {
+  const ask = (extra: Partial<Parameters<ProviderAccountRoutingService['peekNewSessionProfileId']>[0]> = {}) =>
+    service().peekNewSessionProfileId({ provider: 'claude', origin: 'interactive', ...extra });
+
+  it('is the legacy account while only the legacy profile exists, unless it is ruled out', () => {
+    profiles = [profile('legacy', 0)];
+    expect(ask()).toBe('legacy');
+    expect(ask({ avoid: ['legacy'] })).toBeNull();
+    expect(ask({ restrictTo: ['other'] })).toBeNull();
+  });
+
+  it('is the pooled account the session would route to, with no sign-in check on this Mac', () => {
+    bindingStates = { legacy: 'unauthenticated' };
+    expect(ask()).toBe('legacy');
+    expect(ask({ avoid: ['legacy'] })).toBe('max-b');
+    expect(ask({ useLast: ['legacy'] })).toBe('max-b');
+    expect(ask({ restrictTo: ['max-b'] })).toBe('max-b');
+    expect(checkBinding).not.toHaveBeenCalled();
+  });
+
+  it('agrees with the route a real spawn gets, and does not count as a use', async () => {
+    quota = {};
+    parked = ['legacy'];
+    const routing = service();
+    expect(routing.peekNewSessionProfileId({ provider: 'claude', origin: 'automation' })).toBe('max-b');
+    expect(routing.getLastUsedAt('claude').size).toBe(0);
+    const outcome = await routing.resolveRouteForSpawn({ provider: 'claude', origin: 'automation', executionNodeId: 'pc' });
+    expect(outcome).toMatchObject({ ok: true, route: { profileId: 'max-b' } });
+  });
+
+  it('is null when no account can run it', () => {
+    expect(ask({ avoid: ['legacy', 'max-b'] })).toBeNull();
+  });
+});
+
 describe('ProviderAccountRoutingService: restarting a session whose account is limited', () => {
   function automatic(overrides: Partial<ReturnType<typeof defaultProviderAccountPools>['claude']> = {}, deps: Partial<ProviderAccountRoutingDeps> = {}) {
     const pools = defaultProviderAccountPools();

@@ -30,6 +30,33 @@ export interface ModelSelectionInput {
   localModelId?: string;
 }
 
+export interface ModelCandidateInput {
+  provider: CliType;
+  configModelOverride?: string | null;
+  agentModelOverride?: string | null;
+  defaultModelByProvider?: Record<string, string>;
+  defaultModel?: string;
+}
+
+/**
+ * The model a session asks for before any catalogue check: precedence, replacement of retired ids and tier expansion.
+ * The spawn path and computer placement both use it, so placement asks the account pool about the same model the
+ * session will actually run with.
+ */
+export function resolveModelCandidate(input: ModelCandidateInput): {
+  model: string | undefined;
+  source: InitialModelSource;
+  tierResolution?: { tier: 'fast' | 'balanced' | 'powerful'; model?: string };
+} {
+  const resolution = resolveInitialModelWithSource(input);
+  const replaced = resolveModelReplacementForProvider(input.provider, resolution.model);
+  if (replaced && isModelTier(replaced)) {
+    const model = resolveModelForTier(replaced, input.provider);
+    return { model, source: resolution.source, tierResolution: { tier: replaced, model } };
+  }
+  return { model: replaced, source: resolution.source };
+}
+
 /**
  * Where the model being validated came from (LT-016). A rejection only deserves
  * a user-facing notice when the user actually chose the thing that was
@@ -75,29 +102,17 @@ export class ModelSelectionResolver {
     // Decision and provenance come from ONE call — see the note on
     // `resolveInitialModelWithSource` for why they must not be computed apart.
     const remote = input.executionTarget === 'remote';
-    const resolution = resolveInitialModelWithSource({
+    const candidate = resolveModelCandidate({
+      provider: input.provider,
       configModelOverride: input.configModelOverride,
       agentModelOverride: input.agentModelOverride,
-      provider: input.provider,
       // Remembered/global defaults describe the coordinator's provider
       // installation, not the worker's. With no explicit selection the remote
       // provider must choose its own default.
       defaultModelByProvider: remote ? undefined : input.defaultModelByProvider,
       defaultModel: remote ? undefined : input.defaultModel,
     });
-    let model = resolveModelReplacementForProvider(input.provider, resolution.model);
-    const modelSource: InitialModelSource = resolution.source;
-
-    if (!model) {
-      return { model: undefined };
-    }
-
-    let tierResolution: ResolvedModelSelection['tierResolution'];
-    if (isModelTier(model)) {
-      const tier = model;
-      model = resolveModelForTier(tier, input.provider);
-      tierResolution = { tier, model };
-    }
+    const { model, source: modelSource, tierResolution } = candidate;
 
     if (!model) {
       return { model: undefined, ...(tierResolution ? { tierResolution } : {}) };

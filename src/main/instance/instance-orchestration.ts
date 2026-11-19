@@ -239,7 +239,7 @@ export class InstanceOrchestrationManager {
       async (parentId: string, command: SpawnChildCommand) => {
         const parent = this.deps.getInstance(parentId);
         if (!parent) return;
-        const admission = getWorkAdmission().check('helper-agent', { remote: !!command.node || ownedByEngine(parent) });
+        const admission = getWorkAdmission().check('helper-agent', { remote: ownedByEngine(parent), otherComputer: !!command.node });
         if (!admission.allowed) { this.orchestration.notifyError(parentId, admission.detail); return; }
 
         const validation = SpawnChildPayloadSchema.safeParse({
@@ -372,7 +372,7 @@ export class InstanceOrchestrationManager {
             logger.info('Estimated cost savings from model routing', { savingsPercent: routingDecision.estimatedSavingsPercent });
           }
 
-          const child = await runHelperStartup(!!command.node || ownedByEngine(parent),
+          const child = await runHelperStartup({ remote: ownedByEngine(parent), otherComputer: !!command.node },
             () => this.deps.createChildInstance(parentId, command, routingDecision),
             (id) => this.deps.terminateInstance(id, false));
 	          emitPluginHook('orchestration.child.started', {

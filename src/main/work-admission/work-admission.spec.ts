@@ -44,7 +44,7 @@ describe('work admission', () => {
     expect(Object.values(limitsFor(3, 18)).every(value => value === null)).toBe(true);
   });
 
-  it('lets existing work finish after lowering the workload and excludes remote work', () => {
+  it('lets existing work finish after lowering the workload and excludes engine-owned work', () => {
     const admission = new WorkAdmission({ cpuCount: () => 18, loadAverage: () => [0, 0, 0] });
     let running = 3;
     admission.registerCounter('queue-job', () => running);
@@ -53,6 +53,17 @@ describe('work admission', () => {
     expect(admission.check('queue-job', { remote: true })).toEqual({ allowed: true });
     running = 0;
     expect(admission.check('queue-job')).toEqual({ allowed: true });
+  });
+
+  it('counts work on another computer against the same limits, but ignores this Mac\'s load for it', () => {
+    const admission = new WorkAdmission({ cpuCount: () => 4, loadAverage: () => [50, 50, 50] });
+    admission.setWorkloadLevel(1);
+    let running = 1;
+    admission.registerCounter('automation-run', () => running);
+    expect(admission.check('automation-run', { otherComputer: true })).toMatchObject({ allowed: false, reason: 'over-limit' });
+    running = 0;
+    expect(admission.check('automation-run', { otherComputer: true })).toEqual({ allowed: true });
+    expect(admission.check('automation-run')).toMatchObject({ allowed: false, reason: 'computer-busy' });
   });
 
   it('shares the allowance between scheduled and repository jobs', () => {

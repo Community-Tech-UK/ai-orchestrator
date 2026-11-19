@@ -1,6 +1,7 @@
 import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import {
   OrchestrationIpcService,
@@ -49,6 +50,7 @@ interface WelcomeLaunchConfig {
   accountProfileId?: string;
   launchMode?: InstanceLaunchMode;
   forceNodeId?: string;
+  preferOtherComputer?: boolean;
 }
 
 interface WelcomeLaunchPlan {
@@ -61,6 +63,7 @@ interface WelcomeLaunchPlan {
 export class WelcomeCoordinatorService {
   private store = inject(InstanceStore);
   private remoteNodeStore = inject(RemoteNodeStore);
+  private settings = inject(SettingsStore);
   private recentDirsService = inject(RecentDirectoriesIpcService);
   private vcsIpc = inject(VcsIpcService);
   private orchestrationIpc = inject(OrchestrationIpcService);
@@ -76,6 +79,12 @@ export class WelcomeCoordinatorService {
 
   /** The node ID currently selected in the welcome node picker. */
   welcomeSelectedNodeId = signal<string | null>(null);
+
+  /**
+   * True once the person picked This Mac in the computer menu. The menu reports "no computer" for both that pick and
+   * never having chosen, and only a pick keeps the session here when Harness may choose another computer.
+   */
+  private choseThisMac = false;
 
   /** Controls visibility of the remote-browse modal. */
   remoteBrowseOpen = signal(false);
@@ -157,6 +166,8 @@ export class WelcomeCoordinatorService {
    * across sessions.
    */
   resetState(): void {
+    // A "This Mac" pick belongs to the draft being written, not to the next session shown.
+    this.choseThisMac = false;
     this.welcomeSelectedNodeId.set(this.newSessionDraft.nodeId());
     this.remoteBrowseOpen.set(false);
     this.remoteBrowseNodeId.set(null);
@@ -169,6 +180,7 @@ export class WelcomeCoordinatorService {
   // ---------------------------------------------------------------------------
 
   onWelcomeNodeChange(nodeId: string | null): void {
+    this.choseThisMac = nodeId === null;
     this.welcomeSelectedNodeId.set(nodeId);
     this.newSessionDraft.setNodeId(nodeId);
   }
@@ -396,6 +408,9 @@ export class WelcomeCoordinatorService {
       pendingFolders,
     );
     const forceNodeId = this.welcomeSelectedNodeId() ?? localModelTarget?.nodeId ?? undefined;
+    // No computer named and This Mac not picked: Harness may choose one that can run the session.
+    const preferOtherComputer = this.settings.get('preferOtherComputers') === true
+      && !forceNodeId && !this.choseThisMac && !modelRuntimeTarget;
 
     let effectiveWorkingDir = workingDir;
     if (forceNodeId) {
@@ -441,6 +456,7 @@ export class WelcomeCoordinatorService {
         ...(accountProfileId ? { accountProfileId } : {}),
         launchMode,
         forceNodeId,
+        ...(preferOtherComputer ? { preferOtherComputer: true } : {}),
       },
       effectiveWorkingDir,
       forceNodeId,
@@ -475,6 +491,7 @@ export class WelcomeCoordinatorService {
   }
 
   private clearWelcomeNodeSelection(): void {
+    this.choseThisMac = false;
     this.welcomeSelectedNodeId.set(null);
     this.newSessionDraft.setNodeId(null);
   }
@@ -559,6 +576,7 @@ export class WelcomeCoordinatorService {
     const nodeId = this.remoteBrowseNodeId();
     if (nodeId) {
       void this.recentDirsService.addDirectory(path, { nodeId });
+      this.choseThisMac = false;
       this.welcomeSelectedNodeId.set(nodeId);
       this.newSessionDraft.setNodeId(nodeId);
     }

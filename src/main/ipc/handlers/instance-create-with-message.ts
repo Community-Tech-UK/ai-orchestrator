@@ -26,6 +26,7 @@ export interface CreateWithMessageInput {
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;
+  preferOtherComputer?: boolean;
   nodePlacement?: unknown;
   browserToolsMode?: 'eager' | 'deferred' | 'off';
   hardened?: boolean;
@@ -80,6 +81,7 @@ export async function createInstanceWithMessage(
     bareMode: validated.bareMode,
     fastModeOverride: validated.fastMode,
     forceNodeId: validated.forceNodeId,
+    ...(validated.preferOtherComputer ? { preferOtherComputer: true } : {}),
     nodePlacement: validated.nodePlacement as never,
     browserToolsMode: validated.browserToolsMode,
     hardened: validated.hardened,

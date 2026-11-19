@@ -348,6 +348,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesAutoOffloadBrowser: true,
   remoteNodesAutoOffloadAndroid: true,
   computers: [],
+  preferOtherComputers: false,
   remoteNodesNamespace: 'default',
   remoteNodesRequireTls: false,
   remoteNodesTlsMode: 'auto' as const,

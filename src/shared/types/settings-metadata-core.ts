@@ -345,6 +345,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'display',
   },
   {
+    key: 'preferOtherComputers',
+    label: 'Start sessions and scheduled jobs on other computers when they can',
+    description: "A new session, or a scheduled job, that doesn't name a computer starts on one that takes agent sessions, if that computer is signed in for the account, has the folder and has room. Otherwise it runs on this Mac and says why. Choosing This Mac in the new-session computer menu keeps a session here. Only Claude and Codex move. Check first that the folder there holds the same code as this Mac: nothing sends it your latest changes, and what a session changes there is not brought back.",
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
     key: 'claudeShowTaskList',
     label: "Show Claude's task list in chats",
     description: "Adds Claude's task tool to sessions you start yourself so the task list can appear. Costs a small amount on every message. Applies to new and restarted sessions. Plan-queue workers, scheduled jobs and loops that start their own session never get it. A loop that runs inside one of these chats shares the chat's Claude session, so it has the task list too.",

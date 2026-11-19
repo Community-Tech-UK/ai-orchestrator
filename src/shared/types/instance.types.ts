@@ -809,6 +809,18 @@ export interface InstanceCreateConfig extends AutomationAuthorityScope {
   /** Force execution on a specific node (overrides placement logic) */
   forceNodeId?: string;
 
+  /**
+   * Start on a computer that takes agent sessions when one can run this session now, otherwise on this Mac (the
+   * session then says why). Ignored when `forceNodeId`, `nodePlacement` or a local-model target is set.
+   */
+  preferOtherComputer?: boolean;
+
+  /**
+   * Set by a scheduled job that was admitted without this Mac's load check because it was going to run on another
+   * computer. If placement then puts the session here after all, it waits for that check before it starts.
+   */
+  admittedAsOtherComputer?: boolean;
+
   /** Internal provenance/runtime metadata for orchestration, automation, and recovery flows. */
   metadata?: Record<string, unknown>;
 }

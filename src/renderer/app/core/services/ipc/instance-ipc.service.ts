@@ -71,6 +71,8 @@ export interface CreateInstanceWithMessageConfig {
   bareMode?: boolean;
   fastMode?: boolean;
   forceNodeId?: string;
+  /** Start on a computer that takes agent sessions when one can run it; this Mac otherwise. */
+  preferOtherComputer?: boolean;
   /** WS13 — spawn the CLI inside the macOS Seatbelt jail. */
   hardened?: boolean;
   /** `false` = macOS signal fence off for this session only (lets it stop any program you own). */

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-08-agent-sessions-on-other-computers_plan.md",
+      "sha256": "5647ecd53e060ff86a4ab90f7af2de2a1a46581a25a477a2a828e87d572ec307",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-08-agent-sessions-on-other-computers_history.md",
+      "sha256": "033224d95fad0ad512d89d4b19177dd8114e8050c0ed03b7830a267946c89c95",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-08-agent-sessions-on-other-computers_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-08-agent-sessions-on-other-computers_plan_completed.md",
+      "sha256": "168a2043db6214042bb9d6d07a7e813cbde816393cc2ec1f530d8d4a62a5f749"
+    },
+    {
+      "relativePath": "2026-11-08-agent-sessions-on-other-computers_plan_history_f9f5e7a0a10944d50f939ccb2d4f6683f939dce0decd632d9d3e7acd08cce862_completed.md",
+      "sha256": "7722e895394689309a362b8cb928461e45b8d883d1c19a195c402ba45bfee658"
+    }
+  ]
+}

@@ -499,6 +499,10 @@ export interface NodePlacementPrefs {
   requiresCli?: CanonicalCliType;
   requiresOpenCodeMajor?: 1 | 2;
   requiresWorkingDirectory?: string;
+  /** The node must allow this folder, or one that contains it. */
+  requiresFolderUnder?: string;
+  /** The node must report this Claude or Codex account as signed in. */
+  requiresSignIn?: { provider: 'claude' | 'codex'; profileId: string };
   /**
    * Prefer a node already signed in to this GitHub Copilot account.
    *
