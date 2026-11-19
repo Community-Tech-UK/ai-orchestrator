@@ -15,12 +15,14 @@
  * No tool, command, session method or phone route does (`plan-queue-ticket-answer-not-agent-reachable.spec.ts`). The text
  * it reads is other people's text; nothing here logs it or puts it in an error or in the item's row.
  */
-import type { PlanQueueParkReason, PlanQueueTicketAskView } from '@contracts/schemas/plan-queue';
+import { TICKET_ASK_ALREADY_ANSWERED, TICKET_ASK_CHANGED_AGAIN, type PlanQueueParkReason, type PlanQueueTicketAskView } from '@contracts/schemas/plan-queue';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { getPlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store-singleton';
 import { openTicketAskHash, type PlanQueueLinearTicketRecord, type PlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store';
 import { PRE_START_STATES } from './plan-queue-readiness';
 import { isTerminalItemState } from './plan-queue-state';
+import { TICKET_ANSWER_FIRST } from '../../shared/utils/plan-queue-item-display';
+import type { ApprovedTicketText } from './plan-queue-ticket-approved-text';
 import { buildTicketBrief } from './plan-queue-ticket-brief';
 import { isTicketHoldNote, ticketAnswerRecord, ticketAskQuestion } from './plan-queue-ticket-ask';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -29,9 +31,9 @@ import type { PlanQueueItem } from './plan-queue.types';
 export const JAMES_ONLY_REFUSAL = 'Only James can answer this, on the Plan Queue page.';
 /** The answer route with no caller (the phone, or a page call to the wrong channel) asked to answer one. */
 export const PAGE_ONLY_REFUSAL = 'Answer this one on the Plan Queue page.';
-const ASK_OPEN_REFUSAL = 'Answer the question about this ticket first.';
-const ALREADY_ANSWERED = 'This question has already been answered.';
-const CHANGED_AGAIN = 'The ticket changed again. Read the new version.';
+const ASK_OPEN_REFUSAL = TICKET_ANSWER_FIRST;
+const ALREADY_ANSWERED = TICKET_ASK_ALREADY_ANSWERED;
+const CHANGED_AGAIN = TICKET_ASK_CHANGED_AGAIN;
 const STOPPED_SKIP = 'James chose to stop work on this ticket.';
 const STOPPED_PARK = 'James chose to stop work on this ticket. Resume it from Set aside when ready.';
 
@@ -61,6 +63,12 @@ function requireRecord(table: PlanQueueLinearTicketStore, itemId: string): PlanQ
   return record;
 }
 
+/** Who wrote each comment in the held text that the approved text does not have, by comment. Bot comments are never shown. */
+function newCommentAuthors(approved: ApprovedTicketText | null, held: ApprovedTicketText): (string | null)[] {
+  const known = new Set(approved?.comments.map((comment) => comment.id));
+  return held.comments.filter((comment) => !comment.fromBot && !known.has(comment.id)).map((comment) => comment.authorName);
+}
+
 /** The question for the page, with both texts as plain strings; null when none is open. */
 export function readTicketAsk(itemId: string): PlanQueueTicketAskView | null {
   const record = requireRecord(requireTable(), itemId);
@@ -73,7 +81,11 @@ export function readTicketAsk(itemId: string): PlanQueueTicketAskView | null {
       ? { title: record.approvedTitle, text: buildTicketBrief({ identifier, title: record.approvedTitle, text: record.approvedText }), hash: record.approvedHash, approvedAt: record.approvedAt }
       : null,
     held: ask.kind === 'changed' || ask.kind === 'cleared'
-      ? { title: ask.heldTitle, text: buildTicketBrief({ identifier, title: ask.heldTitle, text: ask.heldText }), hash: ask.heldHash, changed: ask.kind === 'changed' ? ask.changed : [] }
+      ? {
+        title: ask.heldTitle, text: buildTicketBrief({ identifier, title: ask.heldTitle, text: ask.heldText }), hash: ask.heldHash,
+        changed: ask.kind === 'changed' ? ask.changed : [],
+        newCommentAuthors: ask.kind === 'changed' ? newCommentAuthors(record.approvedText, ask.heldText) : [],
+      }
       : null,
     options: ticketAskQuestion(identifier, ask.kind).options,
   };

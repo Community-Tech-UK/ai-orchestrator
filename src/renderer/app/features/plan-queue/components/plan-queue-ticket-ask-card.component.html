@@ -1,0 +1,38 @@
+<section class="pq-ticket-ask" [attr.aria-labelledby]="headingId">
+  <h3 [id]="headingId" class="pq-ticket-ask-heading">{{ heading() }}</h3>
+  @if (loading()) {
+    <p role="status">Loading what changed…</p>
+  } @else if (loadFailure(); as message) {
+    <p role="alert">{{ message }}</p>
+  } @else if (closed()) {
+    <p role="status">This question has been answered.</p>
+  } @else if (view(); as current) {
+    <p class="pq-ticket-ask-change">{{ changeLine() }}</p>
+    @if (current.approved || current.held) {
+      <p class="pq-ticket-ask-seen">Only you see this. No AI has read it.</p>
+    }
+    @if (notice(); as noticeText) { <p role="status">{{ noticeText }}</p> }
+    @if (current.approved; as approved) {
+      <div class="pq-ticket-ask-version">
+        <h4>What you approved</h4>
+        <p class="pq-ticket-ask-when">Approved {{ approvedAt() }}</p>
+        <p class="pq-ticket-ask-plain">{{ approved.text }}</p>
+      </div>
+    }
+    @if (current.held; as held) {
+      <div class="pq-ticket-ask-version">
+        <h4>What Linear says now</h4>
+        <p class="pq-ticket-ask-plain">{{ held.text }}</p>
+      </div>
+    }
+    @if (problem(); as problemText) { <p role="alert">{{ problemText }}</p> }
+    <ul class="pq-ticket-ask-answers" aria-label="Answers">
+      @for (option of current.options; track option.id) {
+        <li class="pq-ticket-ask-answer">
+          <button type="button" class="pq-ticket-ask-button" [attr.data-option]="option.id" [disabled]="answering()" (click)="onAnswer(current, option.id)">{{ option.label }}</button>
+          <span class="pq-ticket-ask-consequence">{{ consequence(current, option.id) }}</span>
+        </li>
+      }
+    </ul>
+  }
+</section>

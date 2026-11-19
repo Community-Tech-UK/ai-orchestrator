@@ -9,7 +9,11 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..', '..', '..');
-/** The only files that name the answer module or its channels: the module, the page's handlers, the coordinator, the pump's own clean-up and the contracts. */
+/**
+ * The only files that name the answer module or its channels: the module, the page's handlers, the coordinator, the pump's
+ * own clean-up, the contracts, and the Plan Queue page's own three files (the renderer's channel service, the card that reads
+ * and answers, and the list that shows the card). The renderer is the page; no agent runs there.
+ */
 const ALLOWED = [
   join('src', 'main', 'ipc', 'handlers', 'plan-queue-handlers.ts'),
   join('src', 'main', 'plan-queue', 'plan-queue-coordinator.ts'),
@@ -20,6 +24,9 @@ const ALLOWED = [
   join('packages', 'contracts', 'src', 'channels', 'plan-queue.channels.ts'),
   join('packages', 'contracts', 'src', 'schemas', 'plan-queue.schemas.ts'),
   join('packages', 'contracts', 'src', 'schemas', 'plan-queue-ticket-ask.schemas.ts'),
+  join('src', 'renderer', 'app', 'core', 'services', 'ipc', 'plan-queue-ipc.service.ts'),
+  join('src', 'renderer', 'app', 'features', 'plan-queue', 'components', 'plan-queue-question-list.component.ts'),
+  join('src', 'renderer', 'app', 'features', 'plan-queue', 'components', 'plan-queue-ticket-ask-card.component.ts'),
 ];
 const NAMES = /plan-queue-ticket-answer['"]|PLAN_QUEUE_TICKET_ASK|plan-queue:ticket-ask|answerTicketAsk|readTicketAsk|PlanQueueTicketAsk|plan-queue-ticket-ask\.schemas/;
 

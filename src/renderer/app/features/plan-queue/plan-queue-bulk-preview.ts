@@ -1,5 +1,6 @@
 import type { PlanQueueItemDto, PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discarded';
+import { planQueueWaitsForTicketAnswer } from '../../../../shared/utils/plan-queue-item-display';
 
 export interface PlanQueueBulkPreview {
   willChange: PlanQueueItemDto[];
@@ -7,13 +8,16 @@ export interface PlanQueueBulkPreview {
   notApplicable: { item: PlanQueueItemDto; reason: string }[];
 }
 
+const WAITING_ON_TICKET = 'it is waiting for your answer about its ticket';
+
 /** Oldest first, because later branches often build on earlier ones. A retry keeps each job's passed check. */
 export function planQueueBulkRetryPreview(items: readonly PlanQueueItemDto[], busyDocuments: readonly string[],
   pausedRuns: ReadonlySet<string>): PlanQueueBulkPreview {
   const busy = new Set(busyDocuments);
   const preview: PlanQueueBulkPreview = { willChange: [], leftAlone: [], notApplicable: [] };
   for (const item of [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))) {
-    const why = busy.has(item.sourceRef) ? 'another attempt is already active' : pausedRuns.has(item.runId) ? 'its run is paused' : null;
+    const why = planQueueWaitsForTicketAnswer(item) ? WAITING_ON_TICKET
+      : busy.has(item.sourceRef) ? 'another attempt is already active' : pausedRuns.has(item.runId) ? 'its run is paused' : null;
     if (why) preview.leftAlone.push({ item, reason: why });
     else preview.willChange.push(item);
   }
@@ -37,6 +41,7 @@ export function planQueueBulkResumePreview(items: readonly PlanQueueItemDto[], r
       preview.notApplicable.push({ item, reason: 'set aside for another reason, or no longer set aside' });
     } else {
       const why = planQueueIsDiscarded(item) ? 'its work was explicitly discarded'
+        : planQueueWaitsForTicketAnswer(item) ? WAITING_ON_TICKET
         : busy.has(item.sourceRef) ? 'another attempt is already active'
         : (newestMerged.get(item.sourceRef) ?? 0) > item.createdAt ? 'a newer attempt already merged'
         : newest.get(item.sourceRef) !== item.id ? 'a newer attempt exists'

@@ -3079,5 +3079,11 @@
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-linear-start-preview.component.ts",
     "text": "Waiting for the ticked tickets to load.",
     "why": "long"
+  },
+  {
+    "id": "675b3b862e0abfac",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
+    "text": "Answer the question about this ticket first.",
+    "why": "long"
   }
 ]

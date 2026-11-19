@@ -635,4 +635,69 @@ describe('PlanQueueParkedListComponent', () => {
     expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).toContain('The saved retry is never resumed.');
   });
 
+  describe('a job waiting for the answer about its Linear ticket', () => {
+    const sentence = 'ORC-12 changed in Linear. Answer on the Plan Queue page.';
+    const question = { question: sentence, options: [{ id: 'stop', label: 'Stop work on this ticket' }, { id: 'leave-waiting', label: 'Leave it waiting' }], jamesOnly: true };
+    const passed = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    const reason = 'Answer the question about this ticket first.';
+    const emitted = { resume: [] as string[], retry: [] as string[], land: [] as string[], discard: [] as string[] };
+    const button = (selector: string) => fixture.nativeElement.querySelector(selector) as HTMLButtonElement;
+
+    beforeEach(() => {
+      for (const list of Object.values(emitted)) list.length = 0;
+      fixture.componentInstance.resumeItem.subscribe(id => emitted.resume.push(id));
+      fixture.componentInstance.retryLanding.subscribe(id => emitted.retry.push(id));
+      fixture.componentInstance.landAnyway.subscribe(id => emitted.land.push(id));
+      fixture.componentInstance.discardItem.subscribe(id => emitted.discard.push(id));
+    });
+
+    it('says it is waiting, with the fixed sentence', () => {
+      fixture.componentRef.setInput('items', [makeItem({ question })]); fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain(`Waiting for your answer. ${sentence}`);
+    });
+
+    it('turns Resume off with the reason, and a click starts nothing', () => {
+      fixture.componentRef.setInput('items', [makeItem({ parkReason: 'worker-error', question })]); fixture.detectChanges();
+      const resume = button('.pq-resume-item');
+      expect(resume.getAttribute('aria-disabled')).toBe('true');
+      resume.click(); fixture.componentInstance.onResume('item-1');
+      expect(emitted.resume).toEqual([]);
+    });
+
+    it('turns Try merging again and Merge without checks off with the reason, and neither starts anything', () => {
+      fixture.componentRef.setInput('items', [makeItem({ parkReason: 'land-blocked', verdict: passed, question })]); fixture.detectChanges();
+      const retry = button('.pq-retry-landing');
+      const merge = button('.pq-merge-without-checks');
+      expect(retry.getAttribute('aria-disabled')).toBe('true');
+      expect(merge.getAttribute('aria-disabled')).toBe('true');
+      retry.click(); merge.click(); fixture.detectChanges();
+      fixture.componentInstance.onRetryLanding(fixture.componentInstance.items()[0]);
+      fixture.componentInstance.requestConfirm('item-1', 'land-anyway'); fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.pq-parked-confirm')).toBeNull();
+      expect(emitted.retry).toEqual([]);
+      expect(emitted.land).toEqual([]);
+    });
+
+    it('gives the reason in words beside the controls, not only in a tooltip', () => {
+      fixture.componentRef.setInput('items', [makeItem({ parkReason: 'land-blocked', verdict: passed, question })]); fixture.detectChanges();
+      const buttons = ['.pq-resume-item', '.pq-retry-landing', '.pq-merge-without-checks'].map(selector => button(selector));
+      expect(fixture.componentInstance['ticketAnswerBlock'](fixture.componentInstance.items()[0])).toBe(reason);
+      expect(buttons.every(control => control.classList.contains('aio-reason-disabled'))).toBe(true);
+      expect(fixture.nativeElement.textContent).toContain('Waiting for your answer.');
+    });
+
+    it('leaves Discard working, because it starts nothing', () => {
+      fixture.componentRef.setInput('items', [makeItem({ question })]); fixture.detectChanges();
+      button('.pq-discard').click(); fixture.detectChanges();
+      button('.pq-confirm-yes').click();
+      expect(emitted.discard).toEqual(['item-1']);
+    });
+
+    it('keeps the controls on for the same job once its question is answered', () => {
+      fixture.componentRef.setInput('items', [makeItem({ parkReason: 'worker-error', question: null })]); fixture.detectChanges();
+      button('.pq-resume-item').click();
+      expect(emitted.resume).toEqual(['item-1']);
+      expect(button('.pq-resume-item').getAttribute('aria-disabled')).not.toBe('true');
+    });
+  });
 });

@@ -1,0 +1,45 @@
+.pq-ticket-ask {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pq-ticket-ask-heading { margin: 0; font-size: 1em; overflow-wrap: anywhere; }
+.pq-ticket-ask-change { margin: 0; font-weight: 600; }
+.pq-ticket-ask-seen, .pq-ticket-ask-when { margin: 0; font-size: 0.9em; opacity: 0.85; }
+
+.pq-ticket-ask-version {
+  border-top: 1px solid var(--pq-border-color, #3a3a3a);
+  padding-top: 8px;
+
+  h4 { font-size: 1em; margin: 0 0 4px; }
+}
+
+/* Other people's words: line breaks kept, long words wrapped, nothing interpreted. */
+.pq-ticket-ask-plain {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pq-ticket-ask-answers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pq-ticket-ask-answer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.pq-ticket-ask-consequence { font-size: 0.9em; opacity: 0.85; }

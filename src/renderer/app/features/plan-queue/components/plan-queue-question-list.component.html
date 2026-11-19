@@ -10,8 +10,12 @@
         @for (item of group.items; track item.id) {
           @if (item.question) {
             <div class="pq-question-item">
-              <div class="pq-question-doc" tabindex="0" [appTooltip]="item.sourceRef">{{ documentBasename(item.sourceRef) }}</div>
-              <app-plan-queue-question-card [question]="item.question" (submitAnswer)="onAnswer(item.id, $event)" />
+              <div class="pq-question-doc" tabindex="0" [appTooltip]="item.sourceRef">{{ item.title ?? documentBasename(item.sourceRef) }}</div>
+              @if (item.question.jamesOnly) {
+                <app-plan-queue-ticket-ask-card [itemId]="item.id" [itemTitle]="item.title ?? null" [refreshKey]="item.updatedAt" />
+              } @else {
+                <app-plan-queue-question-card [question]="item.question" (submitAnswer)="onAnswer(item.id, $event)" />
+              }
             </div>
           }
         }

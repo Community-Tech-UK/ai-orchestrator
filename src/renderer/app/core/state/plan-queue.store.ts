@@ -11,6 +11,7 @@ import type {
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 import { PlanQueueIpcService } from '../services/ipc/plan-queue-ipc.service';
 import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discarded';
+import { planQueueWaitsForTicketAnswer } from '../../../../shared/utils/plan-queue-item-display';
 
 /**
  * One "real" open check from a livetest verdict — the classification a worker
@@ -34,12 +35,14 @@ export interface PlanQueueQuestionGroup {
 }
 
 /**
- * Waiting on James: a readiness question (needs-answer) or a worker that
- * stopped for input (working / fixing with a question).
+ * Waiting on James: a readiness question (needs-answer), a worker that stopped for input (working / fixing with a
+ * question), or a held ticket's question, which stays open in any state until the work is over.
  */
 function hasOpenQuestion(item: PlanQueueItemDto): boolean {
-  return item.question !== null
-    && (item.state === 'needs-answer' || item.state === 'working' || item.state === 'fixing');
+  if (item.question === null) return false;
+  if (planQueueWaitsForTicketAnswer(item)) return true;
+  if (item.question.jamesOnly) return false;
+  return item.state === 'needs-answer' || item.state === 'working' || item.state === 'fixing';
 }
 
 /**

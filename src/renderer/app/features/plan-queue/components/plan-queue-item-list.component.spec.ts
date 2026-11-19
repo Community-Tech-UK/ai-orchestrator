@@ -276,6 +276,20 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.querySelector('.pq-item-awaiting-answer')?.textContent).toContain('Needs your answer');
   });
 
+  it('says a held ticket waits for your answer, with the fixed sentence, whatever state the job is in', () => {
+    const sentence = 'ORC-12 changed in Linear. Answer on the Plan Queue page.';
+    const question = { question: sentence, options: [{ id: 'stop', label: 'Stop work on this ticket' }, { id: 'leave-waiting', label: 'Leave it waiting' }], jamesOnly: true };
+    fixture.componentRef.setInput('items', [
+      makeItem({ id: 'queued', state: 'queued', question }),
+      makeItem({ id: 'awaiting', state: 'awaiting-slot', heldAt: 5, question }),
+      makeItem({ id: 'done', state: 'landed', question }),
+    ]);
+    fixture.detectChanges();
+
+    const lines = Array.from(fixture.nativeElement.querySelectorAll('.pq-item-awaiting-answer') as NodeListOf<HTMLElement>).map((line) => line.textContent?.trim());
+    expect(lines).toEqual([`Waiting for your answer. ${sentence}`, `Waiting for your answer. ${sentence}`]);
+  });
+
   it('offers Skip only for items that have not started, as the coordinator requires', () => {
     fixture.componentRef.setInput('items', [
       makeItem({ id: 'a', state: 'queued' }),

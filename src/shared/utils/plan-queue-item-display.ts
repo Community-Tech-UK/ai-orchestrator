@@ -79,3 +79,19 @@ export function planQueueCheckGroupLabel(item: PlanQueueItemDto): string | null 
 export function planQueueChecksLabel(checks: PlanQueueRunDto['checks']): string | null {
   return checks?.runs ? `${pluralise(checks.runs, 'test run')} covered ${pluralise(checks.jobs, 'job')}` : null;
 }
+
+/** A job whose Linear ticket changed waits for James's answer: its question is his alone, and nothing may start it first. A finished or discarded job waits for nothing. */
+export function planQueueWaitsForTicketAnswer(item: Pick<PlanQueueItemDto, 'question' | 'state' | 'discardedAt'>): boolean {
+  return item.question?.jamesOnly === true && item.state !== 'landed' && item.state !== 'skipped' && !item.discardedAt;
+}
+
+/** Why a job with an open ticket question cannot be resumed, retried or merged: the page's disabled controls and the main process's refusal. */
+export const TICKET_ANSWER_FIRST = 'Answer the question about this ticket first.';
+
+/**
+ * The reason Resume, Try merging again and Merge without checks are off for a job waiting on its ticket's question; null when none is.
+ * @hoverTextReadable
+ */
+export function planQueueTicketAnswerBlock(item: Pick<PlanQueueItemDto, 'question' | 'state' | 'discardedAt'>): string | null {
+  return planQueueWaitsForTicketAnswer(item) ? TICKET_ANSWER_FIRST : null;
+}

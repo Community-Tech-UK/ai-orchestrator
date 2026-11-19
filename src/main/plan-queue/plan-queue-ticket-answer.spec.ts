@@ -279,6 +279,26 @@ describe('an answer against a question that is not the one James was shown', { t
     expect(askOf()).toMatchObject({ kind: 'changed', heldHash: next });
   });
 
+  it('names who wrote each new comment for the page, never a bot, and none for an edited one', async () => {
+    await holdAt(HELD_STATES[0]);
+    const comment = (id: string, authorName: string | null, fromBot = false) =>
+      ({ id, authorId: null, authorName, body: `words ${id}`, createdAt: '2026-11-17T10:00:00Z', updatedAt: '2026-11-17T10:00:00Z', fromBot });
+    const known = comment('c-known', 'Sam');
+    const approved = { ...ORC12.text, comments: [known] };
+    const ask = (comments: ReturnType<typeof comment>[], heldHash: string) => {
+      table().closeAsk(itemOf().id, null);
+      table().openAsk(itemOf().id, { kind: 'changed', heldTitle: ORC12.title, heldText: { ...approved, comments }, heldHash, changed: ['comments'], openedAt: 9 });
+    };
+    const record = table().get(itemOf().id)!;
+    table().replaceApprovedText(itemOf().id, { title: record.approvedTitle, text: approved, hash: record.approvedHash, approvedAt: record.approvedAt });
+
+    ask([known, comment('c-new', 'Raf'), comment('c-bot', 'Build bot', true), comment('c-anon', null)], 'c'.repeat(64));
+    expect(readTicketAsk(itemOf().id)!.held).toMatchObject({ changed: ['comments'], newCommentAuthors: ['Raf', null] });
+
+    ask([{ ...known, body: 'an edited comment' }], 'd'.repeat(64));
+    expect(readTicketAsk(itemOf().id)!.held).toMatchObject({ changed: ['comments'], newCommentAuthors: [] });
+  });
+
   it('is refused when it is for a question that was already answered', async () => {
     await holdAt(HELD_STATES[0]);
     const { askHash } = readTicketAsk(itemOf().id)!;

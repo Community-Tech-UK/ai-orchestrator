@@ -20,6 +20,8 @@ import type {
   PlanQueueLinearTeamsCheck,
   PlanQueueLinearTeamsSaveResult,
   PlanQueueStateChangedEvent,
+  PlanQueueTicketAskAnswerPayload,
+  PlanQueueTicketAskView,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -176,6 +178,18 @@ export class PlanQueueIpcService {
   async linearStart(payload: PlanQueueLinearStartPayload): Promise<IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueLinearStart(payload)) as IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>;
+  }
+
+  /** The open question about one job's ticket, with the approved and the current text as plain strings. Null when none is open. */
+  async ticketAskRead(itemId: string): Promise<IpcResponse<{ ask: PlanQueueTicketAskView | null }>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueTicketAskRead({ itemId })) as IpcResponse<{ ask: PlanQueueTicketAskView | null }>;
+  }
+
+  /** Answers it, if it is still the question that was read (`askHash`). */
+  async ticketAskAnswer(payload: PlanQueueTicketAskAnswerPayload): Promise<IpcResponse<null>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueTicketAskAnswer(payload)) as IpcResponse<null>;
   }
 
   onStateChanged(cb: (event: PlanQueueStateChangedEvent) => void): () => void {

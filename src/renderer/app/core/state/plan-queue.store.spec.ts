@@ -589,4 +589,25 @@ describe('PlanQueueStore', () => {
 
     expect(store.reconcilerAlerts()).toHaveLength(1);
   });
+
+  it('lists a held ticket\'s question in any state until the work is over, and not a finished job\'s', async () => {
+    const asked = { question: 'ORC-12 changed in Linear. Answer on the Plan Queue page.', options: [{ id: 'stop', label: 'Stop work on this ticket' }, { id: 'leave-waiting', label: 'Leave it waiting' }], jamesOnly: true };
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: {
+        runs: [makeRun({ kind: 'tickets', items: [
+          makeItem({ id: 'held-queued', state: 'queued', question: asked }),
+          makeItem({ id: 'held-awaiting', state: 'awaiting-slot', question: asked, heldAt: 5 }),
+          makeItem({ id: 'held-working', state: 'working', question: asked }),
+          makeItem({ id: 'skipped', state: 'skipped', question: asked }),
+          makeItem({ id: 'landed', state: 'landed', question: asked }),
+        ] })],
+        alerts: [], health: null,
+      },
+    });
+    const store = TestBed.inject(PlanQueueStore);
+    await store.load();
+
+    expect(store.needsAnswerItems().map((i) => i.id)).toEqual(['held-queued', 'held-awaiting', 'held-working']);
+  });
 });

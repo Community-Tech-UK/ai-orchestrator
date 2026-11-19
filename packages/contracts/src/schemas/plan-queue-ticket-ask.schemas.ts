@@ -8,6 +8,11 @@
  */
 import { z } from 'zod';
 
+/** The refusal for an answer to a question that has since been replaced. The page matches it to reload the card. */
+export const TICKET_ASK_CHANGED_AGAIN = 'The ticket changed again. Read the new version.';
+/** The refusal for an answer to a question that is already closed. */
+export const TICKET_ASK_ALREADY_ANSWERED = 'This question has already been answered.';
+
 /** Read the open question about one job's ticket. */
 export const PlanQueueTicketAskReadPayloadSchema = z.object({ itemId: z.string().trim().min(1).max(200) }).strict();
 export type PlanQueueTicketAskReadPayload = z.infer<typeof PlanQueueTicketAskReadPayloadSchema>;
@@ -48,8 +53,11 @@ export interface PlanQueueTicketAskView {
   openedAt: number;
   /** What James approved, with when. Null once its text has been cleared. */
   approved: (PlanQueueTicketAskText & { approvedAt: number }) | null;
-  /** What Linear says now. Null unless the ticket changed or was cleared; `changed` is empty for a cleared one. */
-  held: (PlanQueueTicketAskText & { changed: ('title' | 'description' | 'comments')[] }) | null;
+  /**
+   * What Linear says now. Null unless the ticket changed or was cleared; `changed` is empty for a cleared one.
+   * `newCommentAuthors` names who wrote each comment that was not in the approved text (an unnamed author is null).
+   */
+  held: (PlanQueueTicketAskText & { changed: ('title' | 'description' | 'comments')[]; newCommentAuthors: (string | null)[] }) | null;
   /** The answers offered, in the order to show them. */
   options: { id: string; label: string }[];
 }

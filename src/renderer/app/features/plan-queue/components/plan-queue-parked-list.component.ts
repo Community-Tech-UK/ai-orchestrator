@@ -7,7 +7,7 @@ import { PlanQueueStore } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 
 import { planQueueDisplayParkReason, planQueueParkReasonLabel, type PlanQueueParkReasonDisplay } from '../plan-queue-park-reason-help';
-import { foldDetail, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
+import { foldDetail, planQueueTicketAnswerBlock, planQueueWaitsForTicketAnswer, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 import { planQueueBulkResumePreview, planQueueBulkRetryPreview, type PlanQueueBulkPreview } from '../plan-queue-bulk-preview';
 
 type ParkedAction = 'land-anyway' | 'discard-item';
@@ -323,12 +323,20 @@ export class PlanQueueParkedListComponent {
     return item.state === 'parked' && item.parkReason === 'land-blocked' && Boolean(item.branchName) && item.verdict?.verdict === 'PASS';
   }
 
+  /** A job waiting on its Linear ticket's question: Resume, Try merging again and Merge without checks are off, with this reason. */
+  protected readonly ticketAnswerBlock = planQueueTicketAnswerBlock;
+  protected readonly waitsForTicketAnswer = planQueueWaitsForTicketAnswer;
+
   onRetryLanding(item: PlanQueueItemDto): void {
-    if (this.canRetryLanding(item)) this.retryLanding.emit(item.id);
+    if (this.canRetryLanding(item) && !planQueueWaitsForTicketAnswer(item)) this.retryLanding.emit(item.id);
   }
 
   onResume(itemId: string): void {
-    this.resumeItem.emit(itemId);
+    if (!this.waitsOnItsTicket(itemId)) this.resumeItem.emit(itemId);
+  }
+
+  private waitsOnItsTicket(itemId: string): boolean {
+    return this.items().some(item => item.id === itemId && planQueueWaitsForTicketAnswer(item));
   }
 
   isConfirming(itemId: string, action: ParkedAction): boolean {
@@ -337,6 +345,7 @@ export class PlanQueueParkedListComponent {
   }
 
   requestConfirm(itemId: string, action: ParkedAction): void {
+    if (action === 'land-anyway' && this.waitsOnItsTicket(itemId)) return;
     this.confirming.set({ itemId, action });
   }
 

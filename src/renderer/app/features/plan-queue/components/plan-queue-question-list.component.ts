@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { PlanQueueQuestionGroup } from '../../../core/state/plan-queue.store';
 import { planQueueDocumentBasename } from './plan-queue-item-list.component';
 import { PlanQueueQuestionCardComponent } from './plan-queue-question-card.component';
+import { PlanQueueTicketAskCardComponent } from './plan-queue-ticket-ask-card.component';
 import { planQueueKindLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
 
 /** Above this many open questions, each run's group starts folded. */
@@ -19,7 +20,7 @@ export const PLAN_QUEUE_QUESTIONS_OPEN_LIMIT = 10;
 @Component({
   selector: 'app-plan-queue-question-list',
   standalone: true,
-  imports: [AioTooltipDirective, PlanQueueQuestionCardComponent],
+  imports: [AioTooltipDirective, PlanQueueQuestionCardComponent, PlanQueueTicketAskCardComponent],
   templateUrl: './plan-queue-question-list.component.html',
   styleUrl: './plan-queue-question-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

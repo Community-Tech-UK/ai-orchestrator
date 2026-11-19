@@ -26,4 +26,14 @@ describe('row titles', () => {
     expect(projectPlanQueueItem(itemToDto(ticket, undefined)).title).toBe('ORC-12 Make the sign-in button work');
     expect(projectPlanQueueItem(itemToDto(document, undefined)).title).toBe('a_plan.md');
   });
+
+  it('carries the held ticket\'s James-only flag and fixed sentence to the page and to the phone\'s row, and nothing else', () => {
+    const sentence = 'ORC-12 changed in Linear. Answer on the Plan Queue page.';
+    const held = { ...ticket, state: 'queued' as const, question: { question: sentence, jamesOnly: true, options: [{ id: 'stop', label: 'Stop work on this ticket' }, { id: 'leave-waiting', label: 'Leave it waiting' }] } };
+    const page = itemToDto(held, undefined);
+    expect(page.question).toEqual(held.question);
+    const phone = projectPlanQueueItem(page);
+    expect(phone.question).toEqual(held.question);
+    expect(Object.keys(phone)).not.toContain('worktreePath');
+  });
 });

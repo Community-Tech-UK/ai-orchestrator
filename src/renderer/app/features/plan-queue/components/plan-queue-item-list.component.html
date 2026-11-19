@@ -102,7 +102,9 @@
           <div class="pq-item-planning-note">{{ plain(item.planningNote) }}</div>
         }
 
-        @if (item.question && hasOpenQuestion(item.state)) {
+        @if (item.question && waitsForTicketAnswer(item)) {
+          <div class="pq-item-awaiting-answer">Waiting for your answer. {{ item.question.question }}</div>
+        } @else if (item.question && hasOpenQuestion(item.state)) {
           <div class="pq-item-awaiting-answer">Waiting for your answer under "Needs your answer" at the top of the page.</div>
         }
       </div>

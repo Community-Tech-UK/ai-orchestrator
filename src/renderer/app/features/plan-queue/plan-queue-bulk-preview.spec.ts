@@ -51,4 +51,14 @@ describe('bulk resume preview', () => {
     expect(preview.willChange.map(entry => entry.id)).toEqual(['free']);
     expect(preview.leftAlone[0]).toMatchObject({ reason: 'its run is paused' });
   });
+
+  it('leaves alone a job waiting for the answer about its ticket, when resuming or merging again', () => {
+    const question = { question: 'ORC-12 changed in Linear. Answer on the Plan Queue page.', options: [], jamesOnly: true } as unknown as PlanQueueItemDto['question'];
+    const resume = planQueueBulkResumePreview([item('held', { question }), item('free', { sourceRef: '/repo/b_plan.md' })], 'round-limit', [], new Map());
+    expect(resume.willChange.map(entry => entry.id)).toEqual(['free']);
+    expect(resume.leftAlone[0]).toMatchObject({ reason: 'it is waiting for your answer about its ticket' });
+    const retry = planQueueBulkRetryPreview([item('held', { question }), item('free', { sourceRef: '/repo/b_plan.md' })], [], new Set());
+    expect(retry.willChange.map(entry => entry.id)).toEqual(['free']);
+    expect(retry.leftAlone[0]).toMatchObject({ reason: 'it is waiting for your answer about its ticket' });
+  });
 });

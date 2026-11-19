@@ -124,15 +124,15 @@
                 @case ('see-findings') { <button type="button" class="pq-see-findings" (click)="showFindings(item.id)">See what the checker found</button> }
                 @case ('choose-checker') { <button type="button" (click)="chooseChecker.emit(item.runId)">Choose a checker</button> }
                 @case ('retry-landing') {
-                  @if (canRetryLanding(item) && !retryProgress()) { <button type="button" class="pq-retry-landing" [appTooltip]="copyFor('planQueue.retryLanding')" (click)="onRetryLanding(item)">Try merging again</button> }
+                  @if (canRetryLanding(item) && !retryProgress()) { <button type="button" class="pq-retry-landing" [appTooltip]="copyFor('planQueue.retryLanding')" [appTooltipDisabledReason]="ticketAnswerBlock(item)" (click)="onRetryLanding(item)">Try merging again</button> }
                 }
                 @case ('resume') {
                   <button type="button" class="pq-resume-item" [appTooltip]="copyFor('planQueue.resumeItem')"
-                    [appTooltipDisabledReason]="display.actions.includes('see-findings') && !findingsOpen().has(item.id) ? 'Read the checker findings first' : null"
+                    [appTooltipDisabledReason]="ticketAnswerBlock(item) ?? (display.actions.includes('see-findings') && !findingsOpen().has(item.id) ? 'Read the checker findings first' : null)"
                     (click)="onResume(item.id)">Resume</button>
                 }
                 @case ('merge-without-checks') {
-                  @if (item.branchName) { <button type="button" class="pq-merge-without-checks" [appTooltip]="copyFor('planQueue.landAnyway')" (click)="requestConfirm(item.id, 'land-anyway')">Merge without checks</button> }
+                  @if (item.branchName) { <button type="button" class="pq-merge-without-checks" [appTooltip]="copyFor('planQueue.landAnyway')" [appTooltipDisabledReason]="ticketAnswerBlock(item)" (click)="requestConfirm(item.id, 'land-anyway')">Merge without checks</button> }
                 }
                 @case ('discard') { <button type="button" class="pq-discard" [appTooltip]="copyFor('planQueue.discardItem')" (click)="requestConfirm(item.id, 'discard-item')">Discard</button> }
               }
@@ -141,6 +141,7 @@
         </div>
       }
     </div>
+    @if (item.question && waitsForTicketAnswer(item)) { <div class="pq-parked-reason">Waiting for your answer. {{ item.question.question }}</div> }
     @if (rowNote(row, section); as note) { <div class="pq-parked-reason">{{ note }}</div> }
     @if (row.display?.extra; as extra) { <p class="pq-parked-extra">{{ extra }}</p> }
     @if (detailFor(item.detail); as detail) {

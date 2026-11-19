@@ -3,9 +3,10 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueItemDto } from '@contracts/schemas/plan-queue';
 import type { PlanQueueQuestionGroup } from '../../../core/state/plan-queue.store';
+import { PlanQueueIpcService } from '../../../core/services/ipc/plan-queue-ipc.service';
 import { PLAN_QUEUE_QUESTIONS_OPEN_LIMIT, PlanQueueQuestionListComponent } from './plan-queue-question-list.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +16,8 @@ const resources: Record<string, string> = Object.fromEntries(
     'plan-queue-question-list.component.scss',
     'plan-queue-question-card.component.html',
     'plan-queue-question-card.component.scss',
+    'plan-queue-ticket-ask-card.component.html',
+    'plan-queue-ticket-ask-card.component.scss',
   ].map((name) => [name, readFileSync(resolve(specDirectory, name), 'utf8')]),
 );
 
@@ -79,6 +82,30 @@ describe('PlanQueueQuestionListComponent', () => {
       .map((doc) => doc.textContent?.trim());
     expect(docs).toEqual(['2026-09-18-thing_plan.md', 'other_plan.md', '2026-09-18-thing_plan.md']);
     expect(fixture.nativeElement.querySelectorAll('app-plan-queue-question-card')).toHaveLength(3);
+  });
+
+  it('gives a question only James may answer its own card, not the radio card, and reads it once for that job', async () => {
+    const ticketAskRead = vi.fn().mockResolvedValue({ success: true, data: { ask: null } });
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [PlanQueueQuestionListComponent],
+      providers: [{ provide: PlanQueueIpcService, useValue: { ticketAskRead, ticketAskAnswer: vi.fn() } }],
+    }).compileComponents();
+    fixture = TestBed.createComponent(PlanQueueQuestionListComponent);
+    const held = { question: 'ORC-12 changed in Linear. Answer on the Plan Queue page.', options: [{ id: 'stop', label: 'Stop work on this ticket' }, { id: 'leave-waiting', label: 'Leave it waiting' }], jamesOnly: true };
+    fixture.componentRef.setInput('groups', [group({ kind: 'tickets', items: [
+      makeItem({ id: 'ticket-1', state: 'queued', sourceRef: 'linear:abc', title: 'ORC-12 Fix the login page', question: held }),
+      makeItem({ id: 'plain-1' }),
+    ] })]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-ticket-ask-card')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelectorAll('app-plan-queue-question-card')).toHaveLength(1);
+    expect(ticketAskRead).toHaveBeenCalledTimes(1);
+    expect(ticketAskRead).toHaveBeenCalledWith('ticket-1');
+    const docs = Array.from(fixture.nativeElement.querySelectorAll('.pq-question-doc') as NodeListOf<HTMLElement>).map((doc) => doc.textContent?.trim());
+    expect(docs).toEqual(['ORC-12 Fix the login page', '2026-09-18-thing_plan.md']);
   });
 
   it('forwards the chosen option with the item id of the card that was answered', () => {
