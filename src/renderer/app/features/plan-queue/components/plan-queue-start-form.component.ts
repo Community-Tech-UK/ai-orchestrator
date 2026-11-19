@@ -5,11 +5,14 @@ import { FormsModule } from '@angular/forms';
 import type { PlanQueueDiscoveryPreview, PlanQueueKind } from '@contracts/schemas/plan-queue';
 import { PlanQueueIpcService } from '../../../core/services/ipc/plan-queue-ipc.service';
 import { planQueueKindLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
+import { PlanQueueLinearStartPreviewComponent } from './plan-queue-linear-start-preview.component';
 
 export interface PlanQueueParentSessionOption {
   readonly id: string;
   readonly label: string;
   readonly workingDirectory: string;
+  /** The session's provider, for a Linear run that names no worker provider of its own. */
+  readonly provider: string | null;
 }
 
 export interface PlanQueueStartRequest {
@@ -21,17 +24,18 @@ export interface PlanQueueStartRequest {
   readonly config?: { readonly keepOnThisMac: true };
 }
 
-const KINDS: PlanQueueKind[] = ['plans', 'livetests'];
+const KINDS: PlanQueueKind[] = ['plans', 'livetests', 'tickets'];
 
 /**
  * Starts a new run: pick a root session as the parent (its working directory
  * becomes the run's workspace), the document kind, an optional glob, and whether
- * the run stays on this Mac.
+ * the run stays on this Mac. Choosing Linear tickets replaces the pattern and the
+ * Start button with the ticket preview, which starts its own run.
  */
 @Component({
   selector: 'app-plan-queue-start-form',
   standalone: true,
-  imports: [AioTooltipDirective, FormsModule],
+  imports: [AioTooltipDirective, FormsModule, PlanQueueLinearStartPreviewComponent],
   templateUrl: './plan-queue-start-form.component.html',
   styleUrl: './plan-queue-start-form.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -45,6 +49,8 @@ export class PlanQueueStartFormComponent {
   protected readonly pluralise = pluralise;
   parentSessions = input<PlanQueueParentSessionOption[]>([]);
   start = output<PlanQueueStartRequest>();
+  /** Asks the page to show its Linear settings. */
+  openLinearSetup = output<void>();
 
   protected readonly kinds = KINDS;
   protected readonly selectedParentId = signal('');
@@ -81,7 +87,7 @@ export class PlanQueueStartFormComponent {
 
   async onSubmit(): Promise<void> {
     const parent = this.selectedParent();
-    if (!parent || !this.canStart()) return;
+    if (!parent || !this.canStart() || this.kind() === 'tickets') return;
     const glob = this.glob().trim();
     const request: PlanQueueStartRequest = {
       parentInstanceId: parent.id,

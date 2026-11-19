@@ -69,7 +69,7 @@
       Pick the session whose folder holds the documents. That session becomes the run's parent: it receives the
       questions and the end-of-run summary.
     </p>
-    <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" />
+    <app-plan-queue-start-form [parentSessions]="parentSessions()" (start)="onStart($event)" (openLinearSetup)="onOpenLinearSetup()" />
   </section>
 
   <section class="pq-section pq-section-health" aria-labelledby="pq-health-heading">
@@ -196,7 +196,7 @@
   </section>
 
   <section class="pq-section pq-section-linear" aria-labelledby="pq-linear-heading">
-    <h2 id="pq-linear-heading">Linear</h2>
+    <h2 id="pq-linear-heading" tabindex="-1">Linear</h2>
     <p class="pq-purpose">
       Plan Queue reaches Linear through a connector you have already signed in to. Only you can change these settings, here; a session cannot.
     </p>

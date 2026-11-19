@@ -13,7 +13,7 @@ import type {
   PlanQueueLinearTeamCheck,
   PlanQueueLinearTeamCheckLine,
 } from '@contracts/schemas/plan-queue';
-import { canonicalProvider } from '../plan-queue-routing';
+import { canonicalProvider } from '../../../shared/utils/plan-queue-provider-id';
 import type { LinearStatus, LinearTeam } from './linear-result-schemas';
 
 const findByName = (statuses: readonly LinearStatus[], name: string, kind: string): PlanQueueLinearStatus | null => {

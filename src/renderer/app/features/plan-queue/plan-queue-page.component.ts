@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, afterRenderEffect, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -65,6 +65,7 @@ export class PlanQueuePageComponent implements OnInit {
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   private readonly queryParams = toSignal(inject(ActivatedRoute).queryParamMap);
   protected readonly selectedDocument = computed(() => this.queryParams()?.get('document') || null);
   protected readonly questionGroups = computed(() => {
@@ -135,6 +136,12 @@ export class PlanQueuePageComponent implements OnInit {
     (list?.querySelectorAll<HTMLElement>('[role="tab"]')[next])?.focus();
   }
 
+  /** Opens Setup at the Linear section, for the link in the Start preview. */
+  onOpenLinearSetup(): void {
+    this.activeTab.set('setup');
+    afterNextRender(() => document.getElementById('pq-linear-heading')?.focus(), { injector: this.injector });
+  }
+
   onChooseChecker(runId: string): void { this.checkerRunId.set(runId); this.activeTab.set('setup'); }
 
   protected readonly editingDefaults = signal(false);
@@ -148,6 +155,7 @@ export class PlanQueuePageComponent implements OnInit {
       id: instance.id,
       label: `${instance.displayName} (${instance.provider})`,
       workingDirectory: instance.workingDirectory,
+      provider: instance.provider ?? null,
     })),
   );
 

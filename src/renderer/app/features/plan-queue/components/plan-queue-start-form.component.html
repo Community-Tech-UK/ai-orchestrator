@@ -10,7 +10,7 @@
   </label>
 
   <fieldset class="pq-start-kind">
-    <legend>Document kind</legend>
+    <legend>What to start</legend>
     @for (k of kinds; track k) {
       <label class="pq-start-kind-option">
         <input type="radio" name="pqStartKind" [value]="k" [checked]="kind() === k" (change)="kind.set(k); onSelectionChange()" />
@@ -19,31 +19,44 @@
     }
   </fieldset>
 
-  <label class="pq-start-field">
-    Which files (pattern, optional)
-    <input
-      type="text"
-      placeholder="docs/plans/**/*_plan.md"
-      [ngModel]="glob()"
-      name="glob"
-      (ngModelChange)="glob.set($event); onSelectionChange()"
-    />
-  </label>
+  @if (kind() === 'tickets') {
+    @if (selectedParent(); as parent) {
+      <app-plan-queue-linear-start-preview
+        [parentInstanceId]="parent.id"
+        [folder]="parent.workingDirectory"
+        [startingProvider]="parent.provider"
+        (openLinearSetup)="openLinearSetup.emit()"
+      />
+    } @else {
+      <p role="status">Choose a session to see the Linear tickets for its folder.</p>
+    }
+  } @else {
+    <label class="pq-start-field">
+      Which files (pattern, optional)
+      <input
+        type="text"
+        placeholder="docs/plans/**/*_plan.md"
+        [ngModel]="glob()"
+        name="glob"
+        (ngModelChange)="glob.set($event); onSelectionChange()"
+      />
+    </label>
 
-  <label class="pq-start-keep">
-    <input type="checkbox" name="keepOnThisMac" [checked]="keepOnThisMac()" (change)="keepOnThisMac.set(!keepOnThisMac()); onSelectionChange()" />
-    <span>Keep this run on this Mac</span>
-    <span class="pq-start-hint">For plans that need this Mac's browser or Harness tools.</span>
-  </label>
+    <label class="pq-start-keep">
+      <input type="checkbox" name="keepOnThisMac" [checked]="keepOnThisMac()" (change)="keepOnThisMac.set(!keepOnThisMac()); onSelectionChange()" />
+      <span>Keep this run on this Mac</span>
+      <span class="pq-start-hint">For plans that need this Mac's browser or Harness tools.</span>
+    </label>
 
-  @if (preview(); as result) {
-    <p role="status">{{ pluralise(result.found, 'document') }} found@if (result.hiddenCopies !== null) { ({{ result.hiddenCountComplete ? '' : 'at least ' }}{{ result.hiddenCopies }} {{ result.hiddenCopies === 1 ? 'looks like a copy' : 'look like copies' }}, hidden) }</p>
+    @if (preview(); as result) {
+      <p role="status">{{ pluralise(result.found, 'document') }} found@if (result.hiddenCopies !== null) { ({{ result.hiddenCountComplete ? '' : 'at least ' }}{{ result.hiddenCopies }} {{ result.hiddenCopies === 1 ? 'looks like a copy' : 'look like copies' }}, hidden) }</p>
+    }
+    @if (error(); as message) { <p role="alert">{{ message }}</p> }
+    @if (confirming() && preview(); as result) {
+      <p>This will start work on all {{ result.found }} documents.</p>
+      <button type="button" (click)="confirmStart()">Start all {{ result.found }} documents</button>
+      <button type="button" (click)="onSelectionChange()">Cancel</button>
+    }
+    <button type="submit" [appTooltip]="copy('planQueue.start')" [appTooltipDisabledReason]="canStart() ? null : checking() ? 'Checking the selected files.' : confirming() ? 'Confirm the documents above first.' : copy('planQueue.chooseParent')">{{ checking() ? 'Checking files…' : 'Start run' }}</button>
   }
-  @if (error(); as message) { <p role="alert">{{ message }}</p> }
-  @if (confirming() && preview(); as result) {
-    <p>This will start work on all {{ result.found }} documents.</p>
-    <button type="button" (click)="confirmStart()">Start all {{ result.found }} documents</button>
-    <button type="button" (click)="onSelectionChange()">Cancel</button>
-  }
-  <button type="submit" [appTooltip]="copy('planQueue.start')" [appTooltipDisabledReason]="canStart() ? null : checking() ? 'Checking the selected files.' : confirming() ? 'Confirm the documents above first.' : copy('planQueue.chooseParent')">{{ checking() ? 'Checking files…' : 'Start run' }}</button>
 </form>

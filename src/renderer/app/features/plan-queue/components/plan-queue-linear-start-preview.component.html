@@ -1,0 +1,110 @@
+<div class="pq-linear-preview">
+  @if (loading() && !preview()) {
+    <p role="status">Loading Linear tickets…</p>
+  }
+  @if (unavailable(); as reason) {
+    <p role="status">{{ reason }}</p>
+    <button type="button" class="pq-linear-link" (click)="openLinearSetup.emit()">Go to the Linear settings</button>
+  }
+  @for (problem of teamProblems(); track problem) {
+    <p role="status">{{ problem }}</p>
+  }
+  @if (teamProblems().length > 0) {
+    <button type="button" class="pq-linear-link" (click)="openLinearSetup.emit()">Go to the Linear settings</button>
+  }
+  @if (startResult(); as result) { <p role="status">{{ result }}</p> }
+
+  @if (preview(); as list) {
+    @if (teamProblems().length === 0) {
+      @if (note(); as noteText) { <p role="status">{{ noteText }}</p> }
+      @if (list.labelNote; as labelNote) { <p role="status">{{ labelNote }}</p> }
+      @if (rows().length === 0) {
+        <p role="status">No tickets are waiting in Todo for this folder.</p>
+      } @else {
+        <ul class="pq-linear-rows" aria-label="Linear tickets">
+          @for (row of rows(); track row.id) {
+            <li class="pq-linear-row">
+              <div class="pq-linear-line">
+                <input
+                  type="checkbox"
+                  class="pq-linear-tick"
+                  [id]="'pq-linear-tick-' + row.id"
+                  [checked]="isTicked(row)"
+                  [attr.aria-describedby]="row.reason ? 'pq-linear-reason-' + row.id : null"
+                  [appTooltipDisabledReason]="row.canTick ? null : row.reason"
+                  (change)="onTick(row, $event)"
+                />
+                <label class="pq-linear-name" [for]="'pq-linear-tick-' + row.id">
+                  <span class="pq-linear-identifier">{{ row.identifier }}</span> {{ row.title }}
+                </label>
+                <span class="pq-linear-meta">{{ priorityWord(row.priority) }}</span>
+                <span class="pq-linear-meta">{{ row.assigneeName ?? 'Unassigned' }}</span>
+                <button
+                  type="button"
+                  class="pq-linear-open"
+                  [attr.aria-expanded]="isOpen(row)"
+                  [attr.aria-controls]="'pq-linear-text-' + row.id"
+                  (click)="onToggleOpen(row)"
+                >{{ isOpen(row) ? 'Hide ' : 'Read ' }}{{ row.identifier }}</button>
+              </div>
+              @if (row.reason) {
+                <p class="pq-linear-note" [id]="'pq-linear-reason-' + row.id">{{ row.reason }}</p>
+              }
+              @for (noteLine of row.notes; track noteLine) {
+                <p class="pq-linear-note">{{ noteLine }}</p>
+              }
+              @if (isOpen(row)) {
+                <div class="pq-linear-text" [id]="'pq-linear-text-' + row.id">
+                  <p class="pq-linear-seen">Only you see this. No AI has read it.</p>
+                  @let state = textOf(row);
+                  @if (state?.kind === 'loading') {
+                    <p role="status">Loading {{ row.identifier }}…</p>
+                  } @else if (state?.kind === 'failed') {
+                    <p role="alert">{{ state.message }}</p>
+                  } @else if (state?.kind === 'loaded') {
+                    @if (state.text.overLimit) {
+                      <p class="pq-linear-long" role="status">This ticket is long. The worker gets the first 12,000 characters and the full text in a file.</p>
+                    }
+                    <h3>Description</h3>
+                    <p class="pq-linear-plain">{{ state.text.description || 'This ticket has no description.' }}</p>
+                    <h3>Comments ({{ state.text.comments.length }})</h3>
+                    @if (state.text.comments.length === 0) {
+                      <p>No comments.</p>
+                    } @else {
+                      <ul class="pq-linear-comments">
+                        @for (comment of state.text.comments; track comment.id) {
+                          <li>
+                            <p class="pq-linear-comment-head">{{ comment.authorName ?? 'Unknown author' }}@if (commentTime(comment.createdAt); as when) { · {{ when }} }</p>
+                            @if (comment.fromBot) { <p class="pq-linear-note">Written by an integration. It is left out of what the worker reads.</p> }
+                            <p class="pq-linear-plain">{{ comment.body }}</p>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+
+  @if (preview() && teamProblems().length === 0) {
+    @if (tickedRows().length > 0) {
+      <p class="pq-linear-providers">Sessions on these providers will be sent the ticked tickets' text: {{ allowedText() }}</p>
+    }
+    @if (startError(); as problem) { <p role="alert">{{ problem }}</p> }
+    <div class="pq-linear-actions">
+      <button type="button" class="pq-linear-start" [appTooltipDisabledReason]="startBlock()" (click)="onStart()">
+        {{ starting() ? 'Starting…' : 'Start run' }}
+      </button>
+      <button type="button" (click)="load()">Reload</button>
+    </div>
+    @if (providerNote() ?? startBlock(); as reason) { <p class="pq-linear-hint">{{ reason }}</p> }
+    <p class="pq-linear-hint">Sessions in a Linear run can still use your Linear tools.</p>
+  } @else if (!loading() && (startResult() || unavailable() || teamProblems().length > 0)) {
+    <button type="button" (click)="load()">Reload</button>
+  }
+</div>

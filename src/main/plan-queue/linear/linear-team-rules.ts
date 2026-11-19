@@ -24,7 +24,8 @@ import {
   type PlanQueueLinearTeamsSaveResult,
 } from '@contracts/schemas/plan-queue';
 import type { PlanQueueLinearConnection } from '@contracts/schemas/plan-queue';
-import { canonicalProvider, planQueueProviderChoices } from '../plan-queue-routing';
+import { canonicalProvider } from '../../../shared/utils/plan-queue-provider-id';
+import { planQueueProviderChoices } from '../plan-queue-routing';
 import { callLinearTool, type LinearCallDependencies } from './linear-call';
 import { isLinearCallError } from './linear-errors';
 import { readAllLinearPages, toLinearPage } from './linear-paging';

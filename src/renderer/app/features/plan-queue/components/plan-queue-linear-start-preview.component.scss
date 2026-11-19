@@ -1,0 +1,72 @@
+.pq-linear-preview {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pq-linear-rows,
+.pq-linear-comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pq-linear-row {
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.pq-linear-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.pq-linear-name {
+  flex: 1 1 18em;
+  overflow-wrap: anywhere;
+}
+
+.pq-linear-identifier { font-weight: 600; }
+.pq-linear-meta { font-size: 0.9em; opacity: 0.85; }
+.pq-linear-note, .pq-linear-hint, .pq-linear-seen { margin: 4px 0 0; font-size: 0.9em; }
+
+.pq-linear-text {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pq-border-color, #3a3a3a);
+
+  h3 { font-size: 1em; margin: 8px 0 4px; }
+}
+
+/* Other people's words: line breaks kept, long words wrapped, nothing interpreted. */
+.pq-linear-plain {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pq-linear-comment-head { margin: 0; font-weight: 600; font-size: 0.9em; }
+
+.pq-linear-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.pq-linear-link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }

@@ -12,6 +12,8 @@ import { ProviderAccountIpcService } from '../../core/services/ipc/provider-acco
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { By } from '@angular/platform-browser';
+import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
 import { PlanQueuePageComponent } from './plan-queue-page.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -385,6 +387,15 @@ describe('PlanQueuePageComponent', () => {
     const host = getComputedStyle(fixture.nativeElement as HTMLElement);
     expect(host.overflowY).toBe('auto');
     expect(host.height).toBe('100%');
+  });
+
+  it('opens Setup at the Linear section when the Start preview asks for it', async () => {
+    const form = fixture.debugElement.query(By.directive(PlanQueueStartFormComponent)).componentInstance as PlanQueueStartFormComponent;
+    form.openLinearSetup.emit();
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const tabs = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]')) as HTMLButtonElement[];
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement?.id).toBe('pq-linear-heading');
   });
 
   it('keeps questions and current work in Now, retained work in Set aside, and accounts in Setup', async () => {

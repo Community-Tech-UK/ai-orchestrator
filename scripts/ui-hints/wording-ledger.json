@@ -3061,5 +3061,23 @@
     "owner": "src/renderer/app/features/settings/setting-row.component.ts",
     "text": "Each helper agent uses its own allowance, so sessions where helpers do most of the work cost the most.",
     "why": "consequence"
+  },
+  {
+    "id": "3b65327696780f97",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-linear-start-preview.component.ts",
+    "text": "A provider in this run is not allowed to see these tickets.",
+    "why": "long"
+  },
+  {
+    "id": "a3458641f903a87e",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-linear-start-preview.component.ts",
+    "text": "A ticked ticket could not be read. Open it to try again, or untick it.",
+    "why": "long"
+  },
+  {
+    "id": "d25814aedf46e33e",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-linear-start-preview.component.ts",
+    "text": "Waiting for the ticked tickets to load.",
+    "why": "long"
   }
 ]

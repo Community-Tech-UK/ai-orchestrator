@@ -16,7 +16,8 @@
 import type { PlanQueueRouteChoice, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getPlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store-singleton';
-import { canonicalProvider, planQueueProviderChoices, PlanQueueRoutingError, type PlanQueueParentRoute } from './plan-queue-routing';
+import { canonicalProvider } from '../../shared/utils/plan-queue-provider-id';
+import { planQueueProviderChoices, PlanQueueRoutingError, type PlanQueueParentRoute } from './plan-queue-routing';
 import type { PlanQueueRun } from './plan-queue.types';
 
 /** A Linear team with a ticket in the run. The key is the prefix of the ticket's short address (`COM` in `COM-12`). */

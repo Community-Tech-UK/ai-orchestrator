@@ -28,6 +28,7 @@ import type { CopilotAccountProfile, CopilotInvocationOrigin } from '../../share
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { isLogicalMiMoModel, isPooledProvider, type ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import { AUTOMATION_PROVIDER_DEFINITIONS, AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
+import { canonicalProvider } from '../../shared/utils/plan-queue-provider-id';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../shared/types/reviewer-provider.types';
 import { upgradePlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import { sameFamily } from '../../shared/models/model-family';
@@ -112,15 +113,6 @@ const KNOWN_PROVIDERS: ReadonlySet<string> = new Set(AUTOMATION_PROVIDER_IDS);
 /** A session with no provider has no account list to apply James's never-use rules to. */
 const NO_PROVIDER_FOR_NEVER_USE = 'This run has no worker provider, so the queue cannot apply your never-use list to it. Choose a worker provider on the Plan Queue page, or start the run from a session on a provider.';
 
-/**
- * Lowercase CLI id, with the same legacy aliasing as `mapSettingsToDetectionType`
- * (`openai` → codex, `gemini` → antigravity), so a choice is checked against the
- * "never auto-pick" list under the CLI that will actually run.
- */
-export function canonicalProvider(provider: string): string {
-  const id = provider.trim().toLowerCase();
-  return id === 'openai' ? 'codex' : id === 'gemini' ? 'antigravity' : id;
-}
 /** The providers a queue session can run on, as `{ id, label }`, in the order the app lists them. */
 export function planQueueProviderChoices(): { id: string; label: string }[] {
   return AUTOMATION_PROVIDER_DEFINITIONS.filter((provider) => KNOWN_PROVIDERS.has(provider.id)).map(({ id, label }) => ({ id, label }));

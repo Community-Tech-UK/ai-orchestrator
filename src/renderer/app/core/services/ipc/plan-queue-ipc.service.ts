@@ -12,7 +12,10 @@ import type {
   PlanQueueLinearLinksReading,
   PlanQueueLinearLinksSaveResult,
   PlanQueueLinearListResult,
+  PlanQueueLinearPreview,
+  PlanQueueLinearPreviewText,
   PlanQueueLinearProjectChoices,
+  PlanQueueLinearStartPayload,
   PlanQueueLinearTeamChoices,
   PlanQueueLinearTeamsCheck,
   PlanQueueLinearTeamsSaveResult,
@@ -155,6 +158,24 @@ export class PlanQueueIpcService {
   async linearTeamsSave(teams: readonly unknown[]): Promise<IpcResponse<PlanQueueLinearTeamsSaveResult>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueLinearTeamsSave({ teams: [...teams] })) as IpcResponse<PlanQueueLinearTeamsSaveResult>;
+  }
+
+  /** The Start preview for a folder: its Linear tickets, built from their basic fields only. */
+  async linearPreviewLoad(folder: string): Promise<IpcResponse<PlanQueueLinearPreview>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearPreviewLoad({ folder })) as IpcResponse<PlanQueueLinearPreview>;
+  }
+
+  /** One ticket's description and comments from a preview, as plain strings. */
+  async linearPreviewText(previewId: string, linearId: string): Promise<IpcResponse<PlanQueueLinearPreviewText>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearPreviewText({ previewId, linearId })) as IpcResponse<PlanQueueLinearPreviewText>;
+  }
+
+  /** Starts a Linear run from the ticked tickets of a preview. */
+  async linearStart(payload: PlanQueueLinearStartPayload): Promise<IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearStart(payload)) as IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>;
   }
 
   onStateChanged(cb: (event: PlanQueueStateChangedEvent) => void): () => void {

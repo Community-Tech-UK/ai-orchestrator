@@ -3,15 +3,20 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signal } from '@angular/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlanQueueStartFormComponent, type PlanQueueParentSessionOption, type PlanQueueStartRequest } from './plan-queue-start-form.component';
 import { PlanQueueIpcService } from '../../../core/services/ipc/plan-queue-ipc.service';
+import { SettingsStore } from '../../../core/state/settings.store';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const template = readFileSync(resolve(specDirectory, './plan-queue-start-form.component.html'), 'utf8');
 const styles = readFileSync(resolve(specDirectory, './plan-queue-start-form.component.scss'), 'utf8');
 
+const previewTemplate = readFileSync(resolve(specDirectory, './plan-queue-linear-start-preview.component.html'), 'utf8');
+
 await resolveComponentResources((url) => {
+  if (url.endsWith('plan-queue-linear-start-preview.component.html')) return Promise.resolve(previewTemplate);
   if (url.endsWith('plan-queue-start-form.component.html')) return Promise.resolve(template);
   if (url.endsWith('plan-queue-start-form.component.scss')) return Promise.resolve(styles);
   if (url.endsWith('.html') || url.endsWith('.scss')) return Promise.resolve('');
@@ -19,17 +24,25 @@ await resolveComponentResources((url) => {
 });
 
 const sessions: PlanQueueParentSessionOption[] = [
-  { id: 'inst-1', label: 'Session A (claude)', workingDirectory: '/repo-a' },
-  { id: 'inst-2', label: 'Session B (codex)', workingDirectory: '/repo-b' },
+  { id: 'inst-1', label: 'Session A (claude)', workingDirectory: '/repo-a', provider: 'claude' },
+  { id: 'inst-2', label: 'Session B (codex)', workingDirectory: '/repo-b', provider: 'codex' },
 ];
 
 describe('PlanQueueStartFormComponent', () => {
   let fixture: ComponentFixture<PlanQueueStartFormComponent>;
   const preview = vi.fn();
+  const linearPreviewLoad = vi.fn();
 
   beforeEach(async () => {
     preview.mockReset().mockResolvedValue({ success: true, data: { found: 2, hiddenCopies: 1, hiddenCountComplete: true } });
-    await TestBed.configureTestingModule({ imports: [PlanQueueStartFormComponent], providers: [{ provide: PlanQueueIpcService, useValue: { preview } }] }).compileComponents();
+    linearPreviewLoad.mockReset().mockResolvedValue({ success: false, error: { message: 'No Linear project is linked to this folder. Link one on the Plan Queue page.' } });
+    await TestBed.configureTestingModule({
+      imports: [PlanQueueStartFormComponent],
+      providers: [
+        { provide: PlanQueueIpcService, useValue: { preview, linearPreviewLoad } },
+        { provide: SettingsStore, useValue: { settings: signal({}) } },
+      ],
+    }).compileComponents();
     fixture = TestBed.createComponent(PlanQueueStartFormComponent);
     fixture.componentRef.setInput('parentSessions', sessions);
     fixture.detectChanges();
@@ -196,5 +209,35 @@ describe('PlanQueueStartFormComponent', () => {
     fixture.nativeElement.querySelector('form').dispatchEvent(new Event('submit'));
 
     expect(emitted).toHaveLength(0);
+  });
+
+  it('replaces the pattern box and the Start button with the Linear preview when Linear tickets is chosen', async () => {
+    select().value = 'inst-2';
+    select().dispatchEvent(new Event('change'));
+    const linearRadio = Array.from(fixture.nativeElement.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>)
+      .find((el) => el.value === 'tickets')!;
+    expect(fixture.nativeElement.textContent).toContain('Linear tickets');
+    linearRadio.dispatchEvent(new Event('change'));
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-plan-queue-linear-start-preview')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('input[type="text"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('input[name="keepOnThisMac"]')).toBeNull();
+    expect(submitButton()).toBeNull();
+    expect(linearPreviewLoad).toHaveBeenCalledWith('/repo-b');
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No Linear project is linked to this folder.');
+  });
+
+  it('asks for a session before it lists Linear tickets, and never starts a markdown run from the Linear choice', async () => {
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe((r) => emitted.push(r));
+    const linearRadio = Array.from(fixture.nativeElement.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>)
+      .find((el) => el.value === 'tickets')!;
+    linearRadio.dispatchEvent(new Event('change'));
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Choose a session to see the Linear tickets for its folder.');
+    expect(linearPreviewLoad).not.toHaveBeenCalled();
+    fixture.nativeElement.querySelector('form').dispatchEvent(new Event('submit'));
+    expect(emitted).toEqual([]);
   });
 });
