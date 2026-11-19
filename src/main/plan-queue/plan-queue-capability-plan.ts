@@ -69,7 +69,7 @@ export async function ensureCapabilityPlan(repair: CapabilityRepair): Promise<vo
 }
 
 const ReceiptSchema = z.object({
-  launch: z.object({ tree: z.string(), root: z.string(), startedAt: z.string(), computer: z.enum(['windows-pc', 'ct-test-mac']), mode: z.enum(['dev', 'packaged']) }),
+  launch: z.object({ tree: z.string(), root: z.string(), startedAt: z.string(), computer: z.enum(['windows-pc', 'ct-test-mac']), mode: z.enum(['dev', 'packaged', 'windows']) }),
   runtime: z.object({ application: z.string().min(1).max(500), version: z.string().min(1).max(500), isPackaged: z.boolean() }),
   operation: z.string().min(1).max(2000), result: z.string().min(1).max(4000), observedAt: z.number().int().nonnegative(),
 });

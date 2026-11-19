@@ -2,8 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  harnessLiveTestDataPath, initializeHarnessLiveTest, isHarnessLiveTest, LIVE_TEST_OVERRIDES_DIR, resolveLiveTestClaudeStandIn,
-  writeHarnessLiveTestReceipt,
+  harnessLiveTestDataPath, initializeHarnessLiveTest, isHarnessLiveTest, isOwnedProfilePath, LIVE_TEST_OVERRIDES_DIR,
+  resolveLiveTestClaudeStandIn, writeHarnessLiveTestReceipt,
 } from './live-test-context';
 
 const dirs: string[] = [];
@@ -71,6 +71,16 @@ describe('owned live-test context', () => {
     chmodSync(f.ownerFile, 0o600);
     writeFileSync(f.ownerFile, JSON.stringify({ ...f.owner, executablePath: process.execPath }));
     expect(() => initializeHarnessLiveTest({ ...f.options, execPath: process.execPath })).toThrow(/owned copy/);
+  });
+
+  it('on Windows owns only the data folder made for test copies, whatever the letter case', () => {
+    const home = 'C:\\Users\\tester';
+    const owned = (data: string) => isOwnedProfilePath(data, 'win32', home);
+    expect(owned('C:\\Users\\tester\\.aio-devapps\\data\\aio-lt-run1')).toBe(true);
+    expect(owned('c:\\users\\TESTER\\.aio-devapps\\data\\aio-lt-run1')).toBe(true);
+    for (const data of ['C:\\Users\\tester\\AppData\\Roaming\\harness', 'C:\\Users\\tester\\.aio-devapps\\data\\other',
+      'C:\\Users\\tester\\.aio-devapps\\data\\..\\..\\AppData\\aio-lt-x', 'C:\\Users\\other\\.aio-devapps\\data\\aio-lt-run1',
+      '/tmp/aio-lt-run1']) expect(owned(data)).toBe(false);
   });
 });
 

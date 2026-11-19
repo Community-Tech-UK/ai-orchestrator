@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies } = require('./live-test-copy.js');
+const { isOwnedProfilePath, prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies } = require('./live-test-copy.js');
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 function fixture() {
@@ -82,6 +82,18 @@ describe('isolated live-test copy', () => {
       writeFileSync(file, JSON.stringify({ ...runtime, ...change }));
       expect(() => readRuntime(f.root)).toThrow();
     }
+  });
+
+  it('on Windows owns only the data folder remote-run.sh makes for copies, whatever the letter case', () => {
+    const home = 'C:\\Users\\tester';
+    const owned = (data: string) => isOwnedProfilePath(data, 'win32', home);
+    expect(owned('C:\\Users\\tester\\.aio-devapps\\data\\aio-lt-run1')).toBe(true);
+    expect(owned('c:\\users\\TESTER\\.aio-devapps\\data\\aio-lt-run1')).toBe(true);
+    for (const data of ['C:\\Users\\tester\\AppData\\Roaming\\harness', 'C:\\Users\\tester\\.aio-devapps\\data\\other',
+      'C:\\Users\\tester\\.aio-devapps\\data\\..\\..\\AppData\\aio-lt-x', 'C:\\Users\\other\\.aio-devapps\\data\\aio-lt-run1',
+      '.aio-devapps\\data\\aio-lt-run1', '/tmp/aio-lt-run1']) expect(owned(data)).toBe(false);
+    expect(isOwnedProfilePath('/tmp/aio-lt-run1', 'linux')).toBe(true);
+    expect(isOwnedProfilePath('/home/me/aio-lt-run1', 'linux')).toBe(false);
   });
 
   it('keeps the signed normal packaging hooks and never installs or publishes', () => {

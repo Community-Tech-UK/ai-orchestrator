@@ -29,7 +29,7 @@ add-apt-repository -y ppa:git-core/ppa
 apt-get update -q
 apt-get install -y -q \
   git ripgrep sqlite3 build-essential python3 python-is-python3 xz-utils unzip zip \
-  procps lsof psmisc util-linux dbus dbus-user-session systemd-container openssh-server \
+  procps lsof psmisc acl util-linux dbus dbus-user-session systemd-container openssh-server \
   libnss3 libnspr4 libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 \
   libdrm2 libgbm1 libgtk-3-0t64 libpango-1.0-0 libxcomposite1 libxdamage1 libxrandr2 \
   libxkbcommon0 libxss1 libxtst6 libsecret-1-0 xvfb

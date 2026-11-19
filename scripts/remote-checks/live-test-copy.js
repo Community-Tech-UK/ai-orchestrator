@@ -1,12 +1,34 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { getElectronBuilderArgs } = require('../localbuild');
 
 const PROFILE_MARKER = '.aio-livetest-profile.json';
+
+/**
+ * Where an owned profile may live. Unix: /tmp/aio-lt-*. A native Windows copy (windows-copy.js) keeps its data in
+ * <user profile>\.aio-devapps\data\aio-lt-*, the one folder remote-run.sh makes for them. src/main/app/live-test-context.ts
+ * applies the same rule when the app starts.
+ */
+function isOwnedProfilePath(data, platform = process.platform, home = os.homedir()) {
+  if (platform === 'win32') {
+    const prefix = path.win32.join(home, '.aio-devapps', 'data', 'aio-lt-').toLowerCase();
+    return path.win32.isAbsolute(data) && path.win32.normalize(data).toLowerCase().startsWith(prefix);
+  }
+  const resolved = path.resolve(data);
+  return path.isAbsolute(data) && (resolved.startsWith('/tmp/aio-lt-') || resolved.startsWith(`${fs.realpathSync('/tmp')}/aio-lt-`));
+}
+
 function canonical(file) {
+  if (process.platform === 'win32') {
+    // Windows paths are case-insensitive, and /tmp does not exist there.
+    const actual = fs.realpathSync(file);
+    if (actual.toLowerCase() !== path.resolve(file).toLowerCase()) throw new Error('Live-test paths must be canonical, without symlinked children');
+    return actual;
+  }
   const resolved = path.resolve(file).replace(/^\/tmp(?=\/|$)/, fs.realpathSync('/tmp'));
   const actual = fs.realpathSync(file);
   if (actual !== resolved) throw new Error('Live-test paths must be canonical, without symlinked children');
@@ -17,8 +39,9 @@ function prepareOwner({ root, data, executablePath, mode, tree, port }) {
   root = canonical(root);
   if (!['dev', 'packaged'].includes(mode) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(tree)
     || !Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid live-test ownership');
-  if (!path.isAbsolute(data) || !path.resolve(data).startsWith('/tmp/aio-lt-') && !path.resolve(data).startsWith(`${fs.realpathSync('/tmp')}/aio-lt-`)) {
-    throw new Error('Live-test profile must be under /tmp/aio-lt-');
+  if (!isOwnedProfilePath(data)) {
+    throw new Error(process.platform === 'win32'
+      ? 'Live-test profile must be under .aio-devapps\\data\\aio-lt-' : 'Live-test profile must be under /tmp/aio-lt-');
   }
   const existed = fs.existsSync(data);
   if (!existed) {
@@ -41,7 +64,8 @@ function prepareOwner({ root, data, executablePath, mode, tree, port }) {
   }
   for (const dir of [root, dataPath]) {
     if (process.getuid && fs.statSync(dir).uid !== process.getuid()) throw new Error('Live-test directory belongs to another user');
-    fs.chmodSync(dir, 0o700);
+    // Windows has no permission bits: its folders under the user's profile are private to that user by inheritance.
+    if (process.platform !== 'win32') fs.chmodSync(dir, 0o700);
   }
   executablePath = fs.realpathSync(executablePath);
   if (mode === 'packaged' && !executablePath.startsWith(`${root}${path.sep}`)) throw new Error('Package must be inside its owned copy');
@@ -122,4 +146,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies };
+module.exports = { isOwnedProfilePath, prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies };

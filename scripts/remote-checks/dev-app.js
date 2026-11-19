@@ -16,6 +16,8 @@
  *                                                                    # AIO_DEV_USER_DATA_PATH
  *   node .../dev-app.js stop --port <debugging port>
  *   node .../dev-app.js status
+ *   node .../dev-app.js start --windows ...                         # on the PC's Windows desktop, not its Linux space
+ *   node .../dev-app.js seed --port <debugging port>                # stand-ins for a copy with no AI tool signed in
  *
  * Run it from inside the checkout being tested; the files on disk go, uncommitted ones included. Exits 0 when done, 1
  * when the copy failed to build or start (its output says why), 2 for a usage mistake, and 75 when this Mac is the one
@@ -24,6 +26,11 @@
  * returns 75. `--needs codex,copilot` names the AI tools the check needs: only a computer that has every one installed
  * may take the copy, this Mac never does, and when every computer has answered and none has them, start sends nothing
  * and exits 3 saying what each lacks. That is installation only; whether a tool is signed in is for the copy to report.
+ *
+ * --windows starts the copy on the PC's own Windows desktop (navigator.platform Win32, Windows keyboard labels) instead of
+ * its Linux space: scripts/remote-checks/windows-copy.js does the install, builds and launch with Windows' Node. It is
+ * a dev copy (never packaged), always waits for the PC (never this Mac, never exit 75), and a window opens on the PC's
+ * desktop. start checks over the debugging port that the copy really reports a Windows platform, and stops it if not.
  */
 
 const { execFileSync, spawn } = require('child_process');
@@ -35,6 +42,7 @@ const path = require('path');
 const { appendRunLog, isLoopRun, readConfig, remoteChecksDir } = require('./route');
 const { SSH_OPTIONS, sendScript, sendSnapshot, sshCommand } = require('./run-remote');
 const { SnapshotRefused, cleanGitEnv, snapshotFileHash, takeSnapshot } = require('./snapshot');
+const { seedExpression } = require('./dev-app-seed');
 
 const STAY_HERE = 75;
 const USAGE_ERROR = 2;
@@ -53,6 +61,9 @@ const ANSWER_WAIT_MS = 15_000;
 const BUSY_LOAD_PER_CORE = 1.5;
 /** How long to wait before looking again when every computer is busy. AIO_DEVAPP_RECHECK_MS changes it. */
 const RECHECK_MS = 2 * 60_000;
+const SEED_WAIT_MS = 30_000;
+const PLATFORM_WAIT_MS = 30_000;
+const CDP_LIMIT_MS = 15_000;
 /**
  * What a checkout needs for the copy to be owned as a live test: the far script runs the first, the app reads the second.
  * A branch cut before they landed has neither, and without this check it fails only after the install and both builds.
@@ -62,13 +73,15 @@ const DATA_FOLDER = /^\/tmp\/aio-lt-[A-Za-z0-9._-][A-Za-z0-9._/-]*$/;
 
 const USAGE = `dev-app: a live test's Harness copy, run on another computer and driven from here.
 
-  start --port <debugging port> --data /tmp/aio-lt-<name> [--remote-only] [--mac] [--needs <tools>] [--packaged] [--checked-tree <tree>]
+  start --port <debugging port> --data /tmp/aio-lt-<name> [--remote-only] [--mac | --windows] [--needs <tools>] [--packaged] [--checked-tree <tree>]
       Sends this checkout's files, builds and starts Harness on the first computer that isn't busy (the test Mac,
       then the PC, then this Mac), and connects http://127.0.0.1:<port> here to it. Takes a few minutes, longer
       after a package change. When all are busy it waits, looking again every 2 minutes, until one isn't. Exit 75
       means use this Mac. Running it again with the same files joins the copy already starting or running.
       --mac skips the PC, whose copy has no AI tool signed in: for a check that needs one.
       --remote-only waits for an eligible remote computer; it never chooses this Mac or exits 75.
+      --windows runs the copy on the PC's Windows desktop, not in its Linux space: for a check that needs Windows
+      itself (key labels, a Windows screen reader). A window opens on the PC. Not with --mac, --packaged or --needs.
       --needs <tool,tool> (${NEEDABLE_TOOLS.join(', ')}) takes only a computer that has each installed, and never
       this Mac. When every computer has answered and none has them, nothing is sent and it exits 3, saying what each
       lacks. It proves installation only: whether a tool is signed in is for the copy to report.
@@ -81,15 +94,19 @@ const USAGE = `dev-app: a live test's Harness copy, run on another computer and 
   stop --port <debugging port>
       Stops the copy and closes the connection.
   status
-      Lists the copies on each computer.`;
+      Lists the copies on each computer.
+  seed --port <debugging port>
+      Fills the copy's screens with labelled stand-ins (an AI tool shown as installed, two sessions with queued
+      messages, an unavailable account, a Browser page) for a copy with no AI tool signed in. Screen only: nothing reaches
+      a provider or account. Run it again after opening the Browser or Plan Queue account rules screen.`;
 
 class UsageError extends Error {}
 
 function parse(argv) {
   const [action, ...rest] = argv;
   if (!action || ['help', '--help', '-h'].includes(action)) return { action: 'help' };
-  if (!['start', 'stop', 'shell', 'status'].includes(action)) throw new UsageError(`there is no dev-app ${action}`);
-  const options = { port: null, data: null, command: [], mode: 'dev', macOnly: false, remoteOnly: false, needs: [], checkedTree: null, unlockSigning: false };
+  if (!['start', 'stop', 'shell', 'status', 'seed'].includes(action)) throw new UsageError(`there is no dev-app ${action}`);
+  const options = { port: null, data: null, command: [], mode: 'dev', windows: false, macOnly: false, remoteOnly: false, needs: [], checkedTree: null, unlockSigning: false };
   for (let at = 0; at < rest.length; at += 1) {
     const arg = rest[at];
     if (arg === '--remote-only') {
@@ -99,6 +116,8 @@ function parse(argv) {
       options.mode = 'packaged';
     } else if (arg === '--mac' && action === 'start') {
       options.macOnly = true;
+    } else if (arg === '--windows' && action === 'start') {
+      options.windows = true;
     } else if (arg === '--needs' && action === 'start') {
       const value = rest[++at];
       const names = value ? value.split(',') : [];
@@ -135,6 +154,10 @@ function parse(argv) {
   }
   if (action === 'shell' && !options.command.join(' ').trim()) throw new UsageError('dev-app shell needs a command');
   if (options.unlockSigning && options.mode !== 'packaged') throw new UsageError('--signing-password-stdin requires --packaged');
+  if (options.windows) {
+    if (options.mode === 'packaged' || options.macOnly || options.needs.length) throw new UsageError('--windows is a development copy on the PC; it does not go with --packaged, --mac or --needs');
+    options.mode = 'windows';
+  }
   return { action, options };
 }
 
@@ -181,9 +204,13 @@ function harnessRoot(cwd, commonDir) {
   }
 }
 
-/** The computers a copy may start on, in the order to try them: Macs first, so the test Mac comes before the PC. */
-function copyMachines(config, macOnly = false) {
-  const usable = (config?.machines ?? []).filter(machine => !machine.paused && (!macOnly || machine.platform === 'darwin'));
+/**
+ * The computers a copy may start on, in the order to try them: Macs first, so the test Mac comes before the PC. A Windows
+ * copy goes to a computer that isn't a Mac: the PC, whose far script says if it has no Windows desktop.
+ */
+function copyMachines(config, macOnly = false, windowsOnly = false) {
+  const usable = (config?.machines ?? []).filter(machine => !machine.paused
+    && (!macOnly || machine.platform === 'darwin') && (!windowsOnly || machine.platform !== 'darwin'));
   return [...usable.filter(machine => machine.platform === 'darwin'), ...usable.filter(machine => machine.platform !== 'darwin')];
 }
 
@@ -309,6 +336,35 @@ async function waitForFreePort(port, waitMs = PORT_FREE_WAIT_MS) {
   }
 }
 
+/**
+ * Runs `expression` in the copy's window over its debugging port (here, through the tunnel) and resolves with the value.
+ * Only ever the copy this runner started: the port is the tunnel to it, never an everyday app's.
+ */
+async function cdpEvaluate(port, expression, limitMs = CDP_LIMIT_MS) {
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(limitMs) })).json();
+  const page = targets.find(target => target.type === 'page' && target.webSocketDebuggerUrl && /^http:\/\/localhost[:/]/.test(target.url ?? ''));
+  if (!page) throw new Error('the copy has no window showing its screens yet');
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(page.webSocketDebuggerUrl);
+    const timer = setTimeout(() => { socket.close(); reject(new Error('the copy did not answer')); }, limitMs);
+    socket.addEventListener('open', () => socket.send(JSON.stringify({
+      id: 1, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true },
+    })));
+    socket.addEventListener('message', (event) => {
+      const message = JSON.parse(String(event.data));
+      if (message.id !== 1) return;
+      clearTimeout(timer);
+      socket.close();
+      if (message.error || message.result?.exceptionDetails) {
+        reject(new Error(message.error?.message ?? message.result.exceptionDetails.exception?.description ?? 'the page refused it'));
+      } else {
+        resolve(message.result.result.value);
+      }
+    });
+    socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('could not connect to the copy')); });
+  });
+}
+
 /** Runs devapp-start, passing on what it prints. Resolves with its result line, or null if none arrived. */
 function streamStart(machine, remoteCommand, data, write) {
   return new Promise((resolve) => {
@@ -409,7 +465,7 @@ function computerName(machine) {
  * Starts the copy on one computer, its far script already sent. Resolves `{ code }` when that settles it, or
  * `{ busy: reason }` when the computer turned it away for being busy or out of reach, so the next one can be tried.
  */
-async function startOn({ machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, started }) {
+async function startOn({ machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, evaluate, started }) {
   const { port, data, mode, unlockSigning } = options;
   // The commits it already has, so only what is new travels.
   const bases = await sshCommand(machine, `bash ${script} bases`);
@@ -468,6 +524,23 @@ async function startOn({ machine, script, own, previous, root, snapshot, options
     }
   }
   if (joined) remember(previous.tunnelPid);
+  if (mode === 'windows') {
+    // The test is of Windows itself, so a copy that doesn't say it is Windows is no result at all.
+    // The window may still be loading its screens, which it cannot be asked until it has.
+    let platform = null;
+    for (const until = Date.now() + PLATFORM_WAIT_MS; ;) {
+      platform = await evaluate(port, 'navigator.platform').catch(() => null);
+      if (typeof platform === 'string' || Date.now() >= until) break;
+      await sleep(1_000);
+    }
+    if (typeof platform !== 'string' || !/^Win/.test(platform)) {
+      write(`dev-app: the copy on ${machine.label} reports its platform as ${platform ?? 'nothing'}, not Windows, so it was stopped.\n`);
+      await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
+      fs.rmSync(stateFile(env, port), { force: true });
+      return { code: 1, reason: 'the copy did not report a Windows platform' };
+    }
+    write(`dev-app: the copy reports navigator.platform ${platform}.\n`);
+  }
   write(`dev-app: Harness is running on ${machine.label}, reached here at http://127.0.0.1:${port} (CDP). Its data `
     + `folder there is ${data}; read it with dev-app shell. Stop it with: node ${__filename} stop --port ${port}\n`);
   write(`AIO_DEV_APP_RECEIPT ${JSON.stringify(receipt)}\n`);
@@ -500,11 +573,13 @@ async function leaveEarlierCopy(config, previous, port, write) {
   if (look.copy?.data === previous.data) await stopOlderCopy(look, port, previous, 'before starting elsewhere', write);
 }
 
-async function start({ options, root, env, write, answers, localLoad }) {
+async function start({ options, root, env, write, answers, evaluate, localLoad }) {
   const { port, mode, checkedTree, unlockSigning, needs } = options;
   const macOnly = options.macOnly || mode === 'packaged';
-  // This Mac can't be asked what it has installed, so a start that needs tools never lands here.
-  const remoteOnly = options.remoteOnly || mode === 'packaged' || needs.length > 0;
+  const windowsOnly = mode === 'windows';
+  // A signed package and a Windows desktop have no procedure on this Mac, and it can't be asked what it has installed,
+  // so a start that needs tools never lands here either.
+  const remoteOnly = options.remoteOnly || mode === 'packaged' || windowsOnly || needs.length > 0;
   const started = Date.now();
   // The port here may only be held by this checkout's own earlier copy's tunnel, which this start reuses or replaces.
   // Held by anything else, it is someone else's, and nothing is sent.
@@ -552,7 +627,7 @@ async function start({ options, root, env, write, answers, localLoad }) {
       const reasons = config ? [] : ['no test machines are set up'];
       // Every unpaused computer is asked, so this test's copy is found even where this start can't go (a rerun with
       // --mac while it is on the PC); such a copy is stopped below, as its tunnel here would hold the port.
-      const { able: eligible, lacking, unasked } = await haveTools(copyMachines(config, macOnly), needs);
+      const { able: eligible, lacking, unasked } = await haveTools(copyMachines(config, macOnly, windowsOnly), needs);
       if (needs.length && !eligible.length && !unasked.length && lacking.length) {
         const gaps = lacking.map(({ machine, missing }) => `${machine.label} lacks ${missing.join(' and ')}`).join('; ');
         write(`dev-app: no computer has ${needs.join(' and ')} installed: ${gaps}. Nothing was sent. Install and sign in `
@@ -591,7 +666,7 @@ async function start({ options, root, env, write, answers, localLoad }) {
         const own = tunnelHere && previous.host === machine.host;
         if (tunnelHere && !own) await leaveEarlierCopy(config, previous, port, write);
         const outcome = await startOn({
-          machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, started,
+          machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, evaluate, started,
         });
         if (outcome.busy) {
           reasons.push(outcome.busy);
@@ -724,12 +799,51 @@ async function status({ env, write }) {
 }
 
 /**
+ * Fills the copy on `port` with fixtures (see dev-app-seed.js). Only a copy this runner started has a record here, so the
+ * port is a tunnel to a copy of this runner's. The first-run flag needs a reload, so it is set first; then the fill is
+ * repeated until the screens that exist have taken what they hold, since the sessions' screen appears only once the AI
+ * tool list has been filled.
+ */
+async function seed({ options, env, write, evaluate }) {
+  if (!readState(env, options.port)) {
+    write(`dev-app: no copy started by this runner is on port ${options.port}. Start one first.\n`);
+    return 1;
+  }
+  const run = async (stage) => JSON.parse(await evaluate(options.port, seedExpression(stage)));
+  const applied = [];
+  let last;
+  try {
+    const prepared = await run('prepare');
+    if (prepared.error) throw new Error(prepared.error);
+    applied.push(...prepared.applied);
+    await sleep(Math.min(3_000, recheckMs(env)));
+    const deadline = Date.now() + SEED_WAIT_MS;
+    for (;;) {
+      last = await run('fill').catch(() => null);
+      if (last?.error) throw new Error(last.error);
+      if (last) applied.push(...last.applied);
+      // The two screens' fixtures wait for those screens to be opened; the rest settle by themselves.
+      const settling = (last?.waiting ?? ['the screens']).filter(what => !what.startsWith('open '));
+      if (!settling.length) break;
+      if (Date.now() >= deadline) throw new Error(`still waiting for: ${settling.join(', ')}`);
+      await sleep(Math.min(1_000, recheckMs(env)));
+    }
+  } catch (err) {
+    write(`dev-app: could not fill the copy's screens: ${err.message}\n`);
+    return 1;
+  }
+  for (const what of applied) write(`dev-app: filled: ${what}\n`);
+  for (const what of last.waiting) write(`dev-app: not yet filled: ${what}; run seed again once it is open\n`);
+  return 0;
+}
+
+/**
  * Resolves with the exit code. `commonDir` (the Harness repository's git folder), `answers` (whether a debugging port
  * answers) and `localLoad` (this Mac's load) are only ever different in tests.
  */
 async function main(argv, {
   cwd = process.cwd(), env = process.env, write = text => process.stdout.write(text),
-  commonDir = gitPath(__dirname, '--git-common-dir'), answers = answersOnPort, localLoad = thisMacLoad,
+  commonDir = gitPath(__dirname, '--git-common-dir'), answers = answersOnPort, localLoad = thisMacLoad, evaluate = cdpEvaluate,
 } = {}) {
   try {
     const { action, options } = parse(argv);
@@ -740,9 +854,10 @@ async function main(argv, {
     if (action === 'status') return await status({ env, write });
     if (action === 'stop') return await stop({ options, env, write });
     if (action === 'shell') return await shell({ options, env, write });
+    if (action === 'seed') return await seed({ options, env, write, evaluate });
     const root = harnessRoot(cwd, commonDir);
     if (!root) throw new UsageError('run it from inside a Harness checkout (the main checkout or a queue worktree)');
-    return await start({ options, root, env, write, answers, localLoad });
+    return await start({ options, root, env, write, answers, evaluate, localLoad });
   } catch (err) {
     if (err instanceof UsageError) {
       write(`dev-app: ${err.message}\n`);

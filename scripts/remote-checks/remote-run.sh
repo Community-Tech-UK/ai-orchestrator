@@ -653,6 +653,66 @@ DEVAPP_READY_SECONDS=120
 DEVAPP_SHELL_SECONDS=600
 DEVAPP_DIR=
 
+# ---- Windows desktop copies (mode windows; dev-app.js start --windows) ---------------------------------------------------
+# This computer's SSH door opens in its Linux space (WSL), but the screen a person uses is Windows. A windows copy is built and
+# run natively there, by Windows' own Node (node.exe, reached through WSL interop) through scripts/remote-checks/windows-copy.js,
+# so navigator.platform is Win32 and the keyboard labels are Windows'. This job stays in WSL as its supervisor: the copy's
+# control files (state, pid, log) are kept in devapps/apps/<port> as for any copy, so stopping, joining, status and the time limit
+# work unchanged. The heavy files live under the Windows user's .aio-devapps. A process id of Windows' is never given to
+# `kill` here: it would name some Linux process. Windows' side stops its own.
+WIN_PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+WIN_NODE=
+WIN_BASE=
+WIN_BASE_W=
+
+windows_available() {
+  [ "$MAC" != 1 ] && grep -qi microsoft /proc/version 2> /dev/null && [ -x "$WIN_PS" ]
+}
+
+# Sets WIN_NODE and WIN_BASE (as this Linux space sees them) and WIN_BASE_W (as Windows does). Windows' Node is the one
+# its PATH finds; the answer is kept in devapps/windows.env while that file still names a program that exists.
+windows_setup() {
+  local cache="$DEVAPPS/windows.env" home_w node_w answer
+  [ -n "$WIN_BASE" ] && return 0
+  if [ -f "$cache" ]; then
+    { IFS= read -r home_w; IFS= read -r node_w; } < "$cache"
+    [ -x "$node_w" ] || { home_w=; node_w=; }
+  fi
+  if [ -z "${home_w:-}" ] || [ -z "${node_w:-}" ]; then
+    windows_available || return 1
+    answer="$(cd /mnt/c && "$WIN_PS" -NoProfile -NonInteractive -Command '[Environment]::GetFolderPath("UserProfile"); (Get-Command node.exe -ErrorAction Stop).Source' 2> /dev/null | tr -d '\r')"
+    home_w="$(printf '%s\n' "$answer" | sed -n 1p)"
+    node_w="$(wslpath -u "$(printf '%s\n' "$answer" | sed -n 2p)" 2> /dev/null)"
+    [ -n "$home_w" ] && [ -x "$node_w" ] || return 1
+    mkdir -p "$DEVAPPS" && printf '%s\n%s\n' "$home_w" "$node_w" > "$cache"
+  fi
+  WIN_NODE="$node_w"
+  WIN_BASE_W="$home_w\\.aio-devapps"
+  WIN_BASE="$(wslpath -u "$WIN_BASE_W")"
+}
+
+# Runs Windows' Node with Windows paths as arguments. From a Windows folder, since cmd.exe-style programs refuse a Linux one.
+win_node() {
+  ( cd /mnt/c && "$WIN_NODE" "$@" )
+}
+
+# devapp_win <copy dir here> <command> [arguments]: windows-copy.js from the copy's Windows folder, if the copy has one.
+devapp_win() {
+  local dir="$1" name windir
+  shift
+  name="${dir##*/}"
+  windows_setup || return 0
+  windir="$WIN_BASE/apps/$name"
+  [ -f "$windir/windows-copy.js" ] || return 0
+  win_node "$WIN_BASE_W\\apps\\$name\\windows-copy.js" "$1" "$WIN_BASE_W\\apps\\$name" "${@:2}"
+}
+
+# The Windows folder a copy's data lives in, named from its /tmp/aio-lt- name: kept when the copy stops, as on Linux.
+devapp_win_data_name() {
+  local name="${1#/tmp/}"
+  printf '%s' "${name//\//_}"
+}
+
 devapp_port_ok() {
   case "$1" in '' | *[!0-9]*) return 1 ;; esac
   [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
@@ -682,6 +742,7 @@ devapp_result() {
 devapp_app_pids() {
   local mode executable
   mode="$(cat "$1/mode" 2>/dev/null || echo dev)"
+  if [ "$mode" = windows ]; then devapp_win "$1" pids | tr -d '\r'; return 0; fi
   executable="$(cat "$1/executable" 2>/dev/null)"
   if [ "$mode" = packaged ]; then
     case "$executable" in "$1/repo/"*) ;; *) return 0 ;; esac
@@ -696,6 +757,11 @@ devapp_app_pids() {
 
 devapp_stop_app() {
   local pids waited=0
+  if [ "$(cat "$1/mode" 2>/dev/null || echo dev)" = windows ]; then
+    devapp_win "$1" stop
+    while [ -n "$(devapp_app_pids "$1")" ] && [ "$waited" -lt 10 ]; do sleep 1; waited=$((waited + 1)); done
+    return 0
+  fi
   pids="$(devapp_app_pids "$1")"
   [ -n "$pids" ] || return 0
   kill -TERM $pids 2>/dev/null
@@ -723,6 +789,9 @@ devapp_stop_dir() {
   fi
   devapp_stop_app "$dir"
   sweep_orphans "$dir/repo"
+  if [ "$(cat "$dir/mode" 2>/dev/null || echo dev)" = windows ]; then
+    devapp_win "$dir" remove || { echo "[dev app] the Windows folder for port ${dir##*/} could not be removed; it is left for the next start's tidy"; return 0; }
+  fi
   rm -rf "$dir"
 }
 
@@ -770,6 +839,37 @@ devapp_tidy() {
     done
     [ "$used" = 1 ] || rm -rf "$install" "$install.lock"
   done
+  devapp_tidy_windows
+}
+
+# The same for the installs on Windows, once a windows copy has been made here. An install is unmarked first, so a clean-up
+# cut short never leaves one that looks finished. Deleting takes a while, so Windows' own Node does it, apart from this start.
+devapp_tidy_windows() {
+  local install name used dir helper
+  [ -f "$DEVAPPS/windows.env" ] && windows_setup || return 0
+  for install in "$WIN_BASE"/installs/*/; do
+    install="${install%/}"
+    [ -d "$install" ] || continue
+    name="${install##*/}"
+    helper="$install/repo/scripts/remote-checks/windows-copy.js"
+    if [ ! -f "$install/done" ]; then
+      [ -n "$(find "$install" -maxdepth 0 -mmin +1440 2>/dev/null)" ] || continue
+    else
+      [ -z "$(find "$install/used" -mmin -2880 2>/dev/null)" ] || continue
+      used=0
+      for dir in "$DEVAPPS"/apps/*; do
+        [ "$(cat "$dir/win-install" 2>/dev/null)" = "$name" ] && devapp_alive "$dir" && used=1
+      done
+      [ "$used" = 1 ] && continue
+    fi
+    with_lock "$DEVAPPS/win-install-$name.lock" true || continue
+    rm -f "$install/done"
+    if [ -f "$helper" ]; then
+      ( win_node "$(wslpath -w "$helper")" remove "$(wslpath -w "$install")" > /dev/null 2>&1 & )
+    else
+      rm -rf "$install"
+    fi
+  done
 }
 
 devapp_ends_at() {
@@ -785,7 +885,7 @@ cmd_devapp_start() {
   local port="$1" commit="$2" mode="${3:-dev}" unlock_signing="${4:-0}" data dir other running=0 tail_pid tree joining=0
   devapp_port_ok "$port" || { echo 'remote-run.sh: the debugging port must be a number from 1024 to 65535' >&2; exit 4; }
   case "$commit" in '' | *[!0-9a-f]*) echo 'remote-run.sh: not a commit' >&2; exit 4 ;; esac
-  case "$mode" in dev | packaged) ;; *) echo 'remote-run.sh: invalid copy mode' >&2; exit 4 ;; esac
+  case "$mode" in dev | packaged | windows) ;; *) echo 'remote-run.sh: invalid copy mode' >&2; exit 4 ;; esac
   case "$unlock_signing:$mode" in 0:* | 1:packaged) ;; *) echo 'remote-run.sh: signing unlock requires an owned packaged build' >&2; exit 4 ;; esac
   if [ "$unlock_signing" = 1 ]; then IFS= read -r data; else data="$(cat)"; fi
   # A folder of its own under /tmp, as the runbook gives each job: nothing else here is ever a copy's data.
@@ -838,6 +938,7 @@ cmd_devapp_start() {
       return 0
     fi
     if [ "$MAC" != 1 ] && [ "$mode" = packaged ]; then devapp_unlock; devapp_result failed 'a signed package needs a Mac'; return 0; fi
+    if [ "$mode" = windows ] && ! windows_setup; then devapp_unlock; devapp_result failed 'a Windows desktop copy needs the Windows PC, and this computer is not it'; return 0; fi
     mkdir -p "$dir" "$DEVAPPS/installs" || { devapp_unlock; exit 1; }
     chmod 700 "$dir"
     printf '%s\n' "$data" > "$dir/data"
@@ -898,6 +999,95 @@ cmd_devapp_install() {
   touch "$install/done"
 }
 
+# devapp-win-install <install folder here> <commit>: run under the install's lock, like devapp-install but in Windows:
+# the files go to the Windows folder and Windows' Node runs npm ci there, so the native modules are Windows' own.
+cmd_devapp_win_install() {
+  local install="$1" commit="$2"
+  windows_setup || return 1
+  [ -f "$install/done" ] && return 0
+  rm -rf "$install"
+  mkdir -p "$install/repo" || return 1
+  git -C "$REPO" archive "$commit" | tar -x --no-same-owner -C "$install/repo" || return 1
+  echo '[dev app] installing packages on Windows (once for each lock file)'
+  win_node "$(wslpath -w "$install/repo/scripts/remote-checks/windows-copy.js")" install "$(wslpath -w "$install")" || return 1
+  [ -f "$install/done" ]
+}
+
+# A windows copy's job: the work of devapp-job, done in Windows (see the Windows desktop copies note above).
+devapp_windows_job() {
+  local port="$1" commit="$2" data="$3" windir windir_w stamp install install_w started code gateway required actual relay_pid waited=0 data_w runtime_pid
+  windows_setup || devapp_fail 'the Windows desktop could not be reached from this Linux space'
+  windir="$WIN_BASE/apps/$port"
+  windir_w="$WIN_BASE_W\\apps\\$port"
+  echo "[dev app] unpacking this checkout on Windows ($(hostname))"
+  rm -rf "$windir"
+  mkdir -p "$windir/repo" "$WIN_BASE/installs" "$WIN_BASE/data" || devapp_fail 'could not make the Windows folders'
+  git -C "$REPO" archive "$commit" | tar -x --no-same-owner -C "$windir/repo" || devapp_fail 'could not unpack the snapshot on Windows'
+  cp "$windir/repo/scripts/remote-checks/windows-copy.js" "$windir/windows-copy.js" || devapp_fail 'the snapshot has no Windows copy helper'
+  # Windows' Node is the one its PATH finds, and is not fetched: it has to be the version the project names.
+  required="$(tr -d 'v \r\n' < "$windir/repo/.nvmrc" 2> /dev/null)"
+  actual="$(win_node -v | tr -d 'v \r\n')"
+  case "$actual" in "$required" | "$required".*) ;; *) devapp_fail "Windows has Node $actual, and this project needs $required" ;; esac
+
+  stamp="$({ cat "$windir/repo/package-lock.json" "$windir/repo/package.json" "$windir/repo/.npmrc" 2> /dev/null; printf '%s' "$actual"; } | sha256 | cut -c1-16)"
+  install="$WIN_BASE/installs/$stamp"
+  install_w="$WIN_BASE_W\\installs\\$stamp"
+  started="$(date +%s)"
+  while [ ! -f "$install/done" ]; do
+    with_lock "$DEVAPPS/win-install-$stamp.lock" bash "$SELF" devapp-win-install "$install" "$commit"
+    code=$?
+    [ "$code" -eq 0 ] && break
+    [ "$code" -eq "$BUSY" ] || devapp_fail 'the package install on Windows failed'
+    [ $(($(date +%s) - started)) -lt "$DEVAPP_INSTALL_WAIT_SECONDS" ] || devapp_fail 'another copy took too long to install packages'
+    sleep 3
+  done
+  touch "$install/used"
+  printf '%s\n' "$stamp" > "$DEVAPP_DIR/win-install"
+
+  win_node "$windir_w\\windows-copy.js" build "$windir_w" "$install_w" || devapp_fail 'building the copy on Windows failed'
+
+  # The address this Linux space reaches Windows by is an address of Windows' own, on the virtual network between them.
+  gateway="$(ip route show default | awk '{print $3; exit}')"
+  [ -n "$gateway" ] || devapp_fail 'this Linux space could not find its way to Windows'
+  data_w="$WIN_BASE_W\\data\\$(devapp_win_data_name "$data")"
+  echo "[dev app] starting Harness on the Windows desktop with its data in $data_w"
+  win_node "$windir_w\\windows-copy.js" start "$windir_w" "$data_w" "$port" "$(cat "$DEVAPP_DIR/tree")" "$gateway" || devapp_fail 'Harness did not start on Windows'
+  ensure_node "$(cat "$windir/repo/.nvmrc" 2> /dev/null)" || devapp_fail 'could not fetch the Node version'
+
+  # Ready once Harness's window exists, which its debugging port lists as a page.
+  until win_node "$windir_w\\windows-copy.js" ready "$port" "$windir_w" > "$DEVAPP_DIR/runtime.json" 2> /dev/null; do
+    if [ "$waited" -ge 60 ] && [ -z "$(devapp_app_pids "$DEVAPP_DIR")" ]; then
+      tail -n 40 "$windir/app.err"
+      devapp_fail 'Harness stopped while starting on Windows'
+    fi
+    if [ "$waited" -ge "$DEVAPP_READY_SECONDS" ]; then
+      tail -n 40 "$windir/app.err"
+      echo "[dev app] last look at the debugging port: $(win_node "$windir_w\\windows-copy.js" ready "$port" "$windir_w" 2>&1 > /dev/null | tr -d '\r')"
+      devapp_fail 'Harness did not open its debugging port on Windows'
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  # Only now: a listener on this port here is copied to Windows' loopback by WSL (its localhost forwarding), so one opened
+  # before Harness had its debugging port took the port from Harness ("Cannot start http server for devtools").
+  # The tunnel from the Mac ends at this port on loopback here; this joins it to the one Windows offers.
+  node "$windir/repo/scripts/remote-checks/windows-copy.js" relay 127.0.0.1 "$port" "$gateway" "$port" >> "$DEVAPP_DIR/relay.log" 2>&1 &
+  relay_pid=$!
+  waited=0
+  until curl -fsS "http://127.0.0.1:$port/json/version" > /dev/null 2>&1; do
+    kill -0 "$relay_pid" 2> /dev/null || { tail -n 20 "$DEVAPP_DIR/relay.log"; devapp_fail 'the debugging port could not be joined to this Linux space'; }
+    [ "$waited" -lt 20 ] || devapp_fail 'the debugging port on Windows could not be reached from this Linux space'
+    sleep 1
+    waited=$((waited + 1))
+  done
+  runtime_pid="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid))' "$DEVAPP_DIR/runtime.json")"
+  devapp_app_pids "$DEVAPP_DIR" | grep -qx "$runtime_pid" || devapp_fail 'the runtime receipt does not name this owned process'
+  echo ready > "$DEVAPP_DIR/state"
+  echo "[dev app] ready on port $port (Windows desktop)"
+  while [ -n "$(devapp_app_pids "$DEVAPP_DIR")" ]; do sleep 5; done
+  echo '[dev app] Harness has exited'
+}
+
 # devapp-job <port>: the copy itself, leading its own process group.
 cmd_devapp_job() {
   local port="$1" data commit work stamp install started code renderer_port mode bundle executable waited=0
@@ -928,6 +1118,7 @@ cmd_devapp_job() {
     echo '[dev app] stopping: the time limit was reached'
     kill -TERM -- "-$$" ) &
 
+  if [ "$mode" = windows ]; then devapp_windows_job "$port" "$commit" "$data"; return; fi
   echo "[dev app] checking out on $(hostname)"
   work="$DEVAPP_DIR/repo"
   mkdir -p "$work" && cd "$work" || devapp_fail 'could not make the checkout folder'
@@ -1107,11 +1298,18 @@ cmd_devapp_shell() {
   local dir
   devapp_port_ok "$1" || exit 4
   dir="$(devapp_dir "$1")"
-  [ -d "$dir/repo" ] || { echo "remote-run.sh: there is no Harness copy on port $1 here" >&2; exit 3; }
-  cd "$dir/repo" || exit 1
-  ensure_node "$(cat .nvmrc 2>/dev/null)" || true
   export AIO_DEV_USER_DATA_PATH
-  AIO_DEV_USER_DATA_PATH="$(cat "$dir/data")"
+  if [ "$(cat "$dir/mode" 2>/dev/null || echo dev)" = windows ]; then
+    # The copy's files are on Windows' disk, read from here; this Linux space's tools see them, Windows' own do not.
+    windows_setup && [ -d "$WIN_BASE/apps/$1/repo" ] || { echo "remote-run.sh: there is no Harness copy on port $1 here" >&2; exit 3; }
+    cd "$WIN_BASE/apps/$1/repo" || exit 1
+    AIO_DEV_USER_DATA_PATH="$WIN_BASE/data/$(devapp_win_data_name "$(cat "$dir/data")")"
+  else
+    [ -d "$dir/repo" ] || { echo "remote-run.sh: there is no Harness copy on port $1 here" >&2; exit 3; }
+    cd "$dir/repo" || exit 1
+    AIO_DEV_USER_DATA_PATH="$(cat "$dir/data")"
+  fi
+  ensure_node "$(cat .nvmrc 2>/dev/null)" || true
   # Nothing over SSH stops a command whose connection has gone (a `tail -f`, say), so it runs in a group of its own
   # for at most the time the Mac waits for it. Bash gives a background job /dev/null as stdin, hence the copy on 3.
   local script_pid watchdog code
@@ -1221,6 +1419,7 @@ case "$command_name" in
   devapp-start) cmd_devapp_start "$@" ;;
   devapp-job) cmd_devapp_job "$@" ;;
   devapp-install) cmd_devapp_install "$@" ;;
+  devapp-win-install) cmd_devapp_win_install "$@" ;;
   devapp-serve) cmd_devapp_serve "$@" ;;
   devapp-hold) cmd_devapp_hold "$@" ;;
   devapp-shell) cmd_devapp_shell "$@" ;;

@@ -7238,6 +7238,10 @@
       "lines": 1104
     },
     {
+      "path": "scripts/remote-checks/dev-app.spec.ts",
+      "lines": 1093
+    },
+    {
       "path": "docs/plans/livetest-backlog.md",
       "lines": 1087
     },
@@ -7359,10 +7363,6 @@
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
-      "lines": 990
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.spec.ts",
       "lines": 990
     },
     {
@@ -7628,6 +7628,10 @@
     {
       "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
       "lines": 883
+    },
+    {
+      "path": "scripts/remote-checks/dev-app.js",
+      "lines": 882
     },
     {
       "path": "benchmarks/plan-execute-ab/runner.spec.ts",

@@ -14,6 +14,7 @@ const { main, parse, readSigningPassword } = require('./dev-app.js') as {
   main(argv: string[], options: {
     cwd?: string; env?: NodeJS.ProcessEnv; write?: (text: string) => void; commonDir?: string;
     answers?: (port: number, waitMs?: number) => Promise<boolean>; localLoad?: () => Load;
+    evaluate?: (port: number, expression: string) => Promise<unknown>;
   }): Promise<number>;
   parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; needs: string[]; checkedTree: string | null } };
 };
@@ -149,6 +150,7 @@ type Setup = ReturnType<typeof setUp>;
 async function run(setup: Setup, argv: string[], {
   scenario = 'pass', cwd = setup.root, answers = true, here = QUIET, localLoad = () => here,
   onWrite = (_text: string) => { /* optional scheduler observation */ },
+  evaluate = async (_port: number, _expression: string): Promise<unknown> => 'Win32',
 } = {}) {
   writeFileSync(join(setup.fake, 'scenario'), scenario);
   let output = '';
@@ -159,6 +161,7 @@ async function run(setup: Setup, argv: string[], {
     commonDir: join(setup.root, '.git'),
     answers: async () => answers,
     localLoad,
+    evaluate,
   });
   const sshLog = existsSync(join(setup.fake, 'ssh.log')) ? readFileSync(join(setup.fake, 'ssh.log'), 'utf8') : '';
   const stateDir = join(setup.dir, 'dev-apps');
@@ -235,6 +238,106 @@ describe('dev-app arguments', () => {
     expect(parse(['shell', '--port', '9444', '--', 'ls', '-la']).options.command).toEqual(['ls', '-la']);
     expect(parse(['shell', '--port', '9444', 'tail -n 5 app.log']).options.command).toEqual(['tail -n 5 app.log']);
     expect(() => parse(['shell', '--port', '9444'])).toThrow(/needs a command/);
+  });
+});
+
+describe('dev-app --windows', () => {
+  const windowsArgs = (port: number) => ['start', '--windows', '--port', String(port), '--data', '/tmp/aio-lt-win'];
+
+  it('is a development copy on the PC, so it goes with neither --packaged nor --mac, nor with any other action', () => {
+    expect(parse(windowsArgs(9444)).options).toMatchObject({ mode: 'windows' });
+    expect(() => parse([...windowsArgs(9444), '--packaged'])).toThrow(/does not go with/);
+    expect(() => parse([...windowsArgs(9444), '--mac'])).toThrow(/does not go with/);
+    expect(() => parse([...windowsArgs(9444), '--needs', 'codex'])).toThrow(/does not go with/);
+    expect(() => parse(['stop', '--port', '9444', '--windows'])).toThrow(/doesn't take --windows/);
+  });
+
+  it('goes to the PC, never the test Mac, asks for a Windows desktop copy and checks the platform it reports', async () => {
+    const setup = setUp({}, { pc: true });
+    const asked: string[] = [];
+    const { code, output, sshLog } = await run(setup, windowsArgs(await freePort()), {
+      evaluate: async (_port, expression) => { asked.push(expression); return 'Win32'; },
+    });
+    expect(code).toBe(0);
+    expect(asked).toEqual(['navigator.platform']);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(output).toContain('the copy reports navigator.platform Win32');
+    expect(sshLog).toMatch(/^pc: .* devapp-start \d+ [0-9a-f]+ windows 0$/m);
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+    const line = output.split('\n').find(row => row.startsWith('AIO_DEV_APP_RECEIPT '))!;
+    expect(JSON.parse(line.slice('AIO_DEV_APP_RECEIPT '.length))).toMatchObject({ computer: 'windows-pc', mode: 'windows' });
+  }, LIMIT);
+
+  it('waits for the PC rather than use this Mac or the test Mac, which cannot run Windows', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'pc', LOADED, QUIET);
+    const { code, output, sshLog } = await run(setup, windowsArgs(await freePort()));
+    expect(output).toContain('waiting for a remote computer that can run this copy (the Windows PC is busy');
+    expect(output).not.toContain('Start Harness on this Mac');
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+  }, LIMIT);
+
+  it('stops a copy that does not report a Windows platform, and says so, rather than call it a result', async () => {
+    const setup = setUp({}, { pc: true });
+    const port = await freePort();
+    const { code, output, sshLog } = await run(setup, windowsArgs(port), { evaluate: async () => 'Linux x86_64' });
+    expect(code).toBe(1);
+    expect(output).toContain('reports its platform as Linux x86_64, not Windows, so it was stopped');
+    expect(output).not.toContain('Harness is running on');
+    expect(sshLog).toContain(` devapp-stop ${port}`);
+    expect(existsSync(join(setup.dir, 'dev-apps', `${port}.json`))).toBe(false);
+  }, LIMIT);
+});
+
+describe('dev-app seed', () => {
+  function recordCopy(setup: Setup, port: number) {
+    mkdirSync(join(setup.dir, 'dev-apps'), { recursive: true });
+    writeFileSync(join(setup.dir, 'dev-apps', `${port}.json`), JSON.stringify({ host: 'far', port, data: '/tmp/aio-lt-win', root: setup.root }));
+  }
+  const reply = (value: object) => JSON.stringify(value);
+
+  it('fills only a copy this runner started', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output } = await run(setup, ['seed', '--port', '9555'], { evaluate: async () => { throw new Error('must not be reached'); } });
+    expect(code).toBe(1);
+    expect(output).toContain('no copy started by this runner is on port 9555');
+  });
+
+  it('sets the first-run flag, then fills until the screens that exist have taken their fixtures', async () => {
+    const setup = setUp({}, { pc: true });
+    recordCopy(setup, 9556);
+    const stages: string[] = [];
+    let fills = 0;
+    const { code, output } = await run(setup, ['seed', '--port', '9556'], {
+      evaluate: async (_port, expression) => {
+        const stage = /\)\("(\w+)", "fixture-"\)$/.exec(expression)![1];
+        stages.push(stage);
+        if (stage === 'prepare') return reply({ stage, applied: ['first-run setup marked done'], waiting: [] });
+        fills += 1;
+        return fills === 1
+          ? reply({ stage, applied: ['AI tools shown as installed'], waiting: ['session list', 'open the Browser screen for its fixtures'] })
+          : reply({ stage, applied: ['two sessions with queued messages'], waiting: ['open the Browser screen for its fixtures'] });
+      },
+    });
+    expect(code).toBe(0);
+    expect(stages).toEqual(['prepare', 'fill', 'fill']);
+    expect(output).toContain('filled: first-run setup marked done');
+    expect(output).toContain('filled: two sessions with queued messages');
+    expect(output).toContain('not yet filled: open the Browser screen for its fixtures; run seed again once it is open');
+  });
+
+  it('says why when the screens were not built for development', async () => {
+    const setup = setUp({}, { pc: true });
+    recordCopy(setup, 9557);
+    const { code, output } = await run(setup, ['seed', '--port', '9557'], {
+      evaluate: async (_port, expression) => reply(/"prepare"/.test(expression)
+        ? { stage: 'prepare', applied: [], waiting: [] }
+        : { stage: 'fill', applied: [], waiting: [], error: 'these screens were not built for development (no window.ng), so they cannot be filled in' }),
+    });
+    expect(code).toBe(1);
+    expect(output).toContain('could not fill the copy\'s screens: these screens were not built for development');
   });
 });
 

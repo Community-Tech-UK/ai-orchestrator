@@ -352,4 +352,25 @@ describe('repair completion and original check revalidation', () => {
     await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, receiptSha256: '0'.repeat(64) } })).rejects.toThrow(/digest/);
     await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, receiptPath: '../probe.json' } })).rejects.toThrow(/relative path/);
   });
+
+  it('accepts the receipt a native Windows launch writes (mode "windows", not packaged)', async () => {
+    const { service, gap } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    const item = coordinator.getItem('origin'), tree = git(['rev-parse', 'HEAD^{tree}']);
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, repairItemId: item.id });
+    coordinator.save({ ...item, state: 'verifying', verifierInstanceId: 'checker', worktreePath: repo, checkpointCommit: git(['rev-parse', 'HEAD']) });
+    coordinator.registerRole('checker', { role: 'verifier', runId: 'source', itemId: 'origin' });
+    const now = Date.now(), operation = 'Seed the Windows copy', result = 'navigator.platform Win32';
+    const receipt = JSON.stringify({ launch: { tree, root: repo, startedAt: new Date(now).toISOString(), computer: 'windows-pc', mode: 'windows' },
+      runtime: { application: 'Harness', version: 'test-build', isPackaged: false }, operation, result, observedAt: now });
+    mkdirSync(join(repo, '_scratch'), { recursive: true }); writeFileSync(join(repo, '_scratch/probe-win.json'), receipt);
+    const probe = { computer: 'windows-pc' as const, runtimeBuild: tree, testedTree: tree, observedAt: now, operation, result,
+      receiptPath: '_scratch/probe-win.json', receiptSha256: createHash('sha256').update(receipt).digest('hex') };
+    await service.reportProbe('checker', { item_id: item.id, probe });
+    expect(store.capabilities.get(repairId)?.probeReceipt).toBe(receipt);
+    const packagedWindows = receipt.replace('"isPackaged":false', '"isPackaged":true');
+    writeFileSync(join(repo, '_scratch/probe-win.json'), packagedWindows);
+    await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, receiptSha256: createHash('sha256').update(packagedWindows).digest('hex') } }))
+      .rejects.toThrow(/does not match the launch receipt/);
+  });
 });

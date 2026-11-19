@@ -1,5 +1,6 @@
 import { constants, accessSync, lstatSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 
 export interface HarnessLiveTestContext {
   schemaVersion: 1;
@@ -18,9 +19,26 @@ function contains(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
 }
 
+/**
+ * Where an owned profile may live: /tmp/aio-lt-* on Unix, and on a native Windows copy (scripts/remote-checks/windows-copy.js)
+ * <user profile>\.aio-devapps\data\aio-lt-*. scripts/remote-checks/live-test-copy.js applies the same rule when it makes the profile.
+ */
+export function isOwnedProfilePath(dataPath: string, platform: NodeJS.Platform = process.platform, home: string = homedir()): boolean {
+  if (platform === 'win32') {
+    const prefix = win32.join(home, '.aio-devapps', 'data', 'aio-lt-').toLowerCase();
+    return win32.isAbsolute(dataPath) && win32.normalize(dataPath).toLowerCase().startsWith(prefix);
+  }
+  return dataPath.startsWith(`${realpathSync('/tmp')}/aio-lt-`);
+}
+
 function canonical(file: string): string {
   const resolved = resolve(file);
   const real = realpathSync(file);
+  if (process.platform === 'win32') {
+    // Windows paths are case-insensitive, and /tmp does not exist there.
+    if (real.toLowerCase() !== resolved.toLowerCase()) throw new Error('Live-test paths must be canonical, without symlinked children');
+    return real;
+  }
   // /tmp itself is an OS alias on macOS, but no test-owned child may be a link.
   const normalized = resolved.replace(/^\/tmp(?=\/|$)/, realpathSync('/tmp'));
   if (real !== normalized) throw new Error('Live-test paths must be canonical, without symlinked children');
@@ -48,8 +66,10 @@ export function initializeHarnessLiveTest(options: {
   }
   if (!isAbsolute(profile) || !isAbsolute(ownerFile)) throw new Error('Live-test paths must be absolute');
   const dataPath = canonical(profile);
-  const temp = realpathSync('/tmp');
-  if (!dataPath.startsWith(`${temp}/aio-lt-`)) throw new Error('Live-test profile must be under /tmp/aio-lt-');
+  if (!isOwnedProfilePath(dataPath)) {
+    throw new Error(process.platform === 'win32'
+      ? 'Live-test profile must be under .aio-devapps\\data\\aio-lt-' : 'Live-test profile must be under /tmp/aio-lt-');
+  }
   for (const normal of ['harness', 'harness-dev'].map(name => normalPath(join(options.appDataPath, name)))) {
     if (contains(normal, dataPath) || contains(dataPath, normal)) throw new Error('Live-test profile must not overlap normal app data');
   }
@@ -57,7 +77,8 @@ export function initializeHarnessLiveTest(options: {
   const root = dirname(receipt);
   for (const file of [root, receipt, dataPath]) {
     const stat = lstatSync(file);
-    if ((stat.mode & 0o077) !== 0 || (process.getuid && stat.uid !== process.getuid())) {
+    // Windows has no permission bits: its folders under the user's profile are private to that user by inheritance.
+    if ((process.platform !== 'win32' && (stat.mode & 0o077) !== 0) || (process.getuid && stat.uid !== process.getuid())) {
       throw new Error('Live-test ownership and profile must be private to the current user');
     }
   }
