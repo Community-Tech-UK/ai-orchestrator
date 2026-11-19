@@ -16,6 +16,7 @@ import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-re
 import { randomUUID } from 'crypto';
 import { preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
 import { createPlanQueueRun } from './plan-queue-run-create';
+import { createLinearRun, type LinearStartInput, type LinearStartSources } from './plan-queue-linear-run-create';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { recheckReadiness } from './plan-queue-recheck-readiness';
 import { getTicketRetention } from './plan-queue-ticket-retention';
@@ -443,16 +444,18 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // ---------------------------------------------------------------------------
   // Public API (MCP tools and IPC)
   // ---------------------------------------------------------------------------
-  async startRun(input: StartRunInput): Promise<StartRunResult> {
-    const { run, ...details } = await createPlanQueueRun(input, {
-      ...this.requireDeps(), isQueueInstance: id => this.isQueueInstance(id),
-      isSetAsideInstance: id => this.setAside?.folderOf(id) !== undefined,
-      selectVerifier: input => this.selectVerifier(input), applyRelaxation: run => this.applyRelaxation(run),
-    });
+  private runCreateHost() {
+    return { ...this.requireDeps(), isQueueInstance: (id: string) => this.isQueueInstance(id), isSetAsideInstance: (id: string) => this.setAside?.folderOf(id) !== undefined,
+      selectVerifier: (input: VerifierSelectInput) => this.selectVerifier(input), applyRelaxation: (run: PlanQueueRun) => this.applyRelaxation(run) };
+  }
+  private startedRun({ run, ...details }: Omit<StartRunResult, 'run'> & { run: PlanQueueRun }): StartRunResult {
     this.announceRun(run.id);
     this.requestPump();
     return { run: this.getRunDto(run.id)!, ...details };
   }
+  async startRun(input: StartRunInput): Promise<StartRunResult> { return this.startedRun(await createPlanQueueRun(input, this.runCreateHost())); }
+  /** A Linear run, started from the ticked tickets of a preview. Only the Plan Queue page's handler calls this. */
+  async startLinearRun(input: LinearStartInput, sources: LinearStartSources): Promise<StartRunResult> { return this.startedRun(await createLinearRun(input, sources, this.runCreateHost())); }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
     if (!run) return null;

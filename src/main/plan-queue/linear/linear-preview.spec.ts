@@ -271,10 +271,10 @@ describe('loading one ticket\'s text', () => {
   it('keeps the text against the preview, with the title and the text as James saw them', async () => {
     const { service } = await connect(ticketTools(3));
     const preview = await service.load(FOLDER);
-    expect(service.heldText(preview.previewId, 'uuid-ORC-2')).toBeNull();
+    expect(service.shownText(preview.previewId, 'uuid-ORC-2')).toBeNull();
     const text = await service.loadText(preview.previewId, 'uuid-ORC-2');
-    const held = service.heldText(preview.previewId, 'uuid-ORC-2');
-    expect(held).toMatchObject({ identifier: 'ORC-2', title: `${SECRET_TITLE} ORC-2`, hash: text.hash, overLimit: false });
+    const held = service.shownText(preview.previewId, 'uuid-ORC-2');
+    expect(held).toMatchObject({ identifier: 'ORC-2', title: `${SECRET_TITLE} ORC-2`, hash: text.hash, overLimit: false, address: 'https://linear.example.test/issue/ORC-2' });
     expect(held?.text.description).toBe(SHORT_DESCRIPTION);
     expect(held?.text.comments.map((entry) => [entry.id, entry.fromBot])).toEqual([['c1', false], ['c2', false], ['c3', true]]);
   });
@@ -293,7 +293,7 @@ describe('loading one ticket\'s text', () => {
     });
     const preview = await service.load(FOLDER);
     await service.loadText(preview.previewId, 'l1');
-    expect(service.heldText(preview.previewId, 'l1')?.text.relatedTickets).toEqual([
+    expect(service.shownText(preview.previewId, 'l1')?.text.relatedTickets).toEqual([
       { relation: 'parent', identifier: 'ORC-2', title: 'Title of ORC-2' },
       { relation: 'blocked-by', identifier: 'ORC-2', title: 'Title of ORC-2' },
       { relation: 'blocked-by', identifier: 'ORC-77', title: null },
@@ -355,7 +355,7 @@ describe('the call budget', () => {
     const preview = await service.load(FOLDER);
     await expect(service.loadText(preview.previewId, 'uuid-ORC-2')).rejects.toMatchObject({ code: 'call-limit', message: LINEAR_PREVIEW_TOO_MANY });
     expect(connector.calls).toHaveLength(200);
-    expect(service.heldText(preview.previewId, 'uuid-ORC-2')).toBeNull();
+    expect(service.shownText(preview.previewId, 'uuid-ORC-2')).toBeNull();
   }, 120_000);
 });
 
@@ -397,7 +397,7 @@ describe('two at once, and a list that is replaced', () => {
     const newer = await service.load(FOLDER);
     reading.resolve(ticketRead('ORC-1', { description: 'Text read for the old list.' }));
     await expect(request).rejects.toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
-    expect(service.heldText(newer.previewId, 'l1')).toBeNull();
+    expect(service.shownText(newer.previewId, 'l1')).toBeNull();
     // The newer list answers for itself, from a fresh read.
     expect((await service.loadText(newer.previewId, 'l1')).description).toBe('A description.');
   });
@@ -424,7 +424,7 @@ describe('a restart, the 30 minutes and a run that starts', () => {
     // The list is dropped by its own timer, with no request to notice it.
     expect(vi.getTimerCount()).toBe(0);
     await expect(service.loadText(preview.previewId, 'l1')).rejects.toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
-    expect(() => service.heldText(preview.previewId, 'l1')).toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
+    expect(() => service.shownText(preview.previewId, 'l1')).toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
   });
 
   it('refuses a request that finds the 30 minutes up, even when the timer has not run yet', async () => {
@@ -459,5 +459,20 @@ describe('a restart, the 30 minutes and a run that starts', () => {
     expect(vi.getTimerCount()).toBe(0);
     await expect(service.loadText(second.previewId, 'l1')).rejects.toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
     await expect(service.loadText(first.previewId, 'l1')).rejects.toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
+  });
+
+  it('gives the list a start is made from while it is current, and says it is out of date once it is replaced, dropped or too old', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const { service } = stubService();
+    const first = await service.load(FOLDER);
+    expect(service.current(first.previewId)).toBe(first);
+    const second = await service.load(FOLDER);
+    expect(() => service.current(first.previewId)).toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
+    expect(service.current(second.previewId)).toBe(second);
+    vi.setSystemTime(Date.now() + LINEAR_PREVIEW_LIFETIME_MS);
+    expect(() => service.current(second.previewId)).toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
+    const third = await service.load(FOLDER);
+    service.drop(third.previewId);
+    expect(() => service.current(third.previewId)).toThrow(LINEAR_PREVIEW_OUT_OF_DATE);
   });
 });

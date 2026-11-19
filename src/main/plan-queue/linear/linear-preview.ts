@@ -66,6 +66,8 @@ export interface LinearPreviewDependencies {
 export interface HeldTicketText {
   linearId: string;
   identifier: string;
+  /** The ticket's web address, kept in the ticket table with the approved text. */
+  address: string;
   title: string;
   text: ApprovedTicketText;
   hash: string;
@@ -114,8 +116,13 @@ export class LinearPreviewService {
     return (await reading).response;
   }
 
+  /** The list a start is made from, while it is still the folder's current one. Throws `out-of-date` otherwise. */
+  current(previewId: string): PlanQueueLinearPreview {
+    return this.live(previewId).response;
+  }
+
   /** The text kept for a ticket, for the run that starts from this preview. Null when none was loaded. */
-  heldText(previewId: string, linearId: string): HeldTicketText | null {
+  shownText(previewId: string, linearId: string): HeldTicketText | null {
     return this.live(previewId).held.get(linearId) ?? null;
   }
 
@@ -221,7 +228,7 @@ export class LinearPreviewService {
       hash: read.hash,
       overLimit,
     };
-    return { linearId: row.id, identifier: ticket.identifier, title: ticket.title, text, hash: read.hash, overLimit, response };
+    return { linearId: row.id, identifier: ticket.identifier, address: ticket.url, title: ticket.title, text, hash: read.hash, overLimit, response };
   }
 
   /** The preview a request names, when it is still the folder's current one and has not run out. */

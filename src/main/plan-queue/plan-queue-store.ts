@@ -112,6 +112,9 @@ export class PlanQueueStore {
     private readonly now: () => number = Date.now,
   ) { this.history = new PlanQueueHistoryStore(db, now); this.waits = new PlanQueueSlotWaits(this.history, now); this.capabilities = new PlanQueueCapabilityStore(db, now); }
 
+  /** Runs `fn` as one unit: all its writes are kept or none, and it must not await. Writes by other stores over this database join it. */
+  inTransaction<R>(fn: () => R): R { return this.db.transaction(fn)(); }
+
   /** The "Queue health" measures for the recent window, computed from the stored events and verdicts. */
   queueHealth() { return readQueueHealth(this.db, this.now()); }
 

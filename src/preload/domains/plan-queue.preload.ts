@@ -9,6 +9,7 @@ import type {
   PlanQueueLinearLinksSavePayload,
   PlanQueueLinearPreviewLoadPayload,
   PlanQueueLinearPreviewTextPayload,
+  PlanQueueLinearStartPayload,
   PlanQueueLinearTeamsSavePayload,
   PlanQueuePreviewPayload,
   PlanQueueRouteChoice,
@@ -88,6 +89,9 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
 
     planQueueLinearPreviewText: (payload: PlanQueueLinearPreviewTextPayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_PREVIEW_TEXT, payload),
+
+    planQueueLinearStart: (payload: PlanQueueLinearStartPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_START, payload),
 
     planQueueTicketAskRead: (payload: PlanQueueTicketAskReadPayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_TICKET_ASK_READ, payload),

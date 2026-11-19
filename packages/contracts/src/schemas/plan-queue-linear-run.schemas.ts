@@ -40,3 +40,17 @@ export const PlanQueueLinearRunQuerySchema = z.object({
 export type PlanQueueLinearRunProject = z.infer<typeof PlanQueueLinearRunProjectSchema>;
 export type PlanQueueLinearRunTicket = z.infer<typeof PlanQueueLinearRunTicketSchema>;
 export type PlanQueueLinearRunQuery = z.infer<typeof PlanQueueLinearRunQuerySchema>;
+
+/**
+ * What the Plan Queue page sends to start a Linear run: the session that starts it, the folder the list was loaded for, the
+ * preview it was loaded in, and the Linear ids of the ticked tickets. Nothing else: no hash, title or text comes from the
+ * page, because the main process takes them from the preview it holds. The count is checked in the main process, in fixed
+ * words; the limit here only keeps a message from being absurdly large.
+ */
+export const PlanQueueLinearStartPayloadSchema = z.object({
+  parentInstanceId: z.string().trim().min(1).max(200),
+  workspaceCwd: z.string().trim().min(1).max(1000).optional(),
+  previewId: z.string().trim().min(1).max(100),
+  linearIds: z.array(LinearIdSchema).max(1000),
+}).strict();
+export type PlanQueueLinearStartPayload = z.infer<typeof PlanQueueLinearStartPayloadSchema>;

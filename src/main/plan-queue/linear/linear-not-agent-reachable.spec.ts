@@ -62,4 +62,27 @@ describe('the Linear call is not reachable by agents', () => {
     const routes = sourceFiles(join(ROOT, 'src/main/mcp')).filter((path) => preview.test(readFileSync(path, 'utf8')));
     expect(routes).toEqual([]);
   });
+
+  it('starts a Linear run only from the Plan Queue page\'s own handler', () => {
+    // Making a run from a preview is the one step that turns ticked tickets into work, so no tool, command, RPC method or
+    // tool operation may name it. The coordinator method is called by the page's handler alone.
+    const start = /startLinearRun|createLinearRun|PLAN_QUEUE_LINEAR_START|plan-queue-linear-run-create['"]/;
+    const reachers = ['src/main', 'src/preload', 'src/shared', 'packages']
+      .flatMap((folder) => sourceFiles(join(ROOT, folder)))
+      .map((path) => relative(ROOT, path))
+      .filter((path) => !path.endsWith('.test-helpers.ts'))
+      .filter((path) => start.test(readFileSync(join(ROOT, path), 'utf8')))
+      .sort();
+    expect(reachers).toEqual([
+      join('packages', 'contracts', 'src', 'channels', 'plan-queue.channels.ts'),
+      join('src', 'main', 'ipc', 'handlers', 'plan-queue-linear-handlers.ts'),
+      join('src', 'main', 'plan-queue', 'plan-queue-coordinator.ts'),
+      join('src', 'main', 'plan-queue', 'plan-queue-linear-run-create.ts'),
+      join('src', 'preload', 'domains', 'plan-queue.preload.ts'),
+      join('src', 'preload', 'generated', 'channels.ts'),
+    ]);
+    const routes = [...sourceFiles(join(ROOT, 'src/main/mcp')), join(ROOT, 'src/main/plan-queue/plan-queue-tool-operations.ts')]
+      .filter((path) => start.test(readFileSync(path, 'utf8')));
+    expect(routes).toEqual([]);
+  });
 });

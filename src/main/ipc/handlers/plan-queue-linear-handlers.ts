@@ -18,8 +18,10 @@ import {
   PlanQueueLinearNoPayloadSchema,
   PlanQueueLinearPreviewLoadPayloadSchema,
   PlanQueueLinearPreviewTextPayloadSchema,
+  PlanQueueLinearStartPayloadSchema,
   PlanQueueLinearTeamsSavePayloadSchema,
 } from '@contracts/schemas/plan-queue';
+import { getPlanQueueCoordinator } from '../../plan-queue/plan-queue-coordinator';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLinearConnectionService } from '../../plan-queue/linear/linear-connection-singleton';
 import { isLinearCallError } from '../../plan-queue/linear/linear-errors';
@@ -152,5 +154,17 @@ export function registerPlanQueueLinearHandlers(deps: { windowManager: Pick<Wind
   handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_TEXT, 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT_FAILED', (payload) => {
     const validated = validateIpcPayload(PlanQueueLinearPreviewTextPayloadSchema, payload, 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT');
     return readPreview(() => preview.loadText(validated.previewId, validated.linearId));
+  });
+
+  // Start a Linear run from the ticked tickets of a preview. The page only: the run's text comes from the preview held
+  // here, and `plan_queue_start` refuses a Linear run (plan-queue-run-create.ts).
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_START, 'PLAN_QUEUE_LINEAR_START_FAILED', (payload) => {
+    const validated = validateIpcPayload(PlanQueueLinearStartPayloadSchema, payload, 'PLAN_QUEUE_LINEAR_START');
+    return getPlanQueueCoordinator().startLinearRun(validated, {
+      preview,
+      readTeams: () => getSettingsManager().getAll().planQueueLinearTeams ?? [],
+      isTeamReady: (teamId) => teams.isTeamReady(teamId),
+      connectionReason: () => service.reasonToHold(),
+    });
   });
 }

@@ -1,6 +1,6 @@
 /** Validate and create a run without yielding between document ownership checks and item writes. */
 import { realpathSync } from 'node:fs';
-import type { PlanQueueRunConfig } from '@contracts/schemas/plan-queue';
+import type { PlanQueueKind, PlanQueueRouting, PlanQueueRunConfig } from '@contracts/schemas/plan-queue';
 import type { PlanQueueCoordinatorDeps, StartRunInput, StartRunResult } from './plan-queue-coordinator';
 import { getLogger } from '../logging/logger';
 import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
@@ -13,12 +13,13 @@ import { defaultRunConfigFor } from './plan-queue-default-gates';
 import { resolveRunGates, savedChecklistFor } from './plan-queue-folder-checklists';
 import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
 import { currentBranch, repositoryRoot } from './plan-queue-git';
-import { assertRoutingInstalled, resolveRunRouting } from './plan-queue-routing';
+import { assertRoutingInstalled, resolveRunRouting, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
+import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import type { PlanQueueRun } from './plan-queue.types';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
 
 const logger = getLogger('PlanQueueCoordinator');
-type RunCreateHost = Pick<PlanQueueCoordinatorDeps, 'store' | 'instances' | 'routing'>
+export type RunCreateHost = Pick<PlanQueueCoordinatorDeps, 'store' | 'instances' | 'routing'>
   & Required<Pick<PlanQueueCoordinatorDeps, 'folderChecklists' | 'thisRepositoryRootCommit' | 'now' | 'newId'>> & {
     isQueueInstance(instanceId: string): boolean;
     isSetAsideInstance(instanceId: string): boolean;
@@ -29,14 +30,19 @@ type RunCreateHost = Pick<PlanQueueCoordinatorDeps, 'store' | 'instances' | 'rou
 /** Both `plan_queue_start` and the page's ordinary Start reach `createPlanQueueRun`, so this one sentence covers both. */
 export const LINEAR_RUN_PAGE_ONLY_MESSAGE = 'Linear runs start only on the Plan Queue page, where James ticks the tickets.';
 
-export async function createPlanQueueRun(input: StartRunInput, host: RunCreateHost): Promise<Omit<StartRunResult, 'run'> & { run: PlanQueueRun }> {
-  // First, before anything is read: a Linear run is made by its own function (Step 11), never from these arguments.
-  if (input.kind === 'tickets' || input.config?.linear !== undefined) throw new Error(LINEAR_RUN_PAGE_ONLY_MESSAGE);
-  if (input.config?.capabilityRepairId !== undefined || input.config?.capabilityRepairAccountRules !== undefined
-    || input.config?.startingProviderExclusions !== undefined || input.config?.capabilityRepairExcludedProviders !== undefined) {
-    throw new Error('Repair identity and inherited account restrictions are assigned only by the coordinator.');
-  }
-  const startingProviderExclusions = AUTOMATION_PROVIDER_IDS.filter(host.routing?.isProviderExcluded ?? isProviderExcludedFromAutomation);
+/** The session starting a run and the repository it works in, checked the way every start checks them. */
+export interface StartingPlace {
+  parent: PlanQueueInstanceRecord;
+  startFolder: string;
+  repoRoot: string;
+  baseBranch: string;
+}
+
+export async function locateRun(
+  input: { parentInstanceId: string; workspaceCwd?: string },
+  host: RunCreateHost,
+  afterRepositoryRoot: (repoRoot: string) => Promise<void> = async () => undefined,
+): Promise<StartingPlace> {
   const parent = host.instances.getInstance(input.parentInstanceId);
   if (!parent) throw new Error(`Parent session not found: ${input.parentInstanceId}`);
   if (host.isQueueInstance(input.parentInstanceId) || host.isSetAsideInstance(input.parentInstanceId)) {
@@ -44,24 +50,77 @@ export async function createPlanQueueRun(input: StartRunInput, host: RunCreateHo
   }
   const startFolder = input.workspaceCwd ?? parent.workingDirectory ?? process.cwd();
   const repoRoot = await repositoryRoot(startFolder);
-  const repairRepository = input.config?.capabilityRepairRepository === undefined ? undefined
-    : realpathSync(await repositoryRoot(input.config.capabilityRepairRepository));
-  if (repairRepository !== undefined && repairRepository !== realpathSync(repoRoot)) {
-    throw new Error('Automatic capability repairs are restricted to this run’s repository. Cross-project repairs require an owner handoff.');
-  }
+  await afterRepositoryRoot(repoRoot);
   const baseBranch = await currentBranch(repoRoot);
   if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
+  return { parent, startFolder, repoRoot, baseBranch };
+}
 
-  // Fixed now, validated now: a choice the queue cannot honour refuses the run.
+export interface PreparedRunConfig {
+  config: PlanQueueRunConfig;
+  routing: PlanQueueRouting;
+  setAside: ResolvedRunRouting['setAside'];
+  accountNotes: string[];
+  checklistSetAside: boolean;
+}
+
+/**
+ * A run's routing, checks and config: fixed now, validated now, so a choice the queue cannot honour refuses the run. A Linear
+ * run passes `checkRouting` (the providers its teams allow, checked before anything is installed or tried) and
+ * `excludedProviders` (left out when a checker is chosen), and its own entries in `extra`.
+ */
+export async function prepareRunConfig(
+  place: StartingPlace,
+  input: { kind: PlanQueueKind; glob?: string; config?: Partial<PlanQueueRunConfig>; routing?: PlanQueueRoutingOverride },
+  host: RunCreateHost,
+  options: {
+    startingProviderExclusions: string[];
+    extra?: Partial<PlanQueueRunConfig>;
+    checkRouting?: (routing: PlanQueueRouting) => void;
+    excludedProviders?: readonly string[];
+  },
+): Promise<PreparedRunConfig> {
+  const { parent, startFolder, repoRoot, baseBranch } = place;
   const { routing, setAside, accountNotes } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, host.routing);
+  options.checkRouting?.(routing);
   await assertRoutingInstalled(routing, host.routing ?? {});
   await preflightPlanQueueRun({ routing, workspaceCwd: repoRoot, workerProvider: parent.provider ?? 'claude', workerModel: parent.currentModel ?? null,
-    selectVerifier: input => host.selectVerifier(input) });
+    ...(options.excludedProviders ? { excludedProviders: options.excludedProviders } : {}),
+    selectVerifier: selection => host.selectVerifier(selection) });
   const glob = input.glob ?? input.config?.glob;
   const defaults = await defaultRunConfigFor(repoRoot, input.kind, host.thisRepositoryRootCommit);
   const { callerGatesSetAside, ...gates } = resolveRunGates(defaults, input.config, savedChecklistFor(host.folderChecklists(), repoRoot, startFolder));
-  const config: PlanQueueRunConfig = { ...defaults, ...input.config, ...gates, glob, baseBranch, routing, startingProviderExclusions, ...(repairRepository === undefined ? {} : { capabilityRepairRepository: repairRepository }), startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
+  const config: PlanQueueRunConfig = { ...defaults, ...input.config, ...gates, glob, baseBranch, routing, startingProviderExclusions: options.startingProviderExclusions, ...options.extra,
+    startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
   await assertRunReady(repoRoot, [...config.verifierGates, ...config.postMergeGate]);
+  return { config, routing, setAside, accountNotes, checklistSetAside: callerGatesSetAside };
+}
+
+/** The providers automatic choice leaves out for a run started now: the ones James's settings exclude from automation. */
+export function currentProviderExclusions(host: Pick<RunCreateHost, 'routing'>): string[] {
+  return AUTOMATION_PROVIDER_IDS.filter(host.routing?.isProviderExcluded ?? isProviderExcludedFromAutomation);
+}
+
+export async function createPlanQueueRun(input: StartRunInput, host: RunCreateHost): Promise<Omit<StartRunResult, 'run'> & { run: PlanQueueRun }> {
+  // First, before anything is read: a Linear run is made by its own function (Step 11), never from these arguments.
+  if (input.kind === 'tickets' || input.config?.linear !== undefined) throw new Error(LINEAR_RUN_PAGE_ONLY_MESSAGE);
+  if (input.config?.capabilityRepairId !== undefined || input.config?.capabilityRepairAccountRules !== undefined
+    || input.config?.startingProviderExclusions !== undefined || input.config?.capabilityRepairExcludedProviders !== undefined) {
+    throw new Error('Repair identity and inherited account restrictions are assigned only by the coordinator.');
+  }
+  const startingProviderExclusions = currentProviderExclusions(host);
+  const repair: { repository?: string } = {};
+  const place = await locateRun(input, host, async (repoRoot) => {
+    if (input.config?.capabilityRepairRepository === undefined) return;
+    repair.repository = realpathSync(await repositoryRoot(input.config.capabilityRepairRepository));
+    if (repair.repository !== realpathSync(repoRoot)) {
+      throw new Error('Automatic capability repairs are restricted to this run’s repository. Cross-project repairs require an owner handoff.');
+    }
+  });
+  const { repoRoot, parent } = place;
+  const glob = input.glob ?? input.config?.glob;
+  const { config, routing, setAside, accountNotes, checklistSetAside } = await prepareRunConfig(place, input, host, {
+    startingProviderExclusions, extra: repair.repository === undefined ? {} : { capabilityRepairRepository: repair.repository } });
   const documents = await workSourceForRun({ kind: input.kind }).discover(repoRoot, { kind: input.kind, glob });
   // No await from here until the items are written: reading the owned set and
   // claiming documents is atomic on the main thread, so two concurrent starts
@@ -87,5 +146,5 @@ export async function createPlanQueueRun(input: StartRunInput, host: RunCreateHo
     run, documents, { queueDirectly: isExactPlanQueueSelection(glob) });
   const items = host.store.listItems(run.id);
   logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
-  return { run, excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
+  return { run, excluded, routingSetAside: setAside, accountNotes, checklistSetAside };
 }

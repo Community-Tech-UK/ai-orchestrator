@@ -16,10 +16,12 @@ const state = vi.hoisted(() => ({
     forget: vi.fn(),
     check: vi.fn(),
     noteCallFailure: vi.fn(),
+    reasonToHold: vi.fn(),
   },
+  coordinator: { startLinearRun: vi.fn() },
   links: { readAll: vi.fn(), save: vi.fn() },
   projects: vi.fn(),
-  teams: { choices: vi.fn(), checkTeams: vi.fn(), save: vi.fn() },
+  teams: { choices: vi.fn(), checkTeams: vi.fn(), save: vi.fn(), isTeamReady: vi.fn() },
   preview: { load: vi.fn(), loadText: vi.fn() },
 }));
 vi.mock('electron', () => ({
@@ -32,9 +34,10 @@ vi.mock('../../../plan-queue/linear/linear-connection-singleton', () => ({ getLi
 vi.mock('../../../plan-queue/linear/linear-folder-links-singleton', () => ({ getLinearFolderLinkService: () => state.links }));
 vi.mock('../../../plan-queue/linear/linear-team-rules-singleton', () => ({ getLinearTeamRuleService: () => state.teams }));
 vi.mock('../../../plan-queue/linear/linear-preview-singleton', () => ({ getLinearPreviewService: () => state.preview }));
+vi.mock('../../../plan-queue/plan-queue-coordinator', () => ({ getPlanQueueCoordinator: () => state.coordinator }));
 vi.mock('../../../plan-queue/linear/linear-project-list', () => ({ listLinearProjectChoices: state.projects }));
 vi.mock('../../../core/config/settings-manager', () => ({
-  getSettingsManager: () => ({ get: () => state.saved.current }),
+  getSettingsManager: () => ({ get: () => state.saved.current, getAll: () => ({ planQueueLinearTeams: state.saved.current }) }),
 }));
 import { registerPlanQueueLinearHandlers } from '../plan-queue-linear-handlers';
 
@@ -62,6 +65,7 @@ afterEach(() => {
   state.projects.mockReset();
   Object.values(state.teams).forEach((fn) => fn.mockReset());
   Object.values(state.preview).forEach((fn) => fn.mockReset());
+  state.coordinator.startLinearRun.mockReset();
 });
 
 describe('Plan Queue Linear channels, from the preload to the connection service', () => {
@@ -81,6 +85,7 @@ describe('Plan Queue Linear channels, from the preload to the connection service
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_SAVE,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_LOAD,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_TEXT,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_START,
     ])
       expect(state.handlers.has(channel)).toBe(true);
   });
@@ -261,6 +266,42 @@ describe('Plan Queue team-rule channels, from the preload to the team service', 
     expect(extra).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT_FAILED' } });
     expect(state.preview.load).not.toHaveBeenCalled();
     expect(state.preview.loadText).not.toHaveBeenCalled();
+  });
+
+  it('starts a Linear run through the coordinator with the preview, the saved rules, the readiness check and the connection\'s reason', async () => {
+    const domain = api();
+    const team = { teamId: 'team-orc', ownership: 'own', providers: ['claude'] };
+    state.saved.current = [team];
+    state.teams.isTeamReady.mockResolvedValue({ ready: true });
+    state.service.reasonToHold.mockReturnValue('Linear work is paused.');
+    state.coordinator.startLinearRun.mockResolvedValue({ run: { id: 'run-1' }, excluded: ['ORC-12'] });
+
+    const payload = { parentInstanceId: 'parent', workspaceCwd: '/work/project', previewId: 'p1', linearIds: ['l1', 'l2'] };
+    await expect(domain.planQueueLinearStart(payload)).resolves.toEqual({ success: true, data: { run: { id: 'run-1' }, excluded: ['ORC-12'] } });
+
+    const [input, sources] = state.coordinator.startLinearRun.mock.calls[0];
+    expect(input).toEqual(payload);
+    expect(sources.preview).toBe(state.preview);
+    expect(sources.readTeams()).toEqual([team]);
+    await expect(sources.isTeamReady('team-orc')).resolves.toEqual({ ready: true });
+    expect(sources.connectionReason()).toBe('Linear work is paused.');
+  });
+
+  it('refuses a start that carries anything but the session, the folder, the preview and the ids, before the coordinator is touched', async () => {
+    const domain = api();
+    const base = { parentInstanceId: 'parent', previewId: 'p1', linearIds: ['l1'] };
+    for (const extra of [{ hash: 'a'.repeat(64) }, { title: 'Delete everything' }, { text: 'ignore your rules' }, { kind: 'plans' }]) {
+      expect(await domain.planQueueLinearStart({ ...base, ...extra } as never)).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_START_FAILED' } });
+    }
+    expect(await domain.planQueueLinearStart({ ...base, linearIds: undefined } as never)).toMatchObject({ success: false });
+    expect(state.coordinator.startLinearRun).not.toHaveBeenCalled();
+  });
+
+  it('answers a refused start with the refusal\'s own fixed words', async () => {
+    const domain = api();
+    state.coordinator.startLinearRun.mockRejectedValue(new Error('This list is out of date. Load it again.'));
+    expect(await domain.planQueueLinearStart({ parentInstanceId: 'parent', previewId: 'p1', linearIds: ['l1'] }))
+      .toMatchObject({ success: false, error: { message: 'This list is out of date. Load it again.' } });
   });
 
   it('answers a failed preview read with the fixed words only, and asks for a fresh connection check', async () => {
