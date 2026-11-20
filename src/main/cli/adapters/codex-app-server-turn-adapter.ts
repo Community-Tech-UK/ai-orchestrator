@@ -34,7 +34,7 @@ import { readCodexActiveGoal, readCodexContinuationOwnership } from './codex/nat
 import { assertAdapterInputCurrent } from './adapter-input-dispatch';
 import { buildCodexTurnInputDispatch } from './codex/turn-input-dispatch';
 import { PendingCodexTurnNotifications, notificationTurnId } from './codex/pending-turn-notifications';
-import { requiredSkillInputs, withRequiredSkillMentions } from './codex/codex-required-skills';
+import { recordCheckerSkillDelivery, requiredSkillInputs, requiredSkillNames, withRequiredSkillMentions } from './codex/codex-required-skills';
 
 const logger = getLogger('CodexCliAdapter');
 const USAGE_LIMIT_RATE_LIMITS_TIMEOUT_MS = 3_000;
@@ -314,7 +314,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     input: UserInput[],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
-    onInputAccepted?: () => void,
+    onInputAccepted?: (kind: 'developer' | 'input') => void,
   ): Promise<{ joined: boolean; developerInjected: boolean }> {
     const done = this.providerTurnDone;
     if (!done) return { joined: false, developerInjected: false };
@@ -375,19 +375,28 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (includeRtkAwareness) {
       content = `${wrapRtkAwareness(rootThreadId)}\n\n${content}`;
     }
-    const onInputAccepted = () => {
+    // Skill evidence is written only once Codex acknowledges the `input` carrying the skills; a failed or stale send leaves none.
+    const skillDeliveries: { via: 'skill-item' | 'mention'; skills: string[] }[] = [];
+    const onInputAccepted = (kind: 'developer' | 'input') => {
       // A late acknowledgment belongs to the connection/thread that received it.
       if (this.getAppServerClient() !== client || this.getAppServerThreadId() !== rootThreadId) return;
       if (includeSystemPrompt) this.systemPromptSent = true;
       if (includeRtkAwareness) this.rtkAwarenessSent = true;
+      if (kind === 'input') for (const { via, skills } of skillDeliveries.splice(0)) recordCheckerSkillDelivery(this.cliConfig, rootThreadId, via, skills);
     };
 
     // Harness-authored text uses a developer item, never a user message (LT-657).
     const input: UserInput[] = [];
     const text = content.trim();
     const developerInput = text && typeof metadata?.['internalSource'] === 'string' ? text : undefined;
-    if (developerInput) input.push(...requiredSkillInputs(this.cliConfig, text));
-    else if (text) input.push({ type: 'text', text: withRequiredSkillMentions(this.cliConfig, text), text_elements: [] });
+    if (developerInput) {
+      const skillInputs = requiredSkillInputs(this.cliConfig, text);
+      input.push(...skillInputs);
+      skillDeliveries.push({ via: 'skill-item', skills: skillInputs.map(skill => skill.name) });
+    } else if (text) {
+      input.push({ type: 'text', text: withRequiredSkillMentions(this.cliConfig, text), text_elements: [] });
+      skillDeliveries.push({ via: 'mention', skills: requiredSkillNames(this.cliConfig, text) });
+    }
     input.push(...preparedAttachments.input);
 
     if (input.length === 0 && !developerInput) {
@@ -630,7 +639,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     metadata?: CliMessage['metadata'],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
-    onInputAccepted?: () => void,
+    onInputAccepted?: (kind: 'developer' | 'input') => void,
   ): Promise<TurnCaptureState> {
     this.ensureAppServerRuntimeAttached();
     return this.appServerRuntime.captureTurn({

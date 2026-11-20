@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexCliConfig } from './codex-adapter-config';
 import * as costAttribution from '../../core/system/cost-attribution';
 import { _resetRequiredSkillsForTesting } from './codex/codex-required-skills';
+import { readSessionPolicyEvents, type SessionRequiredSkillsRecord } from '../../core/system/session-policy-log';
 
 const settings = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock('../../core/config/settings-manager', () => ({
@@ -116,5 +117,59 @@ describe('Codex exec fallback applies the machine skills policy', () => {
   it('does not name a skill that is not installed', async () => {
     const [launch] = await runExecTurns({ sessionKind: 'loop', timeout: 5000 }, ['Use the `not-installed-skill` skill.']);
     expect(launch.stdin).toBe('Use the `not-installed-skill` skill.');
+  });
+});
+
+describe('Codex exec checker turns leave a record of the skills they named', () => {
+  it('records the names for a checker turn and writes nothing for a worker', async () => {
+    const logDirectory = mkdtempSync(join(tmpdir(), 'aio-exec-skill-policy-log-'));
+    directories.push(logDirectory);
+    process.env['AIO_SESSION_POLICY_DIR'] = logDirectory;
+    try {
+      settings.value = { ...settings.value, codexCheckerSkillCatalog: 'omit' };
+      await runExecTurns({ sessionKind: 'plan-queue', queueRole: 'verifier', harnessInstanceId: 'verifier-1', timeout: 5000 }, [NAMED_TASK]);
+      await runExecTurns({ sessionKind: 'plan-queue', queueRole: 'worker', timeout: 5000 }, [NAMED_TASK]);
+      expect(readSessionPolicyEvents<SessionRequiredSkillsRecord>('required-skills', 0, logDirectory)).toEqual([expect.objectContaining({
+        instanceId: 'verifier-1', threadId: 'fixture-thread', skills: ['lt-probe-skill', 'task-completion-gate'], via: 'mention', catalogOmitted: true, governingSkillNamed: true,
+      })]);
+    } finally { delete process.env['AIO_SESSION_POLICY_DIR']; }
+  });
+
+  it('records nothing for a resumed turn whose input Codex never accepted', async () => {
+    const logDirectory = mkdtempSync(join(tmpdir(), 'aio-exec-skill-policy-log-'));
+    directories.push(logDirectory);
+    process.env['AIO_SESSION_POLICY_DIR'] = logDirectory;
+    try {
+      settings.value = { ...settings.value, codexCheckerSkillCatalog: 'omit' };
+      const workingDir = workingDirWithSkills();
+      vi.spyOn(costAttribution, 'getCostAttributionDirectory').mockReturnValue(workingDir);
+      const adapter = new CodexCliAdapter({ sessionKind: 'plan-queue', queueRole: 'verifier', harnessInstanceId: 'verifier-1', timeout: 5000, workingDir });
+      Object.assign(adapter, { useAppServer: false, isSpawned: true });
+      let launches = 0;
+      vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess').mockImplementation(() => {
+        launches += 1;
+        // The first turn completes. Later children have no stdin, so the write is refused before Codex accepts anything.
+        const child = launches === 1
+          ? spawn(process.execPath, ['-e', `
+              process.stdin.resume();
+              process.stdin.on('end', () => {
+                for (const event of [
+                  { type: 'thread.started', thread_id: 'fixture-thread' },
+                  { type: 'item.completed', item: { id: 'a', type: 'agent_message', text: 'fixture answer' } },
+                  { type: 'turn.completed', usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 2 } },
+                ]) process.stdout.write(JSON.stringify(event) + '\\n');
+              });
+            `], { stdio: ['pipe', 'pipe', 'pipe'] })
+          : spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe'] });
+        children.push(child);
+        return child;
+      });
+      adapter.on('error', () => {});
+      const send = (message: string) => (adapter as unknown as { execSendMessage(message: string): Promise<void> }).execSendMessage(message);
+      await send(NAMED_TASK);
+      await send('Reminder: finish the check with the `lt-probe-skill` skill.').catch(() => undefined);
+      expect(launches).toBeGreaterThan(1);
+      expect(readSessionPolicyEvents<SessionRequiredSkillsRecord>('required-skills', 0, logDirectory)).toHaveLength(1);
+    } finally { delete process.env['AIO_SESSION_POLICY_DIR']; }
   });
 });

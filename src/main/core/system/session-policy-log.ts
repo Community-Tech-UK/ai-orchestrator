@@ -43,6 +43,19 @@ export interface CodexHelperCountRecord {
 }
 export type SessionPolicyRecord = CodexSessionPolicyRecord | ClaudeSessionPolicyRecord | CodexChildOutcomeRecord | CodexReviewOutcomeRecord | CodexHelperCountRecord;
 /**
+ * Which skills Harness named in one plan-queue checker turn (names only, no prompt text or paths). It proves the
+ * skill was named in the input Codex received, not that Codex echoed it back; Codex does not.
+ */
+export interface SessionRequiredSkillsRecord {
+  event:'required-skills';provider:'codex';sessionKind:SessionKind;queueRole:'verifier';
+  threadId?:string;instanceId?:string;
+  skills:string[];via:'skill-item'|'mention';
+  /** The checker's automatic skills catalog was off, so a named skill is the only way it loads one. */
+  catalogOmitted:boolean;
+  /** Every skill the governing fresh-eyes rules require of a checker was named. */
+  governingSkillNamed:boolean;
+}
+/**
  * One Codex round: how much of it the root thread spent and how much the helper
  * threads spent (Oct-2 Phase D Step 2.3), so "helpers cost X%" is measured.
  * Receipts for a finished round can arrive late (child rollouts, trailing usage),
@@ -95,6 +108,7 @@ function append(record:Record<string,unknown>):void {
 /** Main-process-only metadata log. No prompts or credentials. */
 export function recordSessionPolicy(record:SessionPolicyRecord):void { append({...record}); }
 export function recordSessionTurnShare(record:SessionTurnShareRecord):void { append({...record}); }
+export function recordSessionRequiredSkills(record:SessionRequiredSkillsRecord):void { append({...record}); }
 export function recordSessionThreadCredits(record:SessionThreadCreditsRecord):void { append({...record}); }
 interface CachedPolicyFile{size:number;mtimeMs:number;rows:(SessionPolicyEvent&{at:number})[]}
 const fileCache=new Map<string,CachedPolicyFile>();

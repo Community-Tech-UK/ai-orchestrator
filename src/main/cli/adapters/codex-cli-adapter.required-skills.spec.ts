@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => ({}) }),
@@ -19,6 +19,7 @@ import { sendInitialPromptToAdapter } from '../../instance/lifecycle/initial-pro
 import type { Instance } from '../../../shared/types/instance.types';
 import type { CodexCliConfig } from './codex-adapter-config';
 import { _resetRequiredSkillsForTesting } from './codex/codex-required-skills';
+import { readSessionPolicyEvents, type SessionRequiredSkillsRecord } from '../../core/system/session-policy-log';
 
 type Notification = { method: string; params: Record<string, unknown> };
 interface TurnClient {
@@ -190,4 +191,64 @@ describe('Codex turn input names required skills', () => {
     }
   });
 
+});
+
+describe('Codex checker turns leave a record of the skills they named', () => {
+  let logDirectory: string;
+  let repo: string;
+  beforeEach(() => {
+    logDirectory = mkdtempSync(join(tmpdir(), 'aio-skill-policy-log-'));
+    repo = mkdtempSync(join(tmpdir(), 'aio-skill-record-repo-'));
+    mkdirSync(join(repo, '.agents', 'skills', 'task-completion-gate'), { recursive: true });
+    writeFileSync(join(repo, '.agents', 'skills', 'task-completion-gate', 'SKILL.md'), '---\nname: task-completion-gate\n---\n');
+    process.env['AIO_SESSION_POLICY_DIR'] = logDirectory;
+  });
+  afterEach(() => {
+    delete process.env['AIO_SESSION_POLICY_DIR'];
+    _resetRequiredSkillsForTesting();
+    rmSync(logDirectory, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  });
+  const rows = () => readSessionPolicyEvents<SessionRequiredSkillsRecord>('required-skills', 0, logDirectory);
+
+  it('records a mention for an ordinary checker turn, with the thread and Harness session', async () => {
+    await sentInput({ sessionKind: 'plan-queue', queueRole: 'verifier', skillCatalogOmitted: true, harnessInstanceId: 'verifier-1', workingDir: repo }, 'Judge the work.');
+    expect(rows()).toEqual([expect.objectContaining({
+      threadId: 'thread-1', instanceId: 'verifier-1', skills: ['task-completion-gate'], via: 'mention', catalogOmitted: true, governingSkillNamed: true,
+    })]);
+  });
+
+  it('records the exact-path skill item for an internal checker turn', async () => {
+    const { adapter } = connectedAdapter({ sessionKind: 'plan-queue', queueRole: 'verifier', skillCatalogOmitted: true, workingDir: repo });
+    await adapter.sendInput('Continue the check.', undefined, { internalSource: 'plan-queue' });
+    expect(rows()).toEqual([expect.objectContaining({ skills: ['task-completion-gate'], via: 'skill-item', governingSkillNamed: true })]);
+  });
+
+  it('writes no row when Codex rejects the turn input', async () => {
+    const { adapter, client } = connectedAdapter({ sessionKind: 'plan-queue', queueRole: 'verifier', skillCatalogOmitted: true, workingDir: repo });
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'turn/start') throw new Error('native rejected');
+      return {};
+    });
+    await expect(adapter.sendInput('Judge the work.')).rejects.toThrow('native rejected');
+    expect(rows()).toEqual([]);
+  });
+
+  it('writes no row when the developer item is injected but the skill-bearing input is rejected', async () => {
+    const { adapter, client } = connectedAdapter({ sessionKind: 'plan-queue', queueRole: 'verifier', skillCatalogOmitted: true, workingDir: repo });
+    client.request.mockImplementation(async (method: string) => {
+      if (method === 'turn/start') throw new Error('native rejected');
+      return {};
+    });
+    await expect(adapter.sendInput('Continue the check.', undefined, { internalSource: 'plan-queue' })).rejects.toThrow('native rejected');
+    expect(client.request.mock.calls.some(([method]) => method === 'thread/inject_items')).toBe(true);
+    expect(rows()).toEqual([]);
+  });
+
+  it('records that nothing was named while the checker keeps its catalog, and writes nothing for a worker or a chat', async () => {
+    await sentInput({ sessionKind: 'plan-queue', queueRole: 'verifier', skillCatalogOmitted: false, workingDir: repo }, 'Judge the work.');
+    await sentInput({ sessionKind: 'plan-queue', queueRole: 'worker', skillCatalogOmitted: true, workingDir: repo }, 'Do the work.');
+    await sentInput({ sessionKind: 'chat', queueRole: 'verifier', skillCatalogOmitted: true, workingDir: repo }, 'Hello.');
+    expect(rows()).toEqual([expect.objectContaining({ skills: [], catalogOmitted: false, governingSkillNamed: false })]);
+  });
 });

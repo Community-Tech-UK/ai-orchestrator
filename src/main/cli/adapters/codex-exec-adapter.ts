@@ -3,7 +3,7 @@ import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter
 import { codexExecUsage } from './codex/exec-ephemeral-usage';
 import { CodexBaseAdapter } from './codex-base-adapter';
 import { codexExecPolicyArgs } from './codex/codex-thread-policy';
-import { requiredSkillMentionLine } from './codex/codex-required-skills';
+import { recordCheckerSkillDelivery, requiredSkillMentionLine, requiredSkillNames } from './codex/codex-required-skills';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { CodexConversationEntry } from './codex/exec-helpers';
 import { getLogger } from '../../logging/logger';
@@ -58,6 +58,8 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   protected execModelArgSuppressed = false;
   protected systemPromptSent = false;
   protected rtkAwarenessSent = false;
+  /** Skills the turn being prepared names; written to the policy log once the native thread id is known. */
+  private skillsNamedThisTurn: readonly string[] = [];
   private execInputWrite: (CodexExecInputWritePhase & { completion: Promise<TurnInterruptCompletion> }) | null = null;
 
   override interrupt(): InterruptResult {
@@ -183,6 +185,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     // The policy call first records whether the catalog is off, which decides if a checker's required skills apply.
     codexExecPolicyArgs(this.cliConfig);
     const skillsLine = requiredSkillMentionLine(this.cliConfig, content);
+    this.skillsNamedThisTurn = requiredSkillNames(this.cliConfig, content);
     if (!this.shouldUseResumeCommand() && this.conversationHistory.length > 0) {
       content = buildReplayPrompt(
         this.conversationHistory,
@@ -426,6 +429,17 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     const writePhase = { accepted: false, cancelled: false, completion: new Promise<TurnInterruptCompletion>(resolve => { settleInterrupt = resolve; }) };
     this.execInputWrite = writePhase;
     const usage = codexExecUsage(this.cliConfig);
+    // The row carries the native Codex thread id, which exec reports on its first event. Before that the adapter's
+    // session id is only a Harness-owned placeholder, unless this turn resumes a native thread.
+    const skills = this.skillsNamedThisTurn;
+    const resumedThreadId = this.shouldUseResumeCommand() ? this.sessionId ?? undefined : undefined;
+    let skillsRecorded = false;
+    const recordSkills = (threadId: string | undefined): void => {
+      // A row means Codex received this turn's input; a rejected or never-written send records nothing.
+      if (skillsRecorded || !writePhase.accepted) return;
+      skillsRecorded = true;
+      recordCheckerSkillDelivery(this.cliConfig, threadId, 'mention', skills);
+    };
     return runCodexExecProcess({
       writePhase,
       onUsageEvent: event => usage.observe(event),
@@ -456,15 +470,18 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
         })
         : undefined,
       onThreadId: (threadId) => {
+        recordSkills(threadId);
         if (!this.supportsNativeResume()) return;
         this.sessionId = threadId;
         this.shouldResumeNextTurn = true;
       },
     }).then(result => {
+      recordSkills(resumedThreadId);
       usage.finish(result.code !== 0);
       settleInterrupt({ status: 'completed' });
       return result;
     }).catch(error => {
+      recordSkills(resumedThreadId);
       usage.finish(true);
       settleInterrupt({ status: writePhase.cancelled ? 'interrupted' : 'rejected' });
       if (!writePhase.accepted && error instanceof Error) noteUnacceptedCodexExecInput(error);

@@ -27,6 +27,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SkillUserInput } from './app-server-types';
 import type { CodexCliConfig } from '../codex-adapter-config';
+import { recordSessionRequiredSkills } from '../../../core/system/session-policy-log';
+import { getLogger } from '../../../logging/logger';
+
+const logger = getLogger('CodexRequiredSkills');
 
 /** Skills the governing fresh-eyes rules require of an independent checker. */
 export const CHECKER_REQUIRED_SKILLS: readonly string[] = ['task-completion-gate'];
@@ -156,4 +160,26 @@ export function requiredSkillInputs(config: RequiredSkillConfig, text: string): 
     if (new RegExp(`\\$${escapeRegExp(name)}(?![A-Za-z0-9_-])`).test(text)) names.add(name);
   }
   return [...names].map((name) => ({ type: 'skill', name, path: files.get(name)! }));
+}
+
+/**
+ * Records, for a plan-queue checker turn only, which skills the turn input named (names only). A private Codex
+ * home hides the provider's own session record, so this row in the session-policy log is the bounded evidence that
+ * a checker without a catalog was told to load its governing skill. Chats and other roles write nothing.
+ */
+export function recordCheckerSkillDelivery(
+  config: RequiredSkillConfig & Pick<CodexCliConfig, 'harnessInstanceId'>,
+  threadId: string | undefined,
+  via: 'skill-item' | 'mention',
+  skills: readonly string[],
+): void {
+  if (config.sessionKind === undefined || config.sessionKind === 'chat' || config.queueRole !== 'verifier') return;
+  const record = {
+    event: 'required-skills' as const, provider: 'codex' as const, sessionKind: config.sessionKind, queueRole: 'verifier' as const,
+    ...(threadId ? { threadId } : {}), ...(config.harnessInstanceId ? { instanceId: config.harnessInstanceId } : {}),
+    skills: [...skills], via, catalogOmitted: config.skillCatalogOmitted === true,
+    governingSkillNamed: CHECKER_REQUIRED_SKILLS.every((name) => skills.includes(name)),
+  };
+  logger.debug('Checker turn skills named', record);
+  recordSessionRequiredSkills(record);
 }

@@ -83,8 +83,8 @@ export interface CodexTurnCaptureCallbacks {
 export interface CaptureCodexTurnOptions extends CodexTurnCaptureCallbacks {
   beforeInputDispatch?(): void;
   assertInputCurrent?(): void;
-  /** A native request acknowledged the content, independently of turn completion. */
-  onInputAccepted?(): void;
+  /** A native request acknowledged the content, independently of turn completion; `input` is the user-input list (carries skill items). */
+  onInputAccepted?(kind: 'developer' | 'input'): void;
   autoContinuation?: boolean;
   onNativeTurnAcquired?(turnId: string): void;
   input: UserInput[];
@@ -248,7 +248,7 @@ export class CodexAppServerThreadRuntime {
     input: UserInput[],
     developerInput?: string,
     dispatch?: AdapterInputDispatch,
-    onInputAccepted?: () => void,
+    onInputAccepted?: (kind: 'developer' | 'input') => void,
   ): Promise<{ delivered: boolean; developerInjected: boolean }> {
     const client = this.client;
     const threadId = this.binding?.threadId;
@@ -263,13 +263,13 @@ export class CodexAppServerThreadRuntime {
       dispatch?.beforeProviderDispatch?.();
       if (developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(developerInput)] });
-        onInputAccepted?.();
+        onInputAccepted?.('developer');
         developerInjected = true;
       }
       if (input.length > 0) {
         assertAdapterInputCurrent(dispatch);
         await client.request('turn/steer', { threadId, expectedTurnId: turnId, input });
-        onInputAccepted?.();
+        onInputAccepted?.('input');
         markSteeredInputAccepted(active.state);
       }
     } catch (error) {
@@ -326,7 +326,7 @@ export class CodexAppServerThreadRuntime {
       options.assertInputCurrent?.();
       if (options.developerInput) {
         await client.request('thread/inject_items', { threadId, items: [developerMessageItem(options.developerInput)] });
-        options.onInputAccepted?.();
+        options.onInputAccepted?.('developer');
       }
       options.assertInputCurrent?.();
       // A native turn may start while developer injection is acknowledged.
@@ -345,7 +345,7 @@ export class CodexAppServerThreadRuntime {
             input: options.input,
           } as AppServerRequestParams<'turn/start'>).then((result) => {
             // The RPC may acknowledge content after completion/exit wins the race.
-            if (options.input.length > 0) options.onInputAccepted?.();
+            if (options.input.length > 0) options.onInputAccepted?.('input');
             return result;
           }),
           new Promise<never>((_, reject) => { void active.state.completion.catch(reject); }),
