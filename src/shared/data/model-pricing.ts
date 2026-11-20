@@ -188,6 +188,7 @@ export function getModelRate(model: string | undefined | null): ModelRate {
 const OPENAI_CACHE_WRITE_MULTIPLIER = 1.25;
 const DEFAULT_CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_READ_MULTIPLIERS: Readonly<Record<string, number>> = {
+  'gpt-6.2-sol': 0.05,
   'gpt-6.1-sol': 0.05,
   'claude-fable-5-1': 0.025,
   'claude-opus-5-5': 0.05,
@@ -228,7 +229,9 @@ function isClaudeModel(model: string | undefined | null): boolean {
   return /^(?:claude-|opus(?:\[|$)|sonnet(?:\[|$)|haiku(?:\[|$))/.test(model?.trim().toLowerCase() ?? '');
 }
 
-// Rechecked 16 November 2026 (first read 2 November) against the two official model pricing pages:
+// Rechecked 16 November 2026 (first read 2 November) against the official model pricing pages;
+// gpt-6.2-sol read 19 November 2026 (same rates and long-prompt rule as 6.1 Sol):
+// https://developers.openai.com/api/docs/models/gpt-6.2-sol
 // https://developers.openai.com/api/docs/models/gpt-6.1-sol
 // https://developers.openai.com/api/docs/models/gpt-6-astra
 // Above 272K input: 2x input/cache and 1.5x output for the WHOLE request.
@@ -255,7 +258,7 @@ function computeCost(
   const write1h = isClaudeModel(model) ? count(usage.cacheWrite1hTokens) : 0;
   const cacheWrite = Math.max(0, count(usage.cacheWriteTokens) - write5m - write1h);
   const reasoning = count(usage.reasoningTokens);
-  const longPrompt = (model === 'gpt-6.1-sol' || model === 'gpt-6-astra')
+  const longPrompt = (model === 'gpt-6.2-sol' || model === 'gpt-6.1-sol' || model === 'gpt-6-astra')
     && count(usage.requestInputTokens) > CODEX_LONG_PROMPT_THRESHOLD;
   const inputMultiplier = longPrompt ? 2 : 1;
   const outputMultiplier = longPrompt ? 1.5 : 1;

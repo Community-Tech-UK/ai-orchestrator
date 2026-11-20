@@ -245,7 +245,9 @@ export function registerBrowserGatewayHandlers(
         if (approval.data?.deviceLogin && approval.data.status === 'approved') {
           resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, approval);
         }
-      } else if (result.data?.reason !== 'saved_login_access_approved') {
+      } else if (!result.data?.reason?.startsWith('saved_login_')) {
+        // Saved-login decisions wake the agent through notifyCredentialAccessDecision; an Approve
+        // press on one the setting already approved must not wake it again.
         resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
       }
       return result;

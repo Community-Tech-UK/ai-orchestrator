@@ -180,6 +180,9 @@ const BUDGET = {
   titleRequest: { chars: 12300, render: () => buildTitleUserPrompt(`${'<'.repeat(2000)}...`, ['fixture.ts']) },
   titleRequestLongProse: { chars: 2300, render: () => buildTitleUserPrompt(`${'x'.repeat(2000)}...`, ['fixture.ts']) },
   titleRequestShort: { chars: 300, render: () => buildTitleUserPrompt('Apply the fixture change', ['fixture.ts']) },
+  // A picture-only opener sends the opening and the assistant reply at 1,000 characters each, so the escaped
+  // worst case stays inside the `titleRequest` ceiling above.
+  titleRequestWithReply: { chars: 12300, render: () => buildTitleUserPrompt(`${'<'.repeat(1000)}...`, ['fixture.ts'], `${'<'.repeat(1000)}...`) },
 };
 
 describe('prompt character budgets', () => {

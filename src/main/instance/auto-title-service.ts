@@ -4,10 +4,13 @@
  *
  * Phase 1 (instant): applies a truncated first-message title immediately.
  * Phase 2 (async): upgrades to an AI-generated summary using the existing
- * CLI adapter infrastructure (no separate API key required).
+ * CLI adapter infrastructure (no separate API key required). When the opening
+ * message only points at a pasted picture ("look into this"), Phase 2 first
+ * waits for the assistant's reply, at most five minutes, because only the
+ * reply says what the picture shows.
  *
  * That is the only automatic naming a session ever gets. Once Phase 2 has
- * landed or given up, the name belongs to the user: nothing later (a settled
+ * landed or given up, the name belongs to the user: nothing later (a later
  * turn, a follow-up message, hibernate/wake, restore) retitles it. Sessions
  * used to be retitled again when their first turn settled — sometimes hours
  * in — and again on a later message after a failed Phase 2, so a name the
@@ -22,7 +25,6 @@ import { detectAuthFailureSignal } from './instance-auth-failure-detection';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { deriveRailTitle, frontLoadTitle } from '../../shared/types/history.types';
 import {
-  attachmentLabels,
   deriveAttachmentTaskTitle,
   extractAttachmentPreamble,
   isLowSignalTitle,
@@ -33,6 +35,7 @@ import {
   titleFromAttachments,
   truncateForRail,
 } from '../../shared/types/title-derivation';
+import { attachmentLabels, isPlaceholderImageName } from '../../shared/types/title-attachment-labels';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { attachProviderRoutes } from './lifecycle/provider-route-preflight';
@@ -56,6 +59,27 @@ const MIN_MESSAGE_LENGTH = 10;
 
 /** Maximum input length sent to the model (trim very long prompts) */
 const MAX_INPUT_LENGTH = 2000;
+
+/** With an assistant reply, the opening and the reply share that budget. */
+const REPLY_PART_LENGTH = MAX_INPUT_LENGTH / 2;
+
+/**
+ * Words that point at a pasted picture or at what is wrong in it ("look into
+ * this", "what's wrong here", "see the screenshot"). Beside a picture they name
+ * no subject of their own. Kept out of the general low-signal list, where
+ * "Screenshot tests" or "Image attachments" are real subjects.
+ */
+const PICTURE_POINTER_WORDS =
+  /\b(?:into|see|here|there|what(?:['’]s)?|why|wrong|broken|bugs?|errors?|explain|thoughts?|out|below|above|shown|attached|screenshots?|images?|pictures?|pics?|photos?|attachments?)\b/gi;
+
+/** True when the text, beside a pasted picture, names nothing the picture does not. */
+function pointsOnlyAtPicture(text: string): boolean {
+  return isLowSignalTitle(text.replace(PICTURE_POINTER_WORDS, ' '));
+}
+
+function capInput(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
 
 /**
  * Timeout for the CLI one-shot title generation (ms).
@@ -202,12 +226,18 @@ export class AutoTitleService {
   /** Instance IDs that have already been auto-titled (or are in-flight) */
   private processed = new Set<string>();
   private liveTitleSource?: (instanceId: string, description: string) => Promise<string | null>;
+  private firstReplySource?: (instanceId: string) => Promise<string | null>;
   private cliSpawnEnabled = TITLE_CLI_SPAWN_ENABLED;
   /** Instances (or `''` for callers with none) already told the upgrade was skipped. */
   private skipLogged = new Set<string>();
 
   setLiveTitleSource(source: (instanceId: string, description: string) => Promise<string | null>): void {
     this.liveTitleSource = source;
+  }
+
+  /** Supplies the assistant's first reply for a session whose subject is only in a pasted picture. */
+  setFirstReplySource(source: (instanceId: string) => Promise<string | null>): void {
+    this.firstReplySource = source;
   }
 
   /** Keeps the old escalation path testable without enabling it in production. */
@@ -259,7 +289,9 @@ export class AutoTitleService {
     if (isRenamed) return;
 
     const hasAttachment = attachmentLabels(attachmentNames).length > 0;
-    if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
+    const preamble = extractAttachmentPreamble(message);
+    const hasPicture = [...attachmentNames, ...(preamble?.paths ?? [])].some(isPlaceholderImageName);
+    if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment && !hasPicture) return;
 
     // Phase 1: Immediate fallback — truncated first message (or attachment) title
     const instantTitle = deriveInstantTitle(message, attachmentNames);
@@ -268,10 +300,30 @@ export class AutoTitleService {
       logger.info('Auto-titled instance (instant)', { instanceId, title: instantTitle });
     }
 
+    // A pasted picture beside an opener that names nothing ("look into this and
+    // fix") and no named file: the subject is only in the picture, which no
+    // title model is shown, so naming now could only repeat the opener or the
+    // picture's made-up file name ("Fix pasted-image-5.png"). Phase 2 waits for
+    // the assistant's reply, which says what the picture shows, and still runs
+    // only once.
+    const subjectIsInPicture = hasPicture
+      && attachmentLabels([...attachmentNames, ...(preamble?.paths ?? [])]).length === 0
+      && pointsOnlyAtPicture(preamble ? preamble.remainder : message);
+
     // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
     // (Haiku tier). Non-critical — on any failure the instant title remains.
     try {
-      const title = await this.generateTitle(message, attachmentNames, instanceId);
+      let assistantReply: string | undefined;
+      if (subjectIsInPicture) {
+        const reply = await this.firstReplySource?.(instanceId).catch(() => null) ?? null;
+        if (!this.processed.has(instanceId)) return;
+        if (!reply) {
+          logger.info('AI title upgrade skipped: the subject is in a pasted picture and no assistant reply arrived', { instanceId });
+          return;
+        }
+        assistantReply = reply;
+      }
+      const title = await this.generateTitle(message, attachmentNames, instanceId, assistantReply);
       if (!this.processed.has(instanceId)) return;
       if (title) {
         applyTitle(instanceId, title, 'ai');
@@ -307,9 +359,7 @@ export class AutoTitleService {
       return null;
     }
 
-    const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
-      ? `${trimmed.slice(0, MAX_INPUT_LENGTH)}...`
-      : trimmed;
+    const truncatedMessage = capInput(trimmed, MAX_INPUT_LENGTH);
     const documentSubject = standaloneDocumentPathTitle(trimmed);
     const modelMessage = documentSubject
       ? `Document filename subject: ${documentSubject}. Ignore directory names.`
@@ -351,11 +401,14 @@ export class AutoTitleService {
    * generic message ("implement this") can still be titled from its attachment.
    * Returns null when no CLI is available, the adapter can't do a one-shot, the
    * text is too short with no attachment, or generation fails/times out.
+   * `assistantReply` is given when the subject is only in a pasted picture; the
+   * reply says what the picture shows.
    */
   async generateTitle(
     text: string,
     attachmentNames: readonly string[] = [],
     instanceId?: string,
+    assistantReply?: string,
   ): Promise<string | null> {
     // A loop started with attachments prepends an injected "Attached files …"
     // block. Strip it so the model summarizes the real prompt, and fold the
@@ -368,29 +421,29 @@ export class AutoTitleService {
 
     const trimmed = effectiveText.trim();
     const labels = attachmentLabels(effectiveAttachmentNames);
-    if (trimmed.length < MIN_MESSAGE_LENGTH && labels.length === 0) {
+    const reply = assistantReply?.trim()
+      ? capInput(assistantReply.trim(), REPLY_PART_LENGTH)
+      : undefined;
+    if (trimmed.length < MIN_MESSAGE_LENGTH && labels.length === 0 && !reply) {
       return null;
     }
 
-    const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
-      ? trimmed.slice(0, MAX_INPUT_LENGTH) + '...'
-      : trimmed;
+    const truncatedMessage = capInput(trimmed, reply ? REPLY_PART_LENGTH : MAX_INPUT_LENGTH);
     const documentSubject = standaloneDocumentPathTitle(trimmed);
     const modelMessage = documentSubject
       ? `Document filename subject: ${documentSubject}. Ignore directory names.`
       : truncatedMessage;
+    const userPrompt = buildTitleUserPrompt(modelMessage, labels, reply);
 
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
-    const auxSystemPrompt = TITLE_SYSTEM_PROMPT;
-    const auxUserPrompt = buildTitleUserPrompt(modelMessage, labels);
-    logPromptInjection('titleSystem', auxSystemPrompt, instanceId);
-    logPromptInjection('titleRequest', auxUserPrompt, instanceId);
+    logPromptInjection('titleSystem', TITLE_SYSTEM_PROMPT, instanceId);
+    logPromptInjection('titleRequest', userPrompt, instanceId);
     let fallbackDecision: AuxiliaryLlmDecision;
     try {
       const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
         'titleGeneration',
-        auxSystemPrompt,
-        auxUserPrompt
+        TITLE_SYSTEM_PROMPT,
+        userPrompt,
       );
       if (auxDecision.source !== 'fallback') {
         const cleaned = finalizeDocumentTitle(auxTitle, modelMessage, labels, documentSubject);
@@ -427,7 +480,8 @@ export class AutoTitleService {
     }
 
     if (instanceId && this.liveTitleSource) {
-      const liveTitle = await this.liveTitleSource(instanceId, modelMessage).catch(() => null);
+      const description = reply ? `${modelMessage}\n\nAssistant reply: ${reply}` : modelMessage;
+      const liveTitle = await this.liveTitleSource(instanceId, description).catch(() => null);
       // The resident-session ledger row is recorded by `requestLiveTitle`, only
       // when a request was actually made.
       const cleaned = finalizeDocumentTitle(liveTitle, modelMessage, labels, documentSubject);
@@ -442,7 +496,6 @@ export class AutoTitleService {
       return null;
     }
 
-    const userInstruction = buildTitleUserPrompt(modelMessage, labels);
     const candidates = filterProvidersForAutomation(FAST_PROVIDER_PREFERENCE, 'autoTitle');
     if (fallbackDecision.pausedUntil && fallbackDecision.pausedUntil > Date.now()) return null;
     let resolvedAnyCli = false;
@@ -485,14 +538,14 @@ export class AutoTitleService {
 
       const startedAt = Date.now();
       logPromptInjection('titleSystem', TITLE_SYSTEM_PROMPT, instanceId);
-      logPromptInjection('titleRequest', userInstruction, instanceId);
+      logPromptInjection('titleRequest', userPrompt, instanceId);
       let response: CliResponse;
       let observed: ReturnType<typeof observeModelCallUsage> | undefined;
       try {
         response = await runAuthorizedFrontierFallback(fallbackDecision, async () => {
           const result = await runCorrelatedPaidFrontierCall(() => {
             observed = observeModelCallUsage(adapter);
-            return adapter.sendMessage({ role: 'user', content: userInstruction });
+            return adapter.sendMessage({ role: 'user', content: userPrompt });
           });
           observed?.observe(result.usage);
           const reportedUsage = observed?.usage;
@@ -502,7 +555,7 @@ export class AutoTitleService {
           recordCorrelatedFrontierAttribution({
             taskType: 'aux:titleGeneration', provider: cliType, model,
             outcome: result.metadata?.['budgetExceeded'] === true ? 'budget-exceeded' : 'success',
-            inputTexts: [TITLE_SYSTEM_PROMPT, userInstruction], outputText: result.content, usage,
+            inputTexts: [TITLE_SYSTEM_PROMPT, userPrompt], outputText: result.content, usage,
           });
           return result;
         });

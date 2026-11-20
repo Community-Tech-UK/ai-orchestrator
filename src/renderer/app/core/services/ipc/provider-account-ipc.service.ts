@@ -43,6 +43,8 @@ export interface ProviderAccountView {
     state: AccountBindingState;
     observedIdentity?: string;
     observedPlan?: string;
+    /** Claude only: epoch ms when the sign-in itself ends. */
+    loginExpiresAt?: number;
     errorCode?: string;
     checkedAt: number;
   };

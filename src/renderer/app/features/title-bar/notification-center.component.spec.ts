@@ -2,6 +2,8 @@ import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { getControlSurface } from '../../shared/control-surface/control-surface-nav';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NotificationRecord } from '../../../../shared/types/notification.types';
 import { SessionNavigator } from '../../core/services/session-navigator.service';
@@ -96,6 +98,18 @@ describe('NotificationCenterComponent', () => {
     const clear = fixture.nativeElement.querySelector('.notification-center-clear') as HTMLButtonElement;
     clear.click();
     expect(store.clearAll).toHaveBeenCalledOnce();
+  });
+
+  it('offers to open the accounts page on an unresolved Claude sign-in warning only', () => {
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const warning = { ...RECORD, id: 'sign-in', kind: 'claude-sign-in-ending', title: 'Sign in to Claude account IT again soon' };
+    records.set([warning, { ...warning, id: 'old', resolvedAt: 2 }]);
+    fixture.nativeElement.querySelector('.notification-center-trigger').click(); fixture.detectChanges();
+    const buttons = Array.from(fixture.nativeElement.querySelectorAll('.notification-center-action') as NodeListOf<HTMLButtonElement>);
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Open accounts']);
+    buttons[0]!.click(); fixture.detectChanges();
+    expect(navigate).toHaveBeenCalledWith([getControlSurface('settings').path], { fragment: 'provider-accounts' });
+    expect(fixture.nativeElement.querySelector('.notification-center-panel')).toBeNull();
   });
 
   it('hides the clear-all control when the center is empty', () => {

@@ -185,6 +185,8 @@ export interface AccountBindingStatus {
   observedIdentity?: string;
   observedAccountKey?: string;
   observedPlan?: string;
+  /** Claude only: epoch ms when the sign-in itself ends; renewing tokens does not move it. */
+  loginExpiresAt?: number;
   checkedAt: number;
   errorCode?: string;
 }

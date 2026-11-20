@@ -128,8 +128,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'workspaceSecretsEnabled',
   'workspaceSecretsAllowAgentRequests',
   'browserSecretObservationProtectionEnabled', 'browserLocalComputerEnabled',
-  // 17 Nov 2026: decides which saved logins agents may use without asking James.
-  'browserPreApproveAgentFolderLogins',
+  // `browserPreApproveAgentFolderLogins` left this set on 2026-11-18 at the operator's request ("use the CLI to change
+  // it"), like `browserAllowSharedTabCredentialFill`: it stays closed to `set_setting`; writes log `privileged_set`.
   'providerSignalFenceEnabled',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',

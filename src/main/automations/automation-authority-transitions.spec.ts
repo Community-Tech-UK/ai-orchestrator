@@ -148,6 +148,15 @@ describe('authenticated automation execution transitions', () => {
       executionAuthority: { model: 'gpt-6.1-sol', modelTier: 'powerful', reasoningEffort: 'medium' } } });
   });
 
+  it('lets a Codex session on gpt-6.1-sol move a gpt-6.1-sol job to gpt-6.2-sol', async () => {
+    const job = await seed({ action: { prompt: 'Search', workingDirectory: '/repo', provider: 'codex',
+      model: 'gpt-6.1-sol', reasoningEffort: 'medium' } });
+    caller = { provider: 'codex', currentModel: 'gpt-6.1-sol', reasoningEffort: 'high', yoloMode: false };
+    await update({ id: job.id, model: 'gpt-6.2-sol' });
+    expect(await store.get(job.id)).toMatchObject({ action: { provider: 'codex', model: 'gpt-6.2-sol',
+      executionAuthority: { model: 'gpt-6.2-sol', modelTier: 'powerful', reasoningEffort: 'medium' } } });
+  });
+
   it('still refuses a balanced Codex session editing a gpt-6.1-sol job', async () => {
     const job = await seed({ action: { prompt: 'Old search', workingDirectory: '/repo', provider: 'codex',
       model: 'gpt-6.1-sol', reasoningEffort: 'medium' } });

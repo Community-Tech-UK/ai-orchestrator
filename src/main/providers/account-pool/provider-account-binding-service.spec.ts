@@ -188,6 +188,13 @@ describe('Claude binding', () => {
     expect(seenEnv[0]?.['ANTHROPIC_API_KEY']).toBeUndefined();
   });
 
+  it('carries when the sign-in itself ends, and ignores an unreadable date', async () => {
+    claudeResult = claudeJson({ loggedIn: true, authMethod: 'claude.ai', configDirectory: HOME, loginExpiresAt: '2026-11-27T13:13:37.413Z' });
+    expect((await service().checkBinding(profile('claude', 'max-b'))).loginExpiresAt).toBe(Date.parse('2026-11-27T13:13:37.413Z'));
+    claudeResult = claudeJson({ loggedIn: true, authMethod: 'claude.ai', configDirectory: HOME, loginExpiresAt: 'soon' });
+    expect(await service().checkBinding(profile('claude', 'max-b'))).not.toHaveProperty('loginExpiresAt');
+  });
+
   it('flags byte drift in the config dir as unavailable', async () => {
     claudeResult = claudeJson({ loggedIn: true, authMethod: 'claude.ai', email: 'a@example.com', configDirectory: `${HOME}/` });
     expect(await service().checkBinding(profile('claude', 'max-b'))).toMatchObject({ state: 'unavailable', errorCode: 'config-dir-mismatch' });

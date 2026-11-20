@@ -11,6 +11,7 @@ import { installIpcHandlerTiming } from './ipc-handler-timing';
 import { InstanceManager } from '../instance/instance-manager';
 import { getAutoTitleService } from '../instance/auto-title-service';
 import { requestLiveTitle } from '../instance/live-title-source';
+import { awaitFirstReply } from '../instance/first-reply-source';
 import { WindowManager } from '../window-manager';
 import type { IpcResponse } from '../../shared/types/ipc.types';
 import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
@@ -337,6 +338,8 @@ export class IpcMainHandler {
     registerPlanHandoffHandlers(this.instanceManager);
     getAutoTitleService().setLiveTitleSource((instanceId, description) =>
       requestLiveTitle(this.instanceManager, instanceId, description));
+    getAutoTitleService().setFirstReplySource((instanceId) =>
+      awaitFirstReply(this.instanceManager, instanceId));
     registerMagicPromptHandlers();
     registerCompareHandlers({ windowManager: this.windowManager });
     registerLspFeedback({ instanceManager: this.instanceManager });

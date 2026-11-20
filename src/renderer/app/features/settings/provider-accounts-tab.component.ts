@@ -41,6 +41,7 @@ import type {
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { accountFamilyName, providerName } from '../../../../shared/display-names';
 import { accountMachinesFor, nodeLoginCommandFor, type AccountMachineState } from './provider-accounts-machines';
+import { claudeSignInEndingSoon, describeClaudeSignInEnd } from '../../../../shared/claude-sign-in-end';
 
 /**
  * The accounts this page manages, each named by `accountFamilyName` so
@@ -107,6 +108,7 @@ const SIGN_IN_POLL_LIMIT = 60;
     .status[data-state='authenticated']::before { background: var(--success-color, #4a9); }
     .status[data-state='unauthenticated']::before { background: var(--warning-color, #d93); }
     .status[data-state='identity-mismatch']::before { background: var(--error-color, #d33); }
+    .sign-in-ending { margin: 0; padding-left: 8px; border-left: 3px solid var(--warning-color, #d93); font-size: 12px; color: var(--text-primary); }
     .mismatch { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .machines { display: flex; flex-direction: column; gap: 4px; }
     .usage-access { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-color); padding-top: 10px; }
@@ -210,6 +212,14 @@ export class ProviderAccountsTabComponent implements OnInit {
 
   isSignedIn(account: ProviderAccountView): boolean {
     return account.binding?.state === 'authenticated';
+  }
+
+  /** A signed-in Claude account whose sign-in ends within a week or so, in words; otherwise null. */
+  signInEnding(account: ProviderAccountView): string | null {
+    if (account.provider !== 'claude' || !this.isSignedIn(account)) return null;
+    const now = Date.now();
+    const end = claudeSignInEndingSoon(account.binding?.loginExpiresAt, now);
+    return end ? `This sign-in ${describeClaudeSignInEnd(end, now)}. Only signing in again moves that date.` : null;
   }
 
   /** The store refuses to disable the last enabled account, so the toggle does too. */

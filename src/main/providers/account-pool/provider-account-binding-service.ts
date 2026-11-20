@@ -5,7 +5,8 @@
  * - Claude: `claude auth status --json` with the profile's `CLAUDE_CONFIG_DIR`
  *   (no network). The reported `configDirectory` must equal the derived home
  *   byte for byte: Claude Code keys the Keychain item on the raw string, so a
- *   drifted path would read a different (or empty) sign-in.
+ *   drifted path would read a different (or empty) sign-in. Its
+ *   `loginExpiresAt` (when the sign-in itself ends) is carried on the status.
  * - Codex: the profile's `auth.json` exists and its top-level `auth_mode` is
  *   `chatgpt`. Only that one field is picked from a size-bounded read; the
  *   file holds refresh tokens and is never logged, returned or retained.
@@ -191,7 +192,7 @@ export class ProviderAccountBindingService {
     profile: ProviderAccountProfile,
     nodeId: string,
     state: AccountBindingState,
-    extra: Partial<Pick<AccountBindingStatus, 'observedIdentity' | 'observedAccountKey' | 'observedPlan' | 'errorCode'>> = {},
+    extra: Partial<Pick<AccountBindingStatus, 'observedIdentity' | 'observedAccountKey' | 'observedPlan' | 'loginExpiresAt' | 'errorCode'>> = {},
   ): AccountBindingStatus {
     return {
       provider: profile.provider,
@@ -315,7 +316,9 @@ export class ProviderAccountBindingService {
       // (an API key helper, a cloud provider) is not what the pool assumes.
       return this.build(profile, nodeId, 'unavailable', { errorCode: 'not-subscription-auth', observedPlan: plan });
     }
-    const extra = { observedIdentity: email, observedAccountKey: orgId, observedPlan: plan };
+    const expiresAt = typeof parsed['loginExpiresAt'] === 'string' ? Date.parse(parsed['loginExpiresAt']) : Number.NaN;
+    const loginExpiresAt = Number.isFinite(expiresAt) ? expiresAt : undefined;
+    const extra = { observedIdentity: email, observedAccountKey: orgId, observedPlan: plan, loginExpiresAt };
     if (profile.expectedIdentity !== null && email && !sameIdentity(email, profile.expectedIdentity)) {
       return this.build(profile, nodeId, 'identity-mismatch', { ...extra, errorCode: 'identity-mismatch' });
     }

@@ -1,7 +1,8 @@
 /**
- * 17 Nov 2026: whether agents may use agent-folder saved logins without asking
- * is James's decision. Closed on both the safe `set_setting` surface and the
- * privileged repair CLI, so an agent cannot approve its own sign-ins.
+ * Whether agents may use agent-folder saved logins without asking. Closed on
+ * the safe `set_setting` surface. Since 18 Nov 2026, at James's request, an
+ * agent may change it through the privileged repair CLI (logged), like
+ * `browserAllowSharedTabCredentialFill`.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -22,11 +23,11 @@ describe('agent-folder saved-login pre-approval setting policy', () => {
     expect(DEFAULT_SETTINGS[KEY]).toBe(false);
   });
 
-  it('cannot be changed by an agent through either settings surface', () => {
+  it('stays closed to the safe settings tool but opens to the privileged repair CLI', () => {
     expect(getSettingsToolPolicy(KEY).tier).toBe('read-only');
     expect(() => coerceWritableSettingValue(KEY, true)).toThrow(/read-only/);
-    expect(isPrivilegedSettingsCliWritable(KEY)).toBe(false);
-    expect(() => assertPrivilegedSettingsCliWritable(KEY)).toThrow(/operator-only/);
+    expect(isPrivilegedSettingsCliWritable(KEY)).toBe(true);
+    expect(() => assertPrivilegedSettingsCliWritable(KEY)).not.toThrow();
   });
 
   it('shows on the Advanced settings tab and accepts the window\'s boolean write', () => {

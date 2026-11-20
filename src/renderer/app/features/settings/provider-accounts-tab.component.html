@@ -56,6 +56,9 @@
                     · {{ account.expectedIdentity }}
                   }
                 </span>
+                @if (signInEnding(account); as ending) {
+                  <p class="sign-in-ending">{{ ending }}</p>
+                }
               </div>
               <label class="toggle">
                 <input
@@ -140,7 +143,8 @@
 
               <div class="account-actions">
                 @if (isSignedIn(account)) {
-                  <button type="button" class="btn btn-secondary" (click)="signIn(account, true)" [disabled]="busy()"
+                  <button type="button" class="btn" [class.btn-primary]="signInEnding(account)" [class.btn-secondary]="!signInEnding(account)"
+                    (click)="signIn(account, true)" [disabled]="busy()"
                     [appTooltip]="copy('accounts.signIn')">Sign in again</button>
                   <button type="button" class="btn btn-secondary" (click)="verify(account)" [disabled]="busy()">Check sign-in</button>
                   <button type="button" class="btn btn-secondary" (click)="signIn(account)" [disabled]="busy()"

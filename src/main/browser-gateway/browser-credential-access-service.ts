@@ -35,6 +35,8 @@ const PENDING_MS = 30 * 60_000;
 export class BrowserCredentialAccessService {
   private readonly requests = new Map<string, Promise<BrowserGatewayResult<BrowserApprovalRequest | null>>>();
   private readonly approvals = new Map<string, Promise<BrowserGatewayResult<BrowserPermissionGrant | null>>>();
+  /** Requests the agent-folder setting is deciding right now; the approval list hides them. */
+  private readonly settingDecisions = new Set<string>();
 
   constructor(private readonly deps: BrowserCredentialAccessDependencies) {}
 
@@ -118,7 +120,15 @@ export class BrowserCredentialAccessService {
 
   /** Approve on James's standing setting; on any failure the request stays pending for him, with its reason. */
   private async preApprove(approval: BrowserApprovalRequest, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const decided = await this.approve(approval, { permission: 'task' }, 'setting');
+    // No approval card while the setting decides (20 Nov 2026: James pressed Approve on
+    // one). Memory only, before the first await: a crash or failure shows the card again.
+    this.settingDecisions.add(approval.requestId);
+    let decided: BrowserGatewayResult<BrowserPermissionGrant | null>;
+    try {
+      decided = await this.approve(approval, { permission: 'task' }, 'setting');
+    } finally {
+      this.settingDecisions.delete(approval.requestId);
+    }
     const current = this.deps.store.getRequest(approval.requestId) ?? approval;
     if (decided.decision === 'allowed') return this.report(current, context, 'allowed', 'preapproved_by_setting');
     return this.report(current, context, current.status === 'pending' ? 'requires_user' : 'denied', current.status === 'pending' ? 'awaiting_approval' : current.status);
@@ -294,6 +304,8 @@ export class BrowserCredentialAccessService {
   }
 
   refreshRequest(request: BrowserApprovalRequest): BrowserApprovalRequest { return this.refresh(request); }
+
+  isBeingPreApproved(requestId: string): boolean { return this.settingDecisions.has(requestId); }
 
   revokeForGrant(grantId: string): void {
     const request = this.deps.store.findCredentialAccessByGrant(grantId);

@@ -414,6 +414,30 @@ describe('agent-folder pre-approval setting', () => {
     expect(h.grants).toHaveLength(0);
   });
 
+  it('hides the request from the approval list only while the setting is deciding it', async () => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    let firstSeen: boolean | undefined;
+    // The setting's first await is the live tab check inside the approval.
+    h.readTarget.mockImplementation(async () => {
+      const pending = h.store.listRequests({ status: 'pending' })[0];
+      if (pending && firstSeen === undefined) firstSeen = h.service.isBeingPreApproved(pending.requestId);
+      return { origin: 'https://login.example.test', scope: 'node-placeholder', computerName: 'Windows test computer' };
+    });
+    const result = await h.service.request(h.input, h.context());
+    expect(result).toMatchObject({ decision: 'allowed', reason: 'preapproved_by_setting' });
+    expect(firstSeen).toBe(true);
+    expect(h.service.isBeingPreApproved(result.data!.requestId)).toBe(false);
+
+    // A failed attempt leaves it visible to James.
+    const h2 = harness(); h2.setPreApprove(true);
+    h2.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    h2.enrol.mockRejectedValueOnce(new CredentialVaultError('Locked', 'vault_locked'));
+    const failed = await h2.service.request(h2.input, h2.context());
+    expect(failed.data?.status).toBe('pending');
+    expect(h2.service.isBeingPreApproved(failed.data!.requestId)).toBe(false);
+  });
+
   it('leaves the request pending for James when pre-approval cannot finish', async () => {
     const h = harness(); h.setPreApprove(true);
     h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Plan 14b/14c/15b: the quick-ask handlers, the plan-handoff handlers and the
- * live-title source are only reachable if `IpcMainHandler.registerHandlers()`
+ * live-title and first-reply sources are only reachable if `IpcMainHandler.registerHandlers()`
  * actually calls them. `verify:ipc` checks channel names, not that the
  * registration call exists, so this test runs the real `registerHandlers()`
  * with every collaborator replaced by a recording stub.
@@ -38,6 +38,7 @@ vi.mock('../ipc-handler-timing', () => stubModule());
 vi.mock('../../instance/instance-manager', () => stubModule());
 vi.mock('../../instance/auto-title-service', () => stubModule());
 vi.mock('../../instance/live-title-source', () => stubModule());
+vi.mock('../../instance/first-reply-source', () => stubModule());
 vi.mock('../../window-manager', () => stubModule());
 vi.mock('../orchestration-ipc-handler', () => stubModule());
 vi.mock('../verification-ipc-handler', () => stubModule());
@@ -86,7 +87,10 @@ describe('IpcMainHandler.registerHandlers Phase 1 registrations', () => {
     mocks.fns.clear();
     mocks.results.clear();
     // Collaborators whose return value registerHandlers() dereferences.
-    mocks.results.set('getAutoTitleService', () => ({ setLiveTitleSource: stub('setLiveTitleSource') }));
+    mocks.results.set('getAutoTitleService', () => ({
+      setLiveTitleSource: stub('setLiveTitleSource'),
+      setFirstReplySource: stub('setFirstReplySource'),
+    }));
     mocks.results.set('getProviderQuotaService', () => ({ startIdleRefresh: vi.fn() }));
     mocks.results.set('getPromptHistoryService', () => ({ pruneOnStart: vi.fn(async () => undefined) }));
     mocks.results.set('getContextWorkerClient', () => ({}));
@@ -114,6 +118,17 @@ describe('IpcMainHandler.registerHandlers Phase 1 registrations', () => {
     const source = setSource.mock.calls[0][0] as (id: string, description: string) => Promise<string | null>;
     await expect(source('instance-1', 'describe the work')).resolves.toBe('Live title');
     expect(stub('requestLiveTitle')).toHaveBeenCalledWith(instanceManager, 'instance-1', 'describe the work');
+  });
+
+  it('installs a first-reply source that waits on the instance manager', async () => {
+    mocks.results.set('awaitFirstReply', () => Promise.resolve('The screenshot shows a login error.'));
+    new IpcMainHandler(instanceManager, windowManager).registerHandlers();
+
+    const setSource = stub('setFirstReplySource');
+    expect(setSource).toHaveBeenCalledTimes(1);
+    const source = setSource.mock.calls[0][0] as (id: string) => Promise<string | null>;
+    await expect(source('instance-1')).resolves.toBe('The screenshot shows a login error.');
+    expect(stub('awaitFirstReply')).toHaveBeenCalledWith(instanceManager, 'instance-1');
   });
 
   it('completes registration (sanity check that the stubs reached the end of the method)', () => {

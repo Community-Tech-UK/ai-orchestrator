@@ -297,7 +297,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'browserPreApproveAgentFolderLogins',
     label: 'Let agents use agent-folder logins without asking',
-    description: 'Agents can sign in with a saved login from the AIO-Agent vault folder without asking you, on any browser computer, but only on the websites that login lists. Everything else still asks; only you can change this.',
+    description: 'Agents can sign in with a saved login from the AIO-Agent vault folder without asking you, on any browser computer, but only on the websites that login lists. Everything else still asks. Off by default; an agent can switch it only through the Harness repair command-line tool, and each change is logged.',
     type: 'boolean',
     category: 'advanced',
     keywords: ['browser', 'saved login', 'password', 'vault', 'approval', 'AIO-Agent'],

@@ -10,12 +10,15 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { SessionNavigator } from '../../core/services/session-navigator.service';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import type { NotificationRecord } from '../../../../shared/types/notification.types';
 import { TOOL_LOOP_CONTINUE_CONSEQUENCE } from '../../../../shared/tool-loop-summary';
+import { CLAUDE_SIGN_IN_ENDING_NOTIFICATION_KIND } from '../../../../shared/claude-sign-in-end';
+import { getControlSurface } from '../../shared/control-surface/control-surface-nav';
 
 @Component({
   selector: 'app-notification-center',
@@ -63,6 +66,11 @@ import { TOOL_LOOP_CONTINUE_CONSEQUENCE } from '../../../../shared/tool-loop-sum
                   }
                   @if (record.repeatCount && record.repeatCount > 1) { <span>×{{ record.repeatCount }}</span> }
                   @if (record.resolvedAt !== undefined) { <span class="resolved">Resolved</span> }
+                  @if (showOpenAccounts(record)) {
+                    <div class="notification-center-actions">
+                      <button type="button" class="notification-center-action" (click)="openAccounts()">Open accounts</button>
+                    </div>
+                  }
                   @if (showToolLoopActions(record)) {
                     <div class="notification-center-actions">
                       <button
@@ -218,6 +226,7 @@ import { TOOL_LOOP_CONTINUE_CONSEQUENCE } from '../../../../shared/tool-loop-sum
 export class NotificationCenterComponent implements OnInit {
   protected readonly store = inject(NotificationCenterStore);
   private readonly navigator = inject(SessionNavigator);
+  private readonly router = inject(Router);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
   private readonly settings = inject(SettingsStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -284,6 +293,16 @@ export class NotificationCenterComponent implements OnInit {
     }
     return new Map([...latest].map(([instanceId, record]) => [instanceId, record.id]));
   });
+
+  /** A Claude sign-in that ends soon: the fix is Sign in again on the accounts page. */
+  protected showOpenAccounts(record: NotificationRecord): boolean {
+    return record.kind === CLAUDE_SIGN_IN_ENDING_NOTIFICATION_KIND && record.resolvedAt === undefined;
+  }
+
+  protected openAccounts(): void {
+    void this.router.navigate([getControlSurface('settings').path], { fragment: 'provider-accounts' });
+    this.open.set(false);
+  }
 
   protected autoInterruptOn(): boolean {
     return this.settings.settings().toolLoopAutoInterrupt === true;

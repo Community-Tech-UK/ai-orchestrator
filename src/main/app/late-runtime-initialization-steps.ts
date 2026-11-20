@@ -29,6 +29,7 @@ import { sweepStaleCodexTempHomes } from '../cli/adapters/codex/codex-home-manag
 import { reconcilePrivateCodexRolloutPaths } from '../cli/adapters/codex/codex-private-rollout-reconcile';
 import { pruneCodexBackupsAtStartup } from '../cli/adapters/codex/codex-backup-retention-policy';
 import { startLowDiskSpaceWatcher } from '../storage/low-disk-space-watcher';
+import { startClaudeSignInEndNotifier } from '../providers/account-pool/claude-sign-in-end-notifier';
 import { startScratchSweepScheduler } from '../storage/scratch-sweep-scheduler';
 import { cleanupLeakedAioCodexThreads } from '../cli/adapters/codex/codex-state-cleanup';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -352,6 +353,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
     { name: 'Close reviews for completed documents', fn: () => { initializeCompletedReviewSweep(); } },
     { name: 'Low disk space watcher', fn: () => { startLowDiskSpaceWatcher(app.getPath('userData')); } },
+    { name: 'Claude sign-in end reminders', fn: () => { startClaudeSignInEndNotifier(); } },
     { name: 'Scratch folder sweep', fn: () => { startScratchSweepScheduler(); } },
     {
       name: 'Resource governor',

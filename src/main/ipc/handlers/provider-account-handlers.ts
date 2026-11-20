@@ -116,6 +116,7 @@ function toSafeProfile(profile: ProviderAccountProfile, binding?: AccountBinding
             state: binding.state,
             ...(binding.observedIdentity ? { observedIdentity: binding.observedIdentity } : {}),
             ...(binding.observedPlan ? { observedPlan: binding.observedPlan } : {}),
+            ...(binding.loginExpiresAt !== undefined ? { loginExpiresAt: binding.loginExpiresAt } : {}),
             ...(binding.errorCode ? { errorCode: binding.errorCode } : {}),
             checkedAt: binding.checkedAt,
           },

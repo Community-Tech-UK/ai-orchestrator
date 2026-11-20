@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ATTACHMENT_PREAMBLE_HEADER,
   deriveAttachmentTaskTitle,
+  deriveRailTitle,
   extractAttachmentPreamble,
   frontLoadTitle,
   isBareIdentifierLine,
@@ -423,4 +424,13 @@ describe('isBareIdentifierLine Harness IDs', () => {
       expect(isBareIdentifierLine(`${prefix}8f3k2m1p OAuth repair`)).toBe(false);
     },
   );
+});
+
+describe('titles beside a made-up picture name', () => {
+  it('never titles a vague opener from a made-up picture name', () => {
+    const title = deriveRailTitle('Look into this and fix', ['pasted-image-5.png']);
+    expect(title).toBe('Look into this and fix');
+    expect(deriveRailTitle('', ['pasted-image-3.png'])).toBe('');
+    expect(deriveRailTitle('Please fix this', ['bin-day-calendar.png'])).toBe('Bin-day-calendar.png fix');
+  });
 });

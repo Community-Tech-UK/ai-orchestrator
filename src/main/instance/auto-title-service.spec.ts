@@ -71,6 +71,7 @@ vi.mock('../core/system/model-call-recorder', async (importOriginal) => {
 });
 
 import { AutoTitleService, TITLE_CLI_SPAWN_ENABLED } from './auto-title-service';
+import { ATTACHMENT_PREAMBLE_HEADER } from '../../shared/types/title-derivation';
 
 describe('AutoTitleService', () => {
   beforeEach(() => {
@@ -1300,5 +1301,134 @@ describe('AutoTitleService', () => {
     );
 
     expect(title).toBe('First class remote orchestration implementation');
+  });
+
+  describe('subject only in a pasted picture', () => {
+    const localDecision = { source: 'local', allowFrontierFallback: false };
+
+    it('waits for the assistant reply and names the session from it, never from the made-up file name', async () => {
+      // Real case: "Look into this and fix" + pasted-image-5.png was named "Fix pasted-image-5.png".
+      mockAuxGenerate.mockResolvedValue({ text: 'Session titles from pasted images', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      const reply = 'Those names come from the automatic session naming, which only sees the pasted file name.';
+      const firstReply = vi.fn().mockResolvedValue(reply);
+      service.setFirstReplySource(firstReply);
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', 'Look into this and fix', applyTitle, false, ['pasted-image-5.png']);
+
+      expect(firstReply).toHaveBeenCalledWith('pic');
+      expect(applyTitle.mock.calls).toEqual([
+        ['pic', 'Look into this and fix', 'instant'],
+        ['pic', 'Session titles from pasted images', 'ai'],
+      ]);
+      const userPrompt = String(mockAuxGenerate.mock.calls[0][2]);
+      expect(userPrompt).not.toContain('pasted-image');
+      expect(JSON.parse(userPrompt.split('\n')[1])).toEqual({
+        openingTask: 'Look into this and fix', attachments: [], assistantReply: reply,
+      });
+    });
+
+    it('names a picture sent with no text once the reply arrives', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Binsout postcode lookup error', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      service.setFirstReplySource(vi.fn().mockResolvedValue('The screenshot shows the postcode lookup failing.'));
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', '', applyTitle, false, ['pasted-image-3.png']);
+
+      expect(applyTitle.mock.calls).toEqual([['pic', 'Binsout postcode lookup error', 'ai']]);
+    });
+
+    it('keeps the opening title and asks no model when no reply arrives', async () => {
+      const service = AutoTitleService.getInstance();
+      service.setFirstReplySource(vi.fn().mockResolvedValue(null));
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', 'Look into this and fix', applyTitle, false, ['pasted-image-6.png']);
+
+      expect(applyTitle.mock.calls).toEqual([['pic', 'Look into this and fix', 'instant']]);
+      expect(mockAuxGenerate).not.toHaveBeenCalled();
+    });
+
+    it('does not apply a reply title after the session is cleared while waiting', async () => {
+      let deliverReply!: (reply: string) => void;
+      const service = AutoTitleService.getInstance();
+      service.setFirstReplySource(() => new Promise((resolve) => { deliverReply = resolve; }));
+      const applyTitle = vi.fn();
+      const naming = service.maybeGenerateTitle('pic', 'Look into this', applyTitle, false, ['image.png']);
+      service.clearInstance('pic');
+      deliverReply('The screenshot shows the bin day calendar.');
+      await naming;
+      expect(mockAuxGenerate).not.toHaveBeenCalled();
+      expect(applyTitle.mock.calls.filter(([, , source]) => source === 'ai')).toEqual([]);
+    });
+
+    it.each([
+      'Look into this and fix', "What's wrong here?", 'See the screenshot below', 'Fix this bug',
+      'Why is this broken?', 'Explain this error', 'Check this out', 'Thoughts?',
+    ])('waits for the reply when %s is all the text says', async (opener) => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Bin day postcode lookup', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      const firstReply = vi.fn().mockResolvedValue('The screenshot shows the postcode lookup failing.');
+      service.setFirstReplySource(firstReply);
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', opener, applyTitle, false, ['pasted-image-8.png']);
+
+      expect(firstReply).toHaveBeenCalledWith('pic');
+      expect(applyTitle).toHaveBeenLastCalledWith('pic', 'Bin day postcode lookup', 'ai');
+    });
+
+    it('names from a real attached file straight away instead of waiting', async () => {
+      const service = AutoTitleService.getInstance();
+      const firstReply = vi.fn();
+      service.setFirstReplySource(firstReply);
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', 'Please implement this', applyTitle, false, ['work-finder-plan.md', 'pasted-image-9.png']);
+
+      expect(firstReply).not.toHaveBeenCalled();
+      expect(applyTitle).toHaveBeenCalledWith('pic', 'Work finder implementation', 'instant');
+    });
+
+    it('names straight away when a later line names the subject', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Postcode lookup wrong day', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      const firstReply = vi.fn();
+      service.setFirstReplySource(firstReply);
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', 'Look at this\nThe postcode lookup returns the wrong day', applyTitle, false, ['image.png']);
+
+      expect(firstReply).not.toHaveBeenCalled();
+      expect(applyTitle).toHaveBeenLastCalledWith('pic', 'Postcode lookup wrong day', 'ai');
+    });
+
+    it('waits for the reply when the picture arrives in an attached-files block', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Bin day calendar layout', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      service.setFirstReplySource(vi.fn().mockResolvedValue('The screenshot shows the bin day calendar overlapping.'));
+      const applyTitle = vi.fn();
+      const message = [ATTACHMENT_PREAMBLE_HEADER, '- .aio-loop-attachments/loop-1/pasted-image-3.png', '', 'fix'].join('\n');
+
+      await service.maybeGenerateTitle('pic', message, applyTitle);
+
+      expect(applyTitle.mock.calls).toEqual([['pic', 'Fix', 'instant'], ['pic', 'Bin day calendar layout', 'ai']]);
+      expect(String(mockAuxGenerate.mock.calls[0][2])).not.toContain('pasted-image');
+    });
+
+    it('names straight away when the text already names the subject', async () => {
+      mockAuxGenerate.mockResolvedValue({ text: 'Bin day postcode lookup', decision: localDecision });
+      const service = AutoTitleService.getInstance();
+      const firstReply = vi.fn();
+      service.setFirstReplySource(firstReply);
+      const applyTitle = vi.fn();
+
+      await service.maybeGenerateTitle('pic', 'The bin day postcode lookup shows the wrong day', applyTitle, false, ['pasted-image-7.png']);
+
+      expect(firstReply).not.toHaveBeenCalled();
+      expect(applyTitle).toHaveBeenCalledWith('pic', 'Bin day postcode lookup', 'ai');
+    });
   });
 });

@@ -307,9 +307,10 @@ describe('Browser Gateway approval resume admission', () => {
     },
   );
 
-  it('does not send a second wake after the shared credential service already owns notification', async () => {
+  it.each(['saved_login_access_approved', 'saved_login_preapproved_by_setting'])(
+    'does not send a second wake after the shared credential service already owns notification (%s)', async (reason) => {
     mocks.approveRequest.mockResolvedValueOnce({
-      decision: 'allowed', outcome: 'succeeded', data: { instanceId: 'inst-1', reason: 'saved_login_access_approved' },
+      decision: 'allowed', outcome: 'succeeded', data: { instanceId: 'inst-1', reason },
     } as never);
     await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, {
       requestId: 'request-1', grant: {
@@ -319,5 +320,6 @@ describe('Browser Gateway approval resume admission', () => {
     });
     expect(sendInput).not.toHaveBeenCalled();
     expect(mocks.admitAutomatedWrite).not.toHaveBeenCalled();
-  });
+  },
+  );
 });

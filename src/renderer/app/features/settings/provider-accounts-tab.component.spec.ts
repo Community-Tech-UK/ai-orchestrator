@@ -211,6 +211,29 @@ describe('ProviderAccountsTabComponent', () => {
     expect(ipc.acknowledgeOwnership).toHaveBeenCalledWith('claude');
   });
 
+  it('warns when a signed-in Claude account must sign in again soon and makes that the main button', async () => {
+    const original = ipc.list.getMockImplementation();
+    const day = 24 * 60 * 60 * 1000;
+    const binding = (loginExpiresAt: number) => ({ nodeId: 'local', state: 'authenticated' as const, checkedAt: 1, loginExpiresAt });
+    ipc.list.mockImplementation(async () => ({
+      profiles: [
+        account({ binding: binding(Date.now() + 5 * day) }),
+        account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false, binding: binding(Date.now() + 30 * day) }),
+      ],
+      pools,
+    }));
+    try {
+      const cards = Array.from(claudeSection(await render()).querySelectorAll<HTMLElement>('.account-card'));
+      const signInAgain = (card: HTMLElement) => Array.from(card.querySelectorAll('button')).find((node) => node.textContent?.trim() === 'Sign in again')!;
+      expect(cards[0]!.querySelector('.sign-in-ending')?.textContent).toMatch(/^This sign-in ends between .+\. Only signing in again moves that date\.$/);
+      expect(signInAgain(cards[0]!).classList).toContain('btn-primary');
+      expect(cards[1]!.querySelector('.sign-in-ending')).toBeNull();
+      expect(signInAgain(cards[1]!).classList).toContain('btn-secondary');
+    } finally {
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
   it('hides reordering and switching rules until a provider has a second account', async () => {
     const original = ipc.list.getMockImplementation();
     ipc.list.mockImplementation(async () => ({ profiles: [account()], pools }));

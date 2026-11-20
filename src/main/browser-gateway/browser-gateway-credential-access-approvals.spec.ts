@@ -44,15 +44,16 @@ function setup(approval = accessRequest()) {
   const denyCredentialAccess = vi.fn(async () => denied);
   const autoApproveApproval = vi.fn();
   const revokeCredentialAccess = vi.fn();
+  const isCredentialAccessPreApproving = vi.fn((_requestId: string) => false);
   const operations = new BrowserGatewayApprovalOperations({
-    approvalStore, grantStore, approveCredentialAccess, denyCredentialAccess, autoApproveApproval, revokeCredentialAccess,
+    approvalStore, grantStore, approveCredentialAccess, denyCredentialAccess, autoApproveApproval, revokeCredentialAccess, isCredentialAccessPreApproving,
     refreshCredentialAccess: (request) => request,
     profileStore: { getProfile: () => null, setRuntimeState: vi.fn() },
     result: (params) => ({
       decision: params.decision, outcome: params.outcome, data: params.data, auditId: 'placeholder-audit',
     }) as BrowserGatewayResult<never>,
   });
-  return { operations, approval, approvalStore, grantStore, approveCredentialAccess, denyCredentialAccess, autoApproveApproval, revokeCredentialAccess, approved, denied };
+  return { operations, approval, approvalStore, grantStore, approveCredentialAccess, denyCredentialAccess, autoApproveApproval, revokeCredentialAccess, isCredentialAccessPreApproving, approved, denied };
 }
 
 describe('Credential access approval routing', () => {
@@ -86,6 +87,16 @@ describe('Credential access approval routing', () => {
     expect(ctx.approveCredentialAccess).not.toHaveBeenCalled();
   });
 
+  it('shows no approval card only while the agent-folder setting is deciding the request', async () => {
+    const ctx = setup();
+    ctx.isCredentialAccessPreApproving.mockReturnValue(true);
+    expect((await ctx.operations.listApprovalRequests({ status: 'pending' })).data).toEqual([]);
+    expect(ctx.isCredentialAccessPreApproving).toHaveBeenCalledWith(ctx.approval.requestId);
+    // Once it stops deciding (failed, crashed or finished), the card shows if still pending.
+    ctx.isCredentialAccessPreApproving.mockReturnValue(false);
+    expect((await ctx.operations.listApprovalRequests({ status: 'pending' })).data).toEqual([ctx.approval]);
+  });
+
   it('keeps manual acknowledgement read-only even when a generic UI proposes credential access', async () => {
     const approval = accessRequest();
     delete approval.credentialAccess;
@@ -111,6 +122,20 @@ describe('Credential access approval routing', () => {
     const result = await ctx.operations.revokeGrant({ grantId: original.id, reason: 'User withdrew access' });
     expect(result.outcome).toBe('succeeded');
     expect(ctx.revokeCredentialAccess).toHaveBeenCalledExactlyOnceWith(original.id);
+  });
+
+  it('revokes saved-login authority for a grant the agent-folder setting approved', async () => {
+    const ctx = setup();
+    const grant: BrowserPermissionGrant = {
+      ...ctx.approval.proposedGrant, id: 'placeholder-grant', createdAt: Date.now(),
+      instanceId: ctx.approval.instanceId, provider: ctx.approval.provider,
+      requestedBy: ctx.approval.instanceId, decidedBy: 'user', decision: 'allow',
+      expiresAt: Date.now() + 60_000, reason: 'saved_login_preapproved_by_setting', userApprovedCredentials: false,
+    };
+    ctx.grantStore.getGrant.mockReturnValue(grant);
+    ctx.grantStore.revokeGrant.mockReturnValue({ ...grant, revokedAt: Date.now() });
+    await ctx.operations.revokeGrant({ grantId: grant.id });
+    expect(ctx.revokeCredentialAccess).toHaveBeenCalledExactlyOnceWith(grant.id);
   });
 
   it('does not revoke credential authority for an unrelated browser grant', async () => {

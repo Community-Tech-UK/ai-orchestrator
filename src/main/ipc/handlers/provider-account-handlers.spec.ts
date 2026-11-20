@@ -16,12 +16,13 @@ vi.mock('electron', () => ({
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
-const bindingState = vi.hoisted(() => ({ state: 'authenticated', observedIdentity: 'b@example.com' as string | undefined }));
+const bindingState = vi.hoisted(() => ({ state: 'authenticated', observedIdentity: 'b@example.com' as string | undefined, loginExpiresAt: 1_800_000_000_000 }));
 vi.mock('../../providers/account-pool/provider-account-binding-service', () => ({
   getProviderAccountBindingService: () => ({
     checkBinding: async (profile: ProviderAccountProfile) => ({
       provider: profile.provider, profileId: profile.id, nodeId: 'local', state: bindingState.state,
-      checkedAt: 1, ...(bindingState.observedIdentity ? { observedIdentity: bindingState.observedIdentity } : {}),
+      checkedAt: 1, loginExpiresAt: bindingState.loginExpiresAt,
+      ...(bindingState.observedIdentity ? { observedIdentity: bindingState.observedIdentity } : {}),
     }),
     invalidate: vi.fn(),
     rememberObservedIdentity: vi.fn(),
@@ -157,7 +158,7 @@ describe('provider-account IPC handlers', () => {
     const created = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'claude', label: 'Max B' });
     expect(created).toMatchObject({ success: true, data: { id: 'max-b-ab12', enabled: false } });
     const verified = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_VERIFY, { ...token, provider: 'claude', profileId: 'max-b-ab12' });
-    expect(verified).toMatchObject({ success: true, data: { expectedIdentity: 'b@example.com', binding: { state: 'authenticated' } } });
+    expect(verified).toMatchObject({ success: true, data: { expectedIdentity: 'b@example.com', binding: { state: 'authenticated', loginExpiresAt: 1_800_000_000_000 } } });
     const removal = await call(IPC_CHANNELS.PROVIDER_ACCOUNT_REMOVE, { ...token, provider: 'claude', profileId: 'max-b-ab12' });
     expect(removal).toMatchObject({ success: false, error: { message: expect.stringMatching(/in use/) } });
   });

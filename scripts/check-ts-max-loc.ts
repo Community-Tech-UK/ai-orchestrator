@@ -626,8 +626,8 @@ const ALLOWLIST: Record<string, number> = {
   // Plan Queue account preferences on Instance and InstanceCreateConfig add 15 lines.
   'src/shared/types/instance.types.ts': 915,
   'src/shared/types/loop.types.ts': 780,
-  // Crossed 700 adding gpt-6.1-sol (2026-11-08); re-tighten by moving the static model list out.
-  'src/shared/types/provider.types.ts': 702,
+  // Crossed 700 adding gpt-6.1-sol (2026-11-08) and gpt-6.2-sol (2026-11-19); re-tighten by moving the static model list out.
+  'src/shared/types/provider.types.ts': 704,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
   // already in progress in this working tree; re-tighten once that split lands.

@@ -15,6 +15,7 @@
  */
 
 import { INSTANCE_ID_PREFIXES, ORCHESTRATION_ID_PREFIXES } from '../utils/id-generator';
+import { attachmentLabel, attachmentLabels } from './title-attachment-labels';
 
 /** Maximum length of a rail-visible title before truncation. */
 export const MAX_FALLBACK_TITLE_LENGTH = 60;
@@ -227,16 +228,6 @@ export function isBareIdentifierLine(line: string): boolean {
     || BARE_HASH_LINE_PATTERN.test(trimmed)
     || BARE_SESSION_IDENTIFIER_PATTERN.test(trimmed)
     || isBareHarnessId(trimmed);
-}
-
-/** Reduce an attachment name to a clean basename for use in a title. */
-export function attachmentLabel(name: string): string {
-  return (name.split(/[/\\]/).pop() ?? name).trim();
-}
-
-/** Map raw attachment names to clean, non-empty labels. */
-export function attachmentLabels(names: readonly string[]): string[] {
-  return names.map(attachmentLabel).filter((label) => label.length > 0);
 }
 
 /** A document path sent as the entire opening message has its subject in the filename. */

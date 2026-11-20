@@ -44,6 +44,8 @@ interface BrowserGatewayApprovalOperationsDeps {
   ) => Promise<BrowserGatewayResult<BrowserApprovalRequest | null>>;
   refreshCredentialAccess?: (approval: BrowserApprovalRequest) => BrowserApprovalRequest;
   revokeCredentialAccess?: (grantId: string) => void;
+  /** Whether the agent-folder setting is deciding this saved-login request right now. */
+  isCredentialAccessPreApproving?: (requestId: string) => boolean;
   /** Starts the approved recovery. Harness does the work; the approval itself changes nothing. */
   onSecretRecoveryApproved?: (approval: BrowserApprovalRequest) => void;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
@@ -99,6 +101,10 @@ export class BrowserGatewayApprovalOperations {
         this.resolvePendingApprovalIfNeeded(this.expireApprovalIfNeeded(approval)),
       )
       .filter((approval) => !request.status || approval.status === request.status)
+      // Being decided by the agent-folder setting right now: not a question for the operator.
+      .filter((approval) => !(approval.status === 'pending' && approval.credentialAccess
+        && (this.deps.isCredentialAccessPreApproving
+          ?? ((id: string) => getBrowserCredentialAccessService().isBeingPreApproved(id)))(approval.requestId)))
       .map((approval) => this.withComputer(approval));
     return this.deps.result({
       context: request,
@@ -453,7 +459,9 @@ export class BrowserGatewayApprovalOperations {
       originalGrant ??= ownGrant;
     }
     const revoked = this.deps.grantStore.revokeGrant(request.grantId, request.reason);
-    if (revoked && (originalGrant?.reason === 'saved_login_access_approved' || revoked.reason === 'saved_login_access_approved')) {
+    // Operator-approved and setting-approved saved-login grants both carry an authorization.
+    const savedLogin = (reason?: string) => reason === 'saved_login_access_approved' || reason === 'saved_login_preapproved_by_setting';
+    if (revoked && (savedLogin(originalGrant?.reason) || savedLogin(revoked.reason))) {
       if (this.deps.revokeCredentialAccess) this.deps.revokeCredentialAccess(revoked.id);
       else getBrowserCredentialAccessService().revokeForGrant(revoked.id);
     }
