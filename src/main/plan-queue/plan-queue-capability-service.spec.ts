@@ -500,3 +500,15 @@ describe('repair completion and original check revalidation', () => {
       .rejects.toThrow(/does not match the launch receipt/);
   });
 });
+
+describe('checker tools for live checks', () => {
+  it.each([['livetests', true], ['plans', undefined]] as const)('marks a %s checker for live checks (flag: %s)', async (kind, expected) => {
+    const parent = fake.addParent();
+    writeDoc(kind === 'livetests' ? 'docs/plans/probe_livetest.md' : 'docs/plans/2026-01-01-probe_plan.md', '# Probe\n- [ ] Check\n');
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind });
+    await waitForRun(run.id);
+    const checker = fake.created.find(instance => instance.role === 'verifier');
+    expect(checker).toBeDefined();
+    expect(checker?.config.metadata?.['planQueueLiveChecks']).toBe(expected);
+  });
+});

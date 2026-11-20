@@ -2,10 +2,14 @@
  * Role-aware MCP server selection for Plan Queue sessions.
  *
  * A queue checker (the schema's `verifier` role) or triage session reads files,
- * runs the documented checks and reports. It never drives a browser, the
- * desktop, the shared mailbox or the code-memory index, yet each of those
- * servers adds its tool list to every request the session makes. They are left
- * out for those two roles. Workers and every non-queue session are unchanged.
+ * runs the documented checks and reports. It never uses the shared mailbox or
+ * the code-memory index, and a plan checker never drives a browser or the
+ * desktop, yet each of those servers adds its tool list to every request the
+ * session makes. They are left out for those two roles. A checker of a live
+ * test or a capability repair (`planQueueLiveChecks`) probes the running app
+ * through the Browser Gateway, so it keeps that server; desktop control stays out,
+ * as unattended sessions never drive this Mac. Workers and every non-queue
+ * session are unchanged.
  *
  * Pure policy: `SpawnConfigBuilder` asks this module and holds no role logic.
  */
@@ -24,6 +28,7 @@ export interface McpRoleSubject {
 const LEAN_QUEUE_ROLES: ReadonlySet<string> = new Set(['verifier', 'triage']);
 const NOTHING: ReadonlySet<RoleSkippableMcpServer> = new Set();
 const EXPENSIVE: ReadonlySet<RoleSkippableMcpServer> = new Set(['browser', 'desktop', 'imap', 'codemem']);
+const NOT_FOR_LIVE_CHECKS: ReadonlySet<RoleSkippableMcpServer> = new Set(['desktop', 'imap', 'codemem']);
 
 /** Server names in `config/mcp-servers.json` that belong to a skippable class. */
 const STATIC_SERVER_CLASS: Readonly<Record<string, RoleSkippableMcpServer>> = { imap: 'imap' };
@@ -33,7 +38,8 @@ export function mcpServersSkippedForRole(
   subject: McpRoleSubject | undefined,
 ): ReadonlySet<RoleSkippableMcpServer> {
   const role = subject?.metadata?.['planQueueRole'];
-  return typeof role === 'string' && LEAN_QUEUE_ROLES.has(role) ? EXPENSIVE : NOTHING;
+  if (typeof role !== 'string' || !LEAN_QUEUE_ROLES.has(role)) return NOTHING;
+  return subject?.metadata?.['planQueueLiveChecks'] === true ? NOT_FOR_LIVE_CHECKS : EXPENSIVE;
 }
 
 /**

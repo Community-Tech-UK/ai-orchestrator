@@ -57,7 +57,9 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
-        metadata: { planQueueLargeDocument: workSourceFor(item.sourceKind).isLarge(item), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
+        metadata: { planQueueLargeDocument: workSourceFor(item.sourceKind).isLarge(item), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing),
+          // Live tests and capability repairs are checked against the running app, through the Browser Gateway.
+          ...(run.kind === 'livetests' || run.config.capabilityRepairId ? { planQueueLiveChecks: true } : {}) },
       });
       deps.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
       recordSessionStart(deps.host, item.id, 'checker', instance.id, choice.provider, choice.modelOverride ?? deps.host.instances.getInstance(instance.id)?.currentModel);

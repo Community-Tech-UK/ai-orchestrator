@@ -24,6 +24,11 @@ describe('mcpServersSkippedForRole', () => {
       .toEqual(['browser', 'codemem', 'desktop', 'imap']);
   });
 
+  it('keeps the browser, and only the browser, for a live-test or capability-repair checker', () => {
+    expect([...mcpServersSkippedForRole({ metadata: { planQueueRole: 'verifier', planQueueLiveChecks: true } })].sort())
+      .toEqual(['codemem', 'desktop', 'imap']);
+  });
+
   it.each([
     ['queue worker', { metadata: { planQueueRole: 'worker' } }],
     ['ordinary session', { metadata: {} }],
