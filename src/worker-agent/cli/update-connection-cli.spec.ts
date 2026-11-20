@@ -25,6 +25,7 @@ describe('update-connection', () => {
   const stdout = vi.fn();
   const stderr = vi.fn();
   const target = 'wss://coordinator.example.invalid:4878';
+  const realExecFileSync = vi.mocked(execFileSync).getMockImplementation()!;
 
   beforeEach(() => {
     directory = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-connection-update-'));
@@ -41,6 +42,13 @@ describe('update-connection', () => {
     };
     fs.writeFileSync(configPath, JSON.stringify(saved), { mode: 0o600 });
     vi.clearAllMocks();
+    // The Linux ACL inspection shells out to getfacl, which minimal Linux
+    // runners (WSL, containers) do not install. Answer it here so the tests
+    // do not depend on the host; the ACL refusal tests override this per call.
+    vi.mocked(execFileSync).mockImplementation(((file: string, ...rest: unknown[]) => (
+      file === 'getfacl' ? 'user::rw-\ngroup::---\nother::---\n'
+        : (realExecFileSync as (...args: unknown[]) => unknown)(file, ...rest)
+    )) as typeof execFileSync);
   });
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: nativePlatform });

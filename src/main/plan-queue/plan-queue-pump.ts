@@ -154,6 +154,19 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           const hold = stepHold(items, item);
           if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
           if (hold) continue;
+          // The run hold is the reason to show, so the folder note is written only when nothing else stops this job,
+          // and a folder note left from before the hold started is taken off once a folder is free again.
+          const runHeld = sourceHolds(run) || !flow.breaker.canStart(run);
+          const folderNote = `Waiting for a free work folder (${totalJobs} in use)`;
+          const fresh = host.getItem(item.id);
+          if (fresh.state === 'queued') {
+            // Starting the worker clears the note (`startItem`).
+            if (!folderFree() && !runHeld && fresh.detail !== folderNote && (!fresh.detail || fresh.detail.startsWith('Waiting for '))) {
+              store.upsertItem({ ...fresh, detail: folderNote, updatedAt: Date.now() }); explainedRuns.add(fresh.runId);
+            } else if (folderFree() && runHeld && fresh.detail?.startsWith('Waiting for a free work folder')) {
+              store.upsertItem({ ...fresh, detail: null, updatedAt: Date.now() }); explainedRuns.add(fresh.runId);
+            }
+          }
           if (!folderFree() || sourceHolds(run) || !flow.breaker.canStart(run) || (!elsewhere && !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight))) { store.waits.blocked(item.id); continue; }
           flow.breaker.started(run, item.id);
           store.waits.started(item, 'worker');

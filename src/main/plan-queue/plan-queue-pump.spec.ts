@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import { pumpPlanQueue } from './plan-queue-pump';
 import { newPlanQueueItem } from './plan-queue-state';
-import type { PlanQueueRun } from './plan-queue.types';
+import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueStore } from './plan-queue-store';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
@@ -205,6 +205,7 @@ describe('Plan Queue admission wiring', () => {
       const host = {
         store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => Array.from({ length: options.endedLandings ?? 0 }), listItems: (id: string) => items.filter(item => item.runId === id),
           listItemsWithKeptFolders: () => [], listFoldersWithDiscardedItems: () => [],
+          upsertItem: (saved: PlanQueueItem) => { Object.assign(items.find(row => row.id === saved.id)!, saved); },
           waits: options.waits ?? { blocked: () => undefined, explain: (id: string, why: string) => { waits.set(id, why); return false; }, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } },
         // As in the real flow, a held job keeps `heldAt` until its session spawns, minutes after it starts.
         flow: { startItem: async (item: { id: string }) => { starts.push(item.id); Object.assign(items.find(row => row.id === item.id)!, { state: 'preparing' }); },
@@ -239,6 +240,37 @@ describe('Plan Queue admission wiring', () => {
       expect(starts).toEqual(['a-2']);
       await pumpPlanQueue(host);
       expect(starts).toEqual(['a-2']);
+    });
+
+    it('tells a queued job why it waits, with the folders in use, and the note follows the count', async () => {
+      const { host, starts, items } = setUp(3, { a: ['working', 'working', 'queued', 'queued'] });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2']);
+      expect(items.map(item => item.detail)).toEqual([null, null, null, 'Waiting for a free work folder (3 in use)']);
+      items[0].state = 'landed';
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2', 'a-3']);
+    });
+
+    it('keeps a queued job\'s own detail when it waits for a folder', async () => {
+      const { host, items } = setUp(1, { a: ['working', 'queued'] });
+      items[1].detail = 'Needs the new settings';
+      await pumpPlanQueue(host);
+      expect(items[1].detail).toBe('Needs the new settings');
+    });
+
+    it('keeps the run-hold reason when a folder is also full, and drops a folder note once the run is held', async () => {
+      const { host, items } = setUp(1, { a: ['working', 'queued'] });
+      const breaker = host.flow.breaker as unknown as { canStart: () => boolean };
+      breaker.canStart = () => false;
+      items[1].detail = 'Waiting for the run to come off hold';
+      await pumpPlanQueue(host);
+      expect(items[1].detail).toBe('Waiting for the run to come off hold');
+      // A folder note written earlier is stale once the run is held and a folder is free.
+      items[0].state = 'landed';
+      items[1].detail = 'Waiting for a free work folder (1 in use)';
+      await pumpPlanQueue(host);
+      expect(items[1].detail).toBeNull();
     });
 
     it('does not count folders kept by set-aside jobs or by a paused run, including paused jobs whose work was done', async () => {
