@@ -13,6 +13,8 @@
 #   devapp-hold|devapp-stop <port>           the tunnel's far end; stop a copy
 #   devapp-shell <port>                      run a script from stdin beside a copy
 #   devapp-status                            list the copies here
+#   devapp-worker-start <port> <coordinator> a disposable Windows worker for the copy on <port> (token on stdin); see below
+#   devapp-worker-stop <port>                stop it and remove its folder
 #   devapp-load <port>                       how busy this machine is, and whether that port's copy is here
 #   devapp-providers                         which AI tools are installed here
 #
@@ -791,6 +793,7 @@ devapp_stop_dir() {
     done
   fi
   devapp_stop_app "$dir"
+  winworker_stop_for_copy "$dir"
   sweep_orphans "$dir/repo"
   if [ "$(cat "$dir/mode" 2>/dev/null || echo dev)" = windows ]; then
     devapp_win "$dir" remove || { echo "[dev app] the Windows folder for port ${dir##*/} could not be removed; it is left for the next start's tidy"; return 0; }
@@ -885,7 +888,7 @@ devapp_ends_at() {
 # running from the same files for the same data folder, and streams its progress until it is ready or has failed. A
 # live copy for another data folder belongs to another live test, so it is left alone. The last line is the result.
 cmd_devapp_start() {
-  local port="$1" commit="$2" mode="${3:-dev}" unlock_signing="${4:-0}" data dir other running=0 tail_pid tree joining=0
+  local port="$1" commit="$2" mode="${3:-dev}" unlock_signing="${4:-0}" data dir other running=0 tail_pid tree joining=0 worker=
   devapp_port_ok "$port" || { echo 'remote-run.sh: the debugging port must be a number from 1024 to 65535' >&2; exit 4; }
   case "$commit" in '' | *[!0-9a-f]*) echo 'remote-run.sh: not a commit' >&2; exit 4 ;; esac
   case "$mode" in dev | packaged | windows) ;; *) echo 'remote-run.sh: invalid copy mode' >&2; exit 4 ;; esac
@@ -913,7 +916,8 @@ cmd_devapp_start() {
     fi
     if [ "$(cat "$dir/tree" 2>/dev/null)" = "$tree" ]; then
       joining=1
-      echo "[dev app] joining the copy already on port $port; it stops by itself at $(devapp_ends_at "$dir")"
+      [ -f "$dir/winworker" ] && worker=', with a disposable Windows worker'
+      echo "[dev app] joining the copy already on port $port; it stops by itself at $(devapp_ends_at "$dir")$worker"
     else
       devapp_stop_dir "$dir"
     fi
@@ -985,6 +989,7 @@ devapp_fail() {
 devapp_job_end() {
   trap - TERM
   devapp_stop_app "$DEVAPP_DIR"
+  winworker_stop_for_copy "$DEVAPP_DIR"
   [ "$(devapp_state "$DEVAPP_DIR")" = failed ] || echo stopped > "$DEVAPP_DIR/state"
   kill -TERM -- "-$$" 2>/dev/null
 }
@@ -1387,18 +1392,300 @@ cmd_devapp_providers() {
 }
 
 cmd_devapp_status() {
-  local dir port found=0
+  local dir port worker found=0
   for dir in "$DEVAPPS"/apps/*; do
     [ -d "$dir" ] || continue
     found=1
     port="${dir##*/}"
     if devapp_alive "$dir"; then
-      echo "port $port: $(devapp_state "$dir"), data in $(cat "$dir/data" 2>/dev/null), stops by itself at $(devapp_ends_at "$dir")"
+      worker=
+      [ -f "$dir/winworker" ] && worker=', with a disposable Windows worker'
+      echo "port $port: $(devapp_state "$dir"), data in $(cat "$dir/data" 2>/dev/null), stops by itself at $(devapp_ends_at "$dir")$worker"
     else
       echo "port $port: $(devapp_state "$dir") ($(cat "$dir/reason" 2>/dev/null || echo 'not running'))"
     fi
   done
   [ "$found" = 1 ] || echo 'no Harness copies here'
+}
+
+# ---- A disposable Windows worker for a copy (dev-app.js worker-start) --------------------------------------------------
+# The PC's Linux space can start Windows programs as the Windows user, by their full path (its PATH leaves them out). A
+# check of the Windows paths a worker uses (LT-SC-7) needs a worker that is really Windows, joined to a copy's own
+# coordinator and thrown away afterwards; this makes one. The worker is a copy of the installed worker's files under a
+# folder of its own in Windows's temp folder, with its own home (the .aio-worker-home marker), config and logs, a fresh
+# node id and one workspace folder. Nothing of the installed worker is changed: its native modules are copied, not
+# shared, so a copy that has them loaded can never block its updates. It lives and dies with the copy it was made for.
+# AIO_WINDOWS_MOUNT is where WSL mounts Windows's drives; only the tests set it, to a folder standing in for them.
+WINDOWS_MOUNT="${AIO_WINDOWS_MOUNT:-/mnt}"
+WINDOWS_POWERSHELL="$WINDOWS_MOUNT/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+WINWORKER_PRODUCTION_COORDINATOR_PORT=4878
+# The longest a worker start may run here before it is cut off and removed; the Mac side waits longer (WORKER_LIMIT_MS).
+WINWORKER_START_SECONDS="${AIO_WINWORKER_START_SECONDS:-240}"
+
+# The Windows side's script, sent whole to PowerShell as a file in Windows's temp folder. It sits in a single-quoted
+# string here, so it can hold no single quote.
+WINWORKER_PS='
+param([string]$Action, [int]$Port, [int]$CoordinatorPort)
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$root = Join-Path ([IO.Path]::GetTempPath()) "aio-lt-winworker-$Port"
+$prefix = "AIO_WINWORKER_RESULT "
+function Say($result) { Write-Output ($prefix + ($result | ConvertTo-Json -Compress)) }
+# Only processes that run something in this fixture are touched: node.exe (and the cmd.exe that started it) with the folder in its command line.
+function OwnProcesses {
+  $mark = $root + "\"
+  @(Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -eq "node.exe" -or $_.Name -eq "cmd.exe") -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($mark, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+}
+function Stop-Fixture {
+  # The node id is read before the folder goes: the copy keeps a record of the worker that signed in, which its owner must revoke.
+  $nodeId = $null
+  try { $nodeId = (Get-Content -Raw -LiteralPath "$root\home\worker-node.json" -ErrorAction Stop | ConvertFrom-Json).nodeId } catch { $nodeId = $null }
+  # taskkill complains about a process that has already gone (its parent took it down first); that is not a failure, and
+  # to PowerShell its message is an error that would end this script. What counts is the check below.
+  foreach ($p in OwnProcesses) { try { & taskkill.exe /PID $p.ProcessId /T /F 2>&1 | Out-Null } catch { $null = $_ } }
+  $deadline = (Get-Date).AddSeconds(15)
+  while ((OwnProcesses).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+  $processGone = (OwnProcesses).Count -eq 0
+  for ($try = 0; $try -lt 10 -and (Test-Path -LiteralPath $root); $try++) {
+    try { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop } catch { Start-Sleep -Milliseconds 500 }
+  }
+  [pscustomobject]@{ processGone = $processGone; folderGone = -not (Test-Path -LiteralPath $root); nodeId = $nodeId }
+}
+function Fail($reason) {
+  $gone = Stop-Fixture
+  Say ([ordered]@{ status = "failed"; reason = $reason; processGone = $gone.processGone; folderGone = $gone.folderGone; nodeId = $gone.nodeId })
+  exit 0
+}
+if ($Action -eq "stop") {
+  $gone = Stop-Fixture
+  Say ([ordered]@{ status = "stopped"; processGone = $gone.processGone; folderGone = $gone.folderGone; nodeId = $gone.nodeId })
+  exit 0
+}
+if ($Action -ne "start") { Say ([ordered]@{ status = "failed"; reason = "unknown action" }); exit 0 }
+if (-not $env:AIO_WORKER_TOKEN) { Say ([ordered]@{ status = "failed"; reason = "no pairing token reached Windows" }); exit 0 }
+
+# The fixture already running for this coordinator and registered is joined; anything else of ours is replaced.
+$config = Join-Path $root "home\worker-node.json"
+if ((OwnProcesses).Count -gt 0 -and (Test-Path -LiteralPath $config)) {
+  $existing = Get-Content -Raw -LiteralPath $config | ConvertFrom-Json
+  $registered = (Test-Path -LiteralPath "$root\worker.out") -and (Select-String -Path "$root\worker.out" -Pattern "Registration accepted" -Quiet)
+  if ($registered -and $existing.coordinatorUrl -eq "ws://127.0.0.1:$CoordinatorPort") {
+    Say ([ordered]@{ status = "ready"; joined = $true; nodeId = $existing.nodeId; name = $existing.name; folder = $root; workspace = "$root\work" })
+    exit 0
+  }
+}
+$null = Stop-Fixture
+
+$task = Get-ScheduledTask -TaskName "AI Orchestrator Worker" -ErrorAction SilentlyContinue
+$installed = if ($task) { ($task.Actions | Select-Object -First 1).WorkingDirectory } else { $null }
+if (-not $installed -or -not (Test-Path -LiteralPath "$installed\dist\worker-agent\index.js")) { Fail "the installed Windows worker was not found" }
+# What the bundle loads from node_modules (build-worker-agent.ts), and what those need. Outside Harness the electron
+# package only gives the path of its program, so a stand-in saying the same stays small and starts no download.
+$modules = [ordered]@{ "better-sqlite3" = @("deps", "src"); "node-pty" = @(); "bindings" = @(); "file-uri-to-path" = @() }
+foreach ($module in $modules.Keys) {
+  if (-not (Test-Path -LiteralPath "$installed\node_modules\$module")) { Fail "the installed worker has no $module to copy" }
+}
+$node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+if (-not $node) { Fail "Node is not installed on Windows" }
+
+$null = New-Item -ItemType Directory -Force -Path "$root\home", "$root\work", "$root\dist\worker-agent", "$root\node_modules"
+function Copy-Tree($from, $to, $skip) {
+  if ($skip.Count -gt 0) { & robocopy.exe $from $to /E /NFL /NDL /NJH /NJS /NP /XD $skip | Out-Null }
+  else { & robocopy.exe $from $to /E /NFL /NDL /NJH /NJS /NP | Out-Null }
+  if ($LASTEXITCODE -ge 8) { Fail "copying $from failed" }
+}
+Copy-Tree "$installed\dist\worker-agent" "$root\dist\worker-agent" @()
+Remove-Item -LiteralPath "$root\dist\worker-agent\index.prev.js" -Force -ErrorAction SilentlyContinue
+foreach ($module in $modules.Keys) { Copy-Tree "$installed\node_modules\$module" "$root\node_modules\$module" $modules[$module] }
+
+$utf8 = New-Object Text.UTF8Encoding $false
+$null = New-Item -ItemType Directory -Force -Path "$root\node_modules\electron"
+[IO.File]::WriteAllText("$root\node_modules\electron\package.json", "{`"name`":`"electron`",`"version`":`"0.0.0`",`"main`":`"index.js`"}", $utf8)
+[IO.File]::WriteAllText("$root\node_modules\electron\index.js", "module.exports = " + ("$installed\node_modules\electron\dist\electron.exe" | ConvertTo-Json) + ";", $utf8)
+[IO.File]::WriteAllText("$root\.aio-worker-home", "$root\home", $utf8)
+$nodeId = [guid]::NewGuid().ToString()
+# Room for a forced parent session plus its side chat and a spare: with one slot the side chat is refused as "at capacity".
+$settings = [ordered]@{
+  nodeId = $nodeId; name = "lt-disposable-windows-worker"; coordinatorUrl = "ws://127.0.0.1:$CoordinatorPort"; namespace = "default"
+  maxConcurrentInstances = 4; workingDirectories = @("$root\work"); reconnectIntervalMs = 5000; heartbeatIntervalMs = 10000
+  fileTransfer = @{ enabled = $false }; autoUpdate = @{ enabled = $false }
+}
+[IO.File]::WriteAllText($config, ($settings | ConvertTo-Json -Depth 5), $utf8)
+
+$probe = New-Object Net.Sockets.TcpClient
+$connecting = $probe.BeginConnect("127.0.0.1", $CoordinatorPort, $null, $null)
+$reachable = $connecting.AsyncWaitHandle.WaitOne(3000) -and $probe.Connected
+$probe.Close()
+if (-not $reachable) { Fail "Windows cannot reach the coordinator on port $CoordinatorPort" }
+
+$entry = "$root\dist\worker-agent\index.js"
+# A native program writing to stderr is an error to PowerShell while it is set to stop; here the text is wanted.
+$ErrorActionPreference = "Continue"
+$check = & $node $entry --self-check --config $config 2>&1 | Out-String
+$checkCode = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($checkCode -ne 0) { Fail ("the copied worker did not pass its own check: " + (($check -replace "\s+", " ").Trim() | Select-Object -First 1).Substring(0, [Math]::Min(500, $check.Length))) }
+# Started through cmd.exe without any redirection of its own, which makes Windows start it by shell execution: it then
+# takes no handles from this script. A worker started with redirected output keeps the pipe to WSL open, so the caller
+# waits for the worker to end (it waited out the whole start bound). The environment, token included, is still passed on.
+$workerLine = "`"$node`" `"$entry`" --config `"$config`" > `"$root\worker.out`" 2> `"$root\worker.err`""
+$process = Start-Process -FilePath "cmd.exe" -ArgumentList @("/d", "/s", "/c", "`"$workerLine`"") -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$deadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt $deadline) {
+  if ($process.HasExited) { break }
+  if ((Test-Path -LiteralPath "$root\worker.out") -and (Select-String -Path "$root\worker.out" -Pattern "Registration accepted" -Quiet -ErrorAction SilentlyContinue)) {
+    Say ([ordered]@{ status = "ready"; joined = $false; nodeId = $nodeId; name = $settings.name; folder = $root; workspace = "$root\work"; pid = $process.Id })
+    exit 0
+  }
+  Start-Sleep -Milliseconds 500
+}
+$tail = (Get-Content -Tail 4 -LiteralPath "$root\worker.out", "$root\worker.err" -ErrorAction SilentlyContinue) -join " | "
+if ($tail.Length -gt 600) { $tail = $tail.Substring($tail.Length - 600) }
+Fail ("the worker did not register with the coordinator: " + $tail)
+'
+
+# Runs the Windows script for one action and prints its result as this file's own result line. The token reaches Windows
+# only as an environment variable (WSLENV), never in a command line or a file.
+winworker_ps() {
+  local action="$1" port="$2" coordinator="${3:-0}" temp temp_here script out line
+  cd "$WINDOWS_MOUNT/c" 2>/dev/null || true
+  temp="$("$WINDOWS_POWERSHELL" -NoProfile -NonInteractive -Command '[IO.Path]::GetTempPath()' 2>/dev/null < /dev/null | tr -d '\r')"
+  case "$temp" in [A-Za-z]:\\*) ;; *) devapp_result failed 'Windows did not say where its temp folder is'; return 0 ;; esac
+  # C:\Users\me\Temp\ is /mnt/c/Users/me/Temp/ here.
+  temp_here="$WINDOWS_MOUNT/$(printf '%s' "${temp:0:1}" | tr '[:upper:]' '[:lower:]')/$(printf '%s' "${temp:3}" | tr '\\' '/')"
+  [ -n "$temp_here" ] && [ -d "$temp_here" ] || { devapp_result failed 'the Windows temp folder is not reachable from here'; return 0; }
+  script="aio-lt-winworker-$port.ps1"
+  printf '%s\n' "$WINWORKER_PS" > "$temp_here/$script"
+  out="$("$WINDOWS_POWERSHELL" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$temp$script" \
+    -Action "$action" -Port "$port" -CoordinatorPort "$coordinator" 2>&1 < /dev/null | tr -d '\r')"
+  rm -f -- "$temp_here/$script"
+  line="$(printf '%s\n' "$out" | grep '^AIO_WINWORKER_RESULT ' | tail -n 1)"
+  if [ -n "$line" ]; then
+    printf '%s%s\n' "$RESULT_PREFIX" "${line#AIO_WINWORKER_RESULT }"
+  else
+    # What Windows said, cut to plain characters so it can sit in the answer's text.
+    line="$(printf '%s' "$out" | tr '\n' ' ' | tr -cd 'A-Za-z0-9 .:_/-' | cut -c1-200)"
+    devapp_result failed "the Windows side gave no answer${line:+: $line}"
+  fi
+}
+
+# Whether this computer has a Windows side to run a worker on.
+winworker_available() { [ -x "$WINDOWS_POWERSHELL" ]; }
+
+# Removes a copy's Windows worker as the copy goes, if it made one. Says so plainly when that could not be confirmed.
+winworker_stop_for_copy() {
+  local dir="$1" result
+  rm -f -- "$DEVAPPS/winworker-${dir##*/}.node"
+  [ -f "$dir/winworker" ] || return 0
+  if ! winworker_available; then
+    echo "the disposable Windows worker could not be stopped: there is no Windows side here"
+    return 0
+  fi
+  result="$(winworker_ps stop "${dir##*/}")"
+  case "$result" in
+    *'"processGone":true'*'"folderGone":true'*) echo "stopped the disposable Windows worker for the copy on port ${dir##*/}" ;;
+    *) echo "the disposable Windows worker for the copy on port ${dir##*/} could not be confirmed stopped: $result" ;;
+  esac
+}
+
+# devapp-worker-do <action> <port> [coordinator port]: the part of start and stop that runs under the lock. The worker's
+# node id is kept in a file beside the lock, because the fixture folder that holds it is removed with the worker: a start
+# that was cut off after the worker signed in is cleaned up here with nobody listening, and the later stop must still be
+# able to say which node the copy has to revoke.
+cmd_devapp_worker_do() {
+  local action="${1:-}" port="${2:-}" result id file
+  file="$DEVAPPS/winworker-$port.node"
+  result="$(winworker_ps "$@")"
+  id="$(printf '%s' "$result" | sed -n 's/.*"nodeId":"\([0-9a-fA-F-]*\)".*/\1/p')"
+  if [ -n "$id" ]; then
+    printf '%s\n' "$id" > "$file"
+  elif [ "$action" = stop ] && [ -s "$file" ]; then
+    result="$(printf '%s' "$result" | sed "s/\"nodeId\":null/\"nodeId\":\"$(cat "$file")\"/")"
+  fi
+  printf '%s\n' "$result"
+}
+
+# devapp-worker-start <port> <coordinator port>, with the pairing token on stdin (one line). The copy on <port> must be
+# running here, and the coordinator is always this computer's own 127.0.0.1 (the installed Harness's port is refused).
+cmd_devapp_worker_start() {
+  local port="${1:-}" coordinator="${2:-}" token dir code
+  { devapp_port_ok "$port" && devapp_port_ok "$coordinator"; } || { echo 'remote-run.sh: the ports must be numbers from 1024 to 65535' >&2; exit 4; }
+  [ "$coordinator" != "$WINWORKER_PRODUCTION_COORDINATOR_PORT" ] || { echo "remote-run.sh: port $WINWORKER_PRODUCTION_COORDINATOR_PORT is the installed Harness's own" >&2; exit 4; }
+  IFS= read -r token
+  case "$token" in '' | *[[:space:][:cntrl:]]*) echo 'remote-run.sh: the pairing token must be one word' >&2; exit 4 ;; esac
+  [ "${#token}" -le 4096 ] || { echo 'remote-run.sh: the pairing token is too long' >&2; exit 4; }
+  dir="$(devapp_dir "$port")"
+  if ! { devapp_alive "$dir" && [ "$(devapp_state "$dir")" = ready ]; }; then
+    devapp_result failed 'there is no running Harness copy on that debugging port here'
+    return 0
+  fi
+  winworker_available || { devapp_result failed 'this computer has no Windows side to run a worker on'; return 0; }
+  mkdir -p "$DEVAPPS"
+  # Marked before anything is made, so a start cut off part-way is still cleaned up when the copy stops.
+  echo "$coordinator" > "$dir/winworker"
+  export AIO_WORKER_TOKEN="$token"
+  export WSLENV="AIO_WORKER_TOKEN${WSLENV:+:$WSLENV}"
+  unset token
+  winworker_start_guarded "$port" "$coordinator"
+  return 0
+}
+
+# Ends a process and what it started (the lock helper starts the real command as its child on Linux), so the lock is
+# released and nothing carries on after the clean-up has run.
+winworker_kill_tree() {
+  local pid="$1" kid kids
+  # The parent first, frozen so it can start nothing more and cannot print an answer of its own when its child dies.
+  kill -STOP "$pid" 2>/dev/null
+  kids="$(pgrep -P "$pid" 2>/dev/null)"
+  kill "$pid" 2>/dev/null
+  kill -CONT "$pid" 2>/dev/null
+  for kid in $kids; do winworker_kill_tree "$kid"; done
+  return 0
+}
+
+# Runs the start under the lock with its clean-up attached. A start that is cut off (the connection ends, or this
+# script is told to stop) or runs past its bound is undone here, not left for the copy's own stop hours later: the
+# worker process and folder are removed under the same lock and the mark is dropped once that is confirmed.
+winworker_start_guarded() {
+  local port="$1" coordinator="$2" child watchdog code cut=0 result
+  trap 'cut=1; winworker_kill_tree "$child"' HUP INT TERM PIPE
+  with_lock "$DEVAPPS/winworker-$port.lock" bash "$SELF" devapp-worker-do start "$port" "$coordinator" &
+  child=$!
+  # The bound is met by telling this shell, so the one trap above ends the start and finishes before anything else goes on.
+  ( sleep "$WINWORKER_START_SECONDS"; kill -TERM "$$" ) >/dev/null 2>&1 &
+  watchdog=$!
+  wait "$child"
+  code=$?
+  # A trapped signal ends the first wait early; wait again so the start's lock is released before the clean-up asks for it.
+  while kill -0 "$child" 2>/dev/null; do wait "$child"; code=$?; done
+  winworker_kill_tree "$watchdog"
+  trap - HUP INT TERM PIPE
+  if [ "$cut" = 1 ] || [ "$code" -ge 128 ]; then
+    result="$(with_lock "$DEVAPPS/winworker-$port.lock" bash "$SELF" devapp-worker-do stop "$port")"
+    case "$result" in
+      *'"processGone":true'*'"folderGone":true'*)
+        rm -f -- "$(devapp_dir "$port")/winworker"
+        devapp_result failed "the worker's start was cut off or ran too long, so it was removed again (cleanup confirmed)" ;;
+      *) devapp_result failed "the worker's start was cut off or ran too long, and its clean-up could not be confirmed: run worker-stop" ;;
+    esac
+    return 0
+  fi
+  [ "$code" -ne "$BUSY" ] || devapp_result busy 'another start or stop of that worker is running'
+}
+
+# devapp-worker-stop <port>: stops that port's Windows worker and removes its folder. It only ever touches the fixture
+# folder named for the port, so it is safe to run when nothing is there, or after the copy has gone.
+cmd_devapp_worker_stop() {
+  local port="${1:-}" dir code
+  devapp_port_ok "$port" || exit 4
+  dir="$(devapp_dir "$port")"
+  winworker_available || { devapp_result none 'this computer has no Windows side, so there is nothing to stop'; return 0; }
+  mkdir -p "$DEVAPPS"
+  with_lock "$DEVAPPS/winworker-$port.lock" bash "$SELF" devapp-worker-do stop "$port"
+  code=$?
+  [ "$code" -ne "$BUSY" ] || { devapp_result busy 'another start or stop of that worker is running'; return 0; }
+  rm -f -- "$dir/winworker"
 }
 
 # Refused before anything is stored: a name the recipes don't know never gets a folder here.
@@ -1429,6 +1716,9 @@ case "$command_name" in
   devapp-stop) cmd_devapp_stop "$@" ;;
   devapp-status) cmd_devapp_status ;;
   devapp-load) cmd_devapp_load "$@" ;;
+  devapp-worker-start) cmd_devapp_worker_start "$@" ;;
+  devapp-worker-do) cmd_devapp_worker_do "$@" ;;
+  devapp-worker-stop) cmd_devapp_worker_stop "$@" ;;
   devapp-providers) cmd_devapp_providers ;;
-  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load|devapp-providers" >&2; exit 2 ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load|devapp-providers|devapp-worker-start|devapp-worker-stop" >&2; exit 2 ;;
 esac

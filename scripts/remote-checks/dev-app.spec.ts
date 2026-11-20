@@ -6,17 +6,19 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
+import { WebSocketServer } from 'ws';
+import { createServer as createHttpServer, type Server } from 'node:http';
 
 const require = createRequire(import.meta.url);
 interface Load { load: number; cores: number; copies: number; limit: number }
-const { main, parse, readSigningPassword } = require('./dev-app.js') as {
-  readSigningPassword(input: Readable & { isTTY?: boolean }, timeoutMs?: number): Promise<Buffer>;
+const { main, parse, readSecretPipe } = require('./dev-app.js') as {
+  readSecretPipe(input: Readable & { isTTY?: boolean }, timeoutMs?: number, what?: string): Promise<Buffer>;
   main(argv: string[], options: {
     cwd?: string; env?: NodeJS.ProcessEnv; write?: (text: string) => void; commonDir?: string;
-    answers?: (port: number, waitMs?: number) => Promise<boolean>; localLoad?: () => Load;
+    answers?: (port: number, waitMs?: number) => Promise<boolean>; localLoad?: () => Load; secretInput?: Readable & { isTTY?: boolean };
     evaluate?: (port: number, expression: string) => Promise<unknown>;
   }): Promise<number>;
-  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; needs: string[]; checkedTree: string | null } };
+  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; needs: string[]; checkedTree: string | null; pcOnly: boolean; coordinatorPort: number | null } };
 };
 
 const LIMIT = 60_000;
@@ -75,6 +77,26 @@ case "$cmd" in
       taken) echo 'AIO_REMOTE_RESULT {"status":"taken","reason":"another live test already has a Harness copy on that debugging port"}' ;;
       lost) exit 255 ;;
       *) echo 'AIO_REMOTE_RESULT {"status":"ready","reason":""}' ;;
+    esac
+    ;;
+  # The worker's answers come from worker-scenario, apart from the copy's. The token is read from stdin, as the real one is.
+  *' devapp-worker-start '*)
+    cat > "$FAKE_DIR/worker-token"
+    worker="$(cat "$FAKE_DIR/worker-scenario" 2>/dev/null || echo pass)"
+    case "$worker" in
+      lost | lost-unclean | lost-busy) exit 255 ;;
+      fails) echo 'AIO_REMOTE_RESULT {"status":"failed","reason":"the worker did not register with the coordinator","processGone":true,"folderGone":true,"nodeId":"11111111-2222-4333-8444-555555555555"}' ;;
+      fails-unclean) echo 'AIO_REMOTE_RESULT {"status":"failed","reason":"the worker did not register with the coordinator","processGone":false,"folderGone":true}' ;;
+      *) echo 'AIO_REMOTE_RESULT {"status":"ready","joined":false,"nodeId":"11111111-2222-4333-8444-555555555555","name":"lt-disposable-windows-worker","folder":"C:\\Temp\\aio-lt-winworker-9","workspace":"C:\\Temp\\aio-lt-winworker-9\\work","pid":42}' ;;
+    esac
+    ;;
+  *' devapp-worker-stop '*)
+    worker="$(cat "$FAKE_DIR/worker-scenario" 2>/dev/null || echo pass)"
+    case "$worker" in
+      lost-busy) if [ -e "$FAKE_DIR/busy-seen" ]; then echo 'AIO_REMOTE_RESULT {"status":"stopped","processGone":true,"folderGone":true,"nodeId":null}'
+                 else touch "$FAKE_DIR/busy-seen"; echo 'AIO_REMOTE_RESULT {"status":"busy","reason":"another start or stop of that worker is running"}'; fi ;;
+      unclean | lost-unclean) echo 'AIO_REMOTE_RESULT {"status":"stopped","processGone":false,"folderGone":true,"nodeId":"11111111-2222-4333-8444-555555555555"}' ;;
+      *) echo 'AIO_REMOTE_RESULT {"status":"stopped","processGone":true,"folderGone":true,"nodeId":"11111111-2222-4333-8444-555555555555"}' ;;
     esac
     ;;
   # A real tunnel lasts as long as the copy; this one lasts until the test ends it.
@@ -148,11 +170,13 @@ function setUp(config: Record<string, unknown> | null = {}, { pc = false, liveTe
 type Setup = ReturnType<typeof setUp>;
 
 async function run(setup: Setup, argv: string[], {
-  scenario = 'pass', cwd = setup.root, answers = true, here = QUIET, localLoad = () => here,
+  scenario = 'pass', cwd = setup.root, answers = true, here = QUIET, localLoad = () => here, workerScenario = 'pass',
+  secretInput = undefined as (Readable & { isTTY?: boolean }) | undefined,
   onWrite = (_text: string) => { /* optional scheduler observation */ },
   evaluate = async (_port: number, _expression: string): Promise<unknown> => 'Win32',
 } = {}) {
   writeFileSync(join(setup.fake, 'scenario'), scenario);
+  writeFileSync(join(setup.fake, 'worker-scenario'), workerScenario);
   let output = '';
   const code = await main(argv, {
     cwd,
@@ -161,6 +185,7 @@ async function run(setup: Setup, argv: string[], {
     commonDir: join(setup.root, '.git'),
     answers: async () => answers,
     localLoad,
+    ...(secretInput ? { secretInput } : {}),
     evaluate,
   });
   const sshLog = existsSync(join(setup.fake, 'ssh.log')) ? readFileSync(join(setup.fake, 'ssh.log'), 'utf8') : '';
@@ -200,13 +225,13 @@ describe('dev-app arguments', () => {
   });
   it('only accepts bounded noninteractive signing input for explicit packaged launches', async () => {
     expect(() => parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--signing-password-stdin'])).toThrow(/packaged/);
-    await expect(readSigningPassword(Object.assign(Readable.from([]), { isTTY: true }))).rejects.toThrow(/secure pipe/);
+    await expect(readSecretPipe(Object.assign(Readable.from([]), { isTTY: true }))).rejects.toThrow(/secure pipe/);
     for (const input of ['', 'x'.repeat(4097), 'placeholder']) {
-      const read = readSigningPassword(Readable.from([Buffer.from(input)]));
+      const read = readSecretPipe(Readable.from([Buffer.from(input)]));
       if (input === 'placeholder') expect((await read).toString()).toBe('placeholder');
       else await expect(read).rejects.toThrow(/1 to 4096/);
     }
-    await expect(readSigningPassword(new Readable({ read() { /* no bytes */ } }), 10)).rejects.toThrow(/timed out/);
+    await expect(readSecretPipe(new Readable({ read() { /* no bytes */ } }), 10)).rejects.toThrow(/timed out/);
   });
   it('accepts an explicit package and a checked snapshot, refusing malformed tree identities', () => {
     expect(parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--packaged', '--checked-tree', 'a'.repeat(40)]).options)
@@ -872,6 +897,216 @@ describe('dev-app stop', () => {
   }, LIMIT);
 });
 
+describe('dev-app Windows worker', () => {
+  const TOKEN = 'placeholder-pairing-token';
+  const WORKER_ID = '11111111-2222-4333-8444-555555555555';
+  const worker = (setup: Setup, port: number, scenario = 'pass') => run(setup, ['worker-start', '--port', String(port), '--coordinator-port', '49791'], {
+    workerScenario: scenario, secretInput: Readable.from([Buffer.from(`${TOKEN}\n`)]),
+  });
+  /** A copy started on the PC, as a Windows check would. */
+  async function copyOnPc() {
+    const setup = setUp({}, { pc: true });
+    const port = await freePort();
+    expect((await run(setup, ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec', '--pc'])).code).toBe(0);
+    return { setup, port };
+  }
+
+  it('takes a coordinator port that is not the installed Harness\'s, and options only where they belong', () => {
+    expect(parse(['worker-start', '--port', '9444', '--coordinator-port', '49791']).options).toMatchObject({ coordinatorPort: 49791 });
+    expect(() => parse(['worker-start', '--port', '9444'])).toThrow(/needs --coordinator-port/);
+    expect(() => parse(['worker-start', '--port', '9444', '--coordinator-port', '4878'])).toThrow(/installed Harness's own/);
+    expect(() => parse(['worker-start', '--port', '9444', '--coordinator-port', '80'])).toThrow(/1024 to 65535/);
+    expect(() => parse(['worker-stop', '--port', '9444', '--coordinator-port', '49791'])).toThrow(/doesn't take/);
+    expect(() => parse(['stop', '--port', '9444', '--pc'])).toThrow(/doesn't take --pc/);
+    expect(parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-owned', '--pc']).options.pcOnly).toBe(true);
+    expect(() => parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-owned', '--pc', '--mac'])).toThrow(/cannot be used together/);
+    expect(() => parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-owned', '--pc', '--packaged'])).toThrow(/needs a Mac/);
+  });
+
+  it('starts a copy only on the PC with --pc, though the test Mac is free and first in the order', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--pc']);
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(sshLog).toMatch(/^pc: .* devapp-start /m);
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+  }, LIMIT);
+
+  it('waits for the PC rather than using this Mac or the test Mac when the PC is busy', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'pc', LOADED, QUIET);
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--pc'], {
+      localLoad: () => { throw new Error('--pc must not inspect this Mac'); },
+    });
+    expect(code).toBe(0);
+    expect(output).toContain('waiting for a remote computer that can run this copy');
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+  }, LIMIT);
+
+  it('starts a worker for the copy, sending the token on stdin only, and reports a receipt', async () => {
+    const { setup, port } = await copyOnPc();
+    const { code, output, sshLog } = await worker(setup, port);
+    expect(code).toBe(0);
+    expect(readFileSync(join(setup.fake, 'worker-token'), 'utf8')).toBe(`${TOKEN}\n`);
+    expect(sshLog).toMatch(new RegExp(`^pc: .* devapp-worker-start ${port} 49791$`, 'm'));
+    expect(sshLog).not.toContain(TOKEN);
+    expect(output).not.toContain(TOKEN);
+    const receipt = /^AIO_DEV_APP_WORKER_RECEIPT (.*)$/m.exec(output)?.[1];
+    expect(JSON.parse(receipt!)).toMatchObject({ computer: 'windows-pc', port, joined: false, nodeId: WORKER_ID, name: 'lt-disposable-windows-worker' });
+    expect(output).toContain('C:\\Temp\\aio-lt-winworker-9\\work');
+  }, LIMIT);
+
+  it('refuses a copy that is on a Mac, sending nothing', async () => {
+    const setup = setUp({}, { pc: true });
+    const port = await freePort();
+    expect((await run(setup, ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec', '--mac'])).code).toBe(0);
+    const { code, output, sshLog } = await worker(setup, port);
+    expect(code).toBe(1);
+    expect(output).toContain('which has no Windows side');
+    expect(sshLog).not.toContain('devapp-worker-start');
+  }, LIMIT);
+
+  it('refuses when no copy is running on that port, and never reads the token', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output, sshLog } = await worker(setup, await freePort());
+    expect(code).toBe(1);
+    expect(output).toContain('start the copy with --pc first');
+    expect(sshLog).not.toContain('devapp-worker-start');
+  }, LIMIT);
+
+  it('refuses a token that is not piped in or is empty', async () => {
+    const { setup, port } = await copyOnPc();
+    const args = ['worker-start', '--port', String(port), '--coordinator-port', '49791'];
+    expect((await run(setup, args, { secretInput: Object.assign(Readable.from([]), { isTTY: true }) })).code).toBe(2);
+    const empty = await run(setup, args, { secretInput: Readable.from([]) });
+    expect(empty.code).toBe(2);
+    expect(empty.output).toContain('The pairing token pipe must contain 1 to 4096 bytes');
+    expect(empty.sshLog).not.toContain('devapp-worker-start');
+  }, LIMIT);
+
+  it('says why a worker did not start, and when its clean-up could not be confirmed', async () => {
+    const { setup, port } = await copyOnPc();
+    const failed = await worker(setup, port, 'fails');
+    expect(failed.code).toBe(1);
+    expect(failed.output).toContain('the worker did not register with the coordinator');
+    expect(failed.output).not.toContain('clean-up could not be confirmed');
+    const unclean = await worker(setup, port, 'fails-unclean');
+    expect(unclean.code).toBe(1);
+    expect(unclean.output).toContain('clean-up could not be confirmed: run worker-stop');
+  }, LIMIT);
+
+  it('asks for the clean-up itself when a start gives no answer, and says if that could not be confirmed', async () => {
+    const { setup, port } = await copyOnPc();
+    const lost = await worker(setup, port, 'lost');
+    expect(lost.code).toBe(1);
+    expect(lost.output).toContain('What it left was removed');
+    expect(lost.sshLog).toMatch(new RegExp(`^pc: .* devapp-worker-start ${port} 49791$[\\s\\S]*^pc: .* devapp-worker-stop ${port}$`, 'm'));
+    const unclean = await worker(setup, port, 'lost-unclean');
+    expect(unclean.code).toBe(1);
+    expect(unclean.output).toContain(`Its clean-up could not be confirmed: run worker-stop --port ${port}`);
+  }, LIMIT);
+
+  it('asks again for the clean-up while the far side is still undoing the cut-off start', async () => {
+    const { setup, port } = await copyOnPc();
+    const lost = await worker(setup, port, 'lost-busy');
+    expect(lost.code).toBe(1);
+    expect(lost.output).toContain('What it left was removed');
+    expect(lost.sshLog.match(/devapp-worker-stop/g)).toHaveLength(2);
+  }, LIMIT);
+
+  it('stops the worker and says both its process and folder are gone', async () => {
+    const { setup, port } = await copyOnPc();
+    const stopped = await run(setup, ['worker-stop', '--port', String(port)]);
+    expect(stopped.code).toBe(0);
+    expect(stopped.output).toContain('stopped and its folder removed');
+    expect(JSON.parse(/^AIO_DEV_APP_WORKER_RECEIPT (.*)$/m.exec(stopped.output)![1]!)).toMatchObject({ status: 'stopped', processGone: true, folderGone: true });
+    const unclean = await run(setup, ['worker-stop', '--port', String(port)], { workerScenario: 'unclean' });
+    expect(unclean.code).toBe(1);
+    expect(unclean.output).toContain('could not be confirmed gone');
+  }, LIMIT);
+
+  /**
+   * Stands in for the copy's debugging port: lists one page and answers Runtime.evaluate the way the copy would, saying
+   * whether the revoked node is still listed (`listed`) or that the revoke was refused (`refuse`).
+   */
+  async function fakeCopy(port: number, { listed = false, refuse = false } = {}) {
+    const expressions: string[] = [];
+    const server: Server = createHttpServer((request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(request.url === '/json/list' ? JSON.stringify([{ type: 'page', id: 'page-1', url: 'http://127.0.0.1/' }]) : '{}');
+    });
+    const sockets = new WebSocketServer({ server });
+    sockets.on('connection', (socket) => {
+      socket.on('message', (data) => {
+        const { id, params } = JSON.parse(String(data)) as { id: number; params: { expression: string } };
+        expressions.push(params.expression);
+        const value = refuse ? { error: 'the copy refused the revoke' } : { listed };
+        socket.send(JSON.stringify({ id, result: { result: { type: 'object', value } } }));
+      });
+    });
+    await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
+    teardown.push(() => new Promise<void>((resolve) => { sockets.close(); server.closeAllConnections(); server.close(() => resolve()); }));
+    return expressions;
+  }
+  const teardown: (() => Promise<void>)[] = [];
+  afterEach(async () => { await Promise.all(teardown.splice(0).map(close => close())); });
+
+  it('revokes the stopped worker\'s node in the copy, so the copy no longer lists it', async () => {
+    const { setup, port } = await copyOnPc();
+    const expressions = await fakeCopy(port);
+    const stopped = await run(setup, ['worker-stop', '--port', String(port)]);
+    expect(stopped.code).toBe(0);
+    expect(expressions).toHaveLength(1);
+    expect(expressions[0]).toContain(`remoteNodeRevokeNode("${WORKER_ID}")`);
+    expect(expressions[0]).toContain('remoteNodeList()');
+    expect(stopped.output).toContain(`the worker's node ${WORKER_ID} was revoked in the copy and is no longer listed`);
+    expect(JSON.parse(/^AIO_DEV_APP_WORKER_RECEIPT (.*)$/m.exec(stopped.output)![1]!)).toMatchObject({ status: 'stopped', nodeId: WORKER_ID, nodeRevoked: true });
+  }, LIMIT);
+
+  it('fails the stop when the copy answers but the node is still listed or the revoke was refused', async () => {
+    const { setup, port } = await copyOnPc();
+    await fakeCopy(port, { listed: true });
+    const listed = await run(setup, ['worker-stop', '--port', String(port)]);
+    expect(listed.code).toBe(1);
+    expect(listed.output).toContain('could not be revoked in the copy (the node is still listed)');
+    expect(listed.output).toContain(`remoteNodeRevokeNode('${WORKER_ID}')`);
+    expect(JSON.parse(/^AIO_DEV_APP_WORKER_RECEIPT (.*)$/m.exec(listed.output)![1]!)).toMatchObject({ nodeRevoked: false });
+  }, LIMIT);
+
+  it('fails the stop when the revoke is refused by the copy', async () => {
+    const { setup, port } = await copyOnPc();
+    await fakeCopy(port, { refuse: true });
+    const refused = await run(setup, ['worker-stop', '--port', String(port)]);
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain('(the copy refused the revoke)');
+  }, LIMIT);
+
+  it('does not fail the stop for a copy that has gone: there is no record left to revoke', async () => {
+    const { setup, port } = await copyOnPc();
+    const stopped = await run(setup, ['worker-stop', '--port', String(port)]);
+    expect(stopped.code).toBe(0);
+    expect(stopped.output).toContain('does not answer, so there is no record of the worker');
+    expect(JSON.parse(/^AIO_DEV_APP_WORKER_RECEIPT (.*)$/m.exec(stopped.output)![1]!)).toMatchObject({ nodeRevoked: false });
+  }, LIMIT);
+
+  it('revokes the node of a worker whose start failed after it had signed in', async () => {
+    const { setup, port } = await copyOnPc();
+    const expressions = await fakeCopy(port);
+    const failed = await worker(setup, port, 'fails');
+    expect(failed.code).toBe(1);
+    expect(expressions).toHaveLength(1);
+    expect(failed.output).toContain('was revoked in the copy');
+  }, LIMIT);
+
+  it('still stops a worker whose copy has gone, on the PC', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, sshLog } = await run(setup, ['worker-stop', '--port', String(await freePort())]);
+    expect(code).toBe(0);
+    expect(sshLog).toMatch(/^pc: .* devapp-worker-stop /m);
+    expect(sshLog).not.toMatch(/^far: .* devapp-worker-stop /m);
+  }, LIMIT);
+});
+
 describe('remote-run.sh dev-app commands', () => {
   function farMachine() {
     const base = realpathSync(mkdtempSync(join(tmpdir(), 'dev-app-far-')));
@@ -1007,6 +1242,229 @@ describe('remote-run.sh dev-app commands', () => {
     return { base, copy, start, standIns, exits, endAll };
   }
 
+  /**
+   * A stand-in for the Windows side: a folder where WSL would mount the drives, with a PowerShell that records how it
+   * was called (and the token it saw in its environment) and answers as the real script does, per `scenario`. Only
+   * remote-run.sh's own handling is tested here; the Windows script itself runs only on Windows.
+   */
+  function farWithWindows(withPowerShell = true) {
+    const far = farWithCopies();
+    const mount = join(far.base, 'mnt');
+    const bin = join(mount, 'c/Windows/System32/WindowsPowerShell/v1.0');
+    mkdirSync(join(mount, 'c/Temp'), { recursive: true });
+    if (withPowerShell) {
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, 'powershell.exe'), String.raw`#!/bin/bash
+echo "$*" >> "$AIO_WINDOWS_MOUNT/calls.log"
+case "$*" in *GetTempPath*) printf 'C:\\Temp\\\r\n'; exit 0 ;; esac
+printf '%s' "$AIO_WORKER_TOKEN" > "$AIO_WINDOWS_MOUNT/token-seen"
+printf '%s' "$WSLENV" > "$AIO_WINDOWS_MOUNT/wslenv-seen"
+ls "$AIO_WINDOWS_MOUNT/c/Temp" > "$AIO_WINDOWS_MOUNT/temp-during"
+case "$(cat "$AIO_WINDOWS_MOUNT/scenario" 2>/dev/null)" in
+  silent) exit 0 ;;
+  hang) case "$*" in *'-Action start'*) echo $$ > "$AIO_WINDOWS_MOUNT/hanging"; exec sleep 60 ;; esac
+        printf 'AIO_WINWORKER_RESULT {"status":"stopped","processGone":true,"folderGone":true}\r\n' ;;
+  unclean) printf 'AIO_WINWORKER_RESULT {"status":"stopped","processGone":false,"folderGone":true}\r\n' ;;
+  node-once) case "$*" in
+       *'-Action stop'*) if [ -e "$AIO_WINDOWS_MOUNT/stopped-once" ]; then printf 'AIO_WINWORKER_RESULT {"status":"stopped","processGone":true,"folderGone":true,"nodeId":null}\r\n'
+                         else touch "$AIO_WINDOWS_MOUNT/stopped-once"; printf 'AIO_WINWORKER_RESULT {"status":"stopped","processGone":true,"folderGone":true,"nodeId":"aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"}\r\n'; fi ;;
+       *) printf 'AIO_WINWORKER_RESULT {"status":"ready","joined":false,"nodeId":"n","name":"w","folder":"f","workspace":"w"}\r\n' ;;
+     esac ;;
+  *) case "$*" in
+       *' start '*|*'-Action start'*) printf 'AIO_WINWORKER_RESULT {"status":"ready","joined":false,"nodeId":"n","name":"w","folder":"f","workspace":"w"}\r\n' ;;
+       *) printf 'AIO_WINWORKER_RESULT {"status":"stopped","processGone":true,"folderGone":true}\r\n' ;;
+     esac ;;
+esac
+`);
+      chmodSync(join(bin, 'powershell.exe'), 0o755);
+    }
+    const run = (args: string[], input = '') => spawnSync('bash', [join(far.base, 'remote-run.sh'), ...args], {
+      input, encoding: 'utf8', env: { ...process.env, AIO_WINDOWS_MOUNT: mount },
+    });
+    const read = (name: string) => (existsSync(join(mount, name)) ? readFileSync(join(mount, name), 'utf8') : '');
+    // A stand-in job is only a copy's once ps shows its name, which a Mac takes a moment to do after the spawn.
+    const copy = (port: number, data: string) => {
+      const dir = far.copy(port, data);
+      const job = far.standIns[far.standIns.length - 1];
+      for (let tries = 0; tries < 100; tries += 1) {
+        if ((spawnSync('ps', ['-ww', '-p', String(job.pid), '-o', 'command='], { encoding: 'utf8' }).stdout ?? '').includes('devapp-job')) break;
+        spawnSync('sleep', ['0.1']);
+      }
+      return dir;
+    };
+    return { ...far, copy, mount, run, read, scenario: (value: string) => writeFileSync(join(mount, 'scenario'), value) };
+  }
+
+  it('refuses a bad port, the installed Harness\'s port or a token that is not one word, before anything else', () => {
+    const far = farWithWindows();
+    try {
+      expect(far.run(['devapp-worker-start', '80', '49791'], 'token\n').status).toBe(4);
+      expect(far.run(['devapp-worker-start', '9444', '4878'], 'token\n').status).toBe(4);
+      expect(far.run(['devapp-worker-start', '9444', '49791'], 'two words\n').status).toBe(4);
+      expect(far.run(['devapp-worker-start', '9444', '49791'], '\n').status).toBe(4);
+      expect(far.run(['devapp-worker-start', '9444', '49791'], `${'x'.repeat(4097)}\n`).status).toBe(4);
+      expect(far.read('calls.log')).toBe('');
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('starts no worker for a port with no running copy, or on a computer with no Windows side', () => {
+    const far = farWithWindows();
+    const none = farWithWindows(false);
+    try {
+      expect(far.run(['devapp-worker-start', '9444', '49791'], 'token\n').stdout).toContain('"reason":"there is no running Harness copy');
+      none.copy(9444, '/tmp/aio-lt-w');
+      expect(none.run(['devapp-worker-start', '9444', '49791'], 'token\n').stdout).toContain('"reason":"this computer has no Windows side');
+      expect(none.run(['devapp-worker-stop', '9444']).stdout).toContain('"status":"none"');
+      expect(far.read('calls.log')).toBe('');
+      expect(existsSync(join(none.base, 'devapps/apps/9444/winworker'))).toBe(false);
+    } finally {
+      far.endAll();
+      none.endAll();
+    }
+  }, LIMIT);
+
+  it('passes the token to Windows through the environment only, and leaves no script behind', () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      const started = far.run(['devapp-worker-start', '9444', '49791'], 'placeholder-token\n');
+      expect(started.stdout).toContain('AIO_REMOTE_RESULT {"status":"ready"');
+      expect(far.read('token-seen')).toBe('placeholder-token');
+      expect(far.read('wslenv-seen')).toContain('AIO_WORKER_TOKEN');
+      expect(far.read('calls.log')).not.toContain('placeholder-token');
+      expect(far.read('calls.log')).toContain('-Action start -Port 9444 -CoordinatorPort 49791');
+      expect(far.read('temp-during')).toContain('aio-lt-winworker-9444.ps1');
+      expect(readdirSync(join(far.mount, 'c/Temp'))).toEqual([]);
+      expect(readFileSync(join(dir, 'winworker'), 'utf8').trim()).toBe('49791');
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('says so when Windows gives no answer, keeping the mark so the copy\'s stop still cleans up', () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.scenario('silent');
+      expect(far.run(['devapp-worker-start', '9444', '49791'], 'token\n').stdout).toContain('"reason":"the Windows side gave no answer"');
+      expect(existsSync(join(dir, 'winworker'))).toBe(true);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('removes a worker whose start runs past its bound, and drops the mark once that is confirmed', () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.scenario('hang');
+      const started = spawnSync('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', '49791'], {
+        input: 'token\n', encoding: 'utf8', env: { ...process.env, AIO_WINDOWS_MOUNT: far.mount, AIO_WINWORKER_START_SECONDS: '1' },
+      });
+      expect(started.stdout, started.stderr).toContain('cut off or ran too long, so it was removed again (cleanup confirmed)');
+      expect(far.read('calls.log')).toContain('-Action stop -Port 9444');
+      expect(existsSync(join(dir, 'winworker'))).toBe(false);
+      expect(spawnSync('kill', ['-0', far.read('hanging').trim()]).status).not.toBe(0);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('removes a worker when the start is cut off by a signal, as a dropped connection does', async () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.scenario('hang');
+      const child = spawn('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', '49791'], {
+        env: { ...process.env, AIO_WINDOWS_MOUNT: far.mount }, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let out = '';
+      child.stdout.on('data', chunk => { out += String(chunk); });
+      child.stdin.end('token\n');
+      for (let tries = 0; tries < 100 && !existsSync(join(far.mount, 'hanging')); tries += 1) await new Promise(resolve => setTimeout(resolve, 100));
+      expect(existsSync(join(far.mount, 'hanging'))).toBe(true);
+      child.kill('SIGTERM');
+      await new Promise<void>(resolve => child.once('exit', () => resolve()));
+      expect(out).toContain('cut off or ran too long, so it was removed again (cleanup confirmed)');
+      expect(far.read('calls.log')).toContain('-Action stop -Port 9444');
+      expect(existsSync(join(dir, 'winworker'))).toBe(false);
+      expect(spawnSync('kill', ['-0', far.read('hanging').trim()]).status).not.toBe(0);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('stops the worker and forgets it, and says plainly when it could not be confirmed gone', () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      expect(far.run(['devapp-status']).stdout).toContain('with a disposable Windows worker');
+      const stopped = far.run(['devapp-worker-stop', '9444']);
+      expect(stopped.stdout).toContain('"status":"stopped","processGone":true,"folderGone":true');
+      expect(far.read('calls.log')).toContain('-Action stop -Port 9444');
+      expect(existsSync(join(dir, 'winworker'))).toBe(false);
+      far.scenario('unclean');
+      expect(far.run(['devapp-worker-stop', '9444']).stdout).toContain('"processGone":false');
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('remembers the worker\'s node id past its folder, so a later stop can still name the node to revoke', () => {
+    const far = farWithWindows();
+    try {
+      far.copy(9444, '/tmp/aio-lt-w');
+      far.scenario('node-once');
+      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      expect(far.run(['devapp-worker-stop', '9444']).stdout).toContain('"nodeId":"aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"');
+      // The folder is gone now: Windows has no config left to read, but the id was kept here.
+      expect(far.run(['devapp-worker-stop', '9444']).stdout).toContain('"nodeId":"aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"');
+      expect(existsSync(join(far.base, 'devapps/winworker-9444.node'))).toBe(true);
+      // It goes with the copy, so a later copy on this port never inherits it.
+      far.run(['devapp-stop', '9444']);
+      expect(existsSync(join(far.base, 'devapps/winworker-9444.node'))).toBe(false);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('takes the worker down with its copy, however the copy is stopped', async () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      const stopped = far.run(['devapp-stop', '9444']);
+      expect(stopped.stdout).toContain('stopped the disposable Windows worker for the copy on port 9444');
+      expect(far.read('calls.log')).toContain('-Action stop -Port 9444');
+      expect(existsSync(dir)).toBe(false);
+      expect(await far.exits(far.standIns[0])).toBe(true);
+      // A copy without a worker asks nothing of Windows.
+      const other = far.copy(9445, '/tmp/aio-lt-x');
+      const callsBefore = far.read('calls.log');
+      expect(far.run(['devapp-stop', '9445']).stdout).not.toContain('Windows worker');
+      expect(far.read('calls.log')).toBe(callsBefore);
+      expect(existsSync(other)).toBe(false);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('reports a worker it could not stop when the copy goes, and removes the copy anyway', () => {
+    const far = farWithWindows();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      far.scenario('unclean');
+      expect(far.run(['devapp-stop', '9444']).stdout).toContain('could not be confirmed stopped');
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
   it('leaves a live copy for another data folder alone, saying the port is taken', () => {
     const far = farWithCopies();
     try {
@@ -1020,6 +1478,23 @@ describe('remote-run.sh dev-app commands', () => {
     } finally {
       far.endAll();
     }
+  }, LIMIT);
+
+  it('joins a live copy built from the same files, naming its disposable Windows worker when it has one', () => {
+    const far = farWithCopies();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-mine');
+      const plain = far.start(9444, '/tmp/aio-lt-mine');
+      expect(plain.status).toBe(0);
+      expect(plain.stderr).not.toContain('unbound variable');
+      expect(plain.stdout).toMatch(/joining the copy already on port 9444; it stops by itself at \d\d:\d\d\n/);
+      expect(plain.stdout).toContain('AIO_REMOTE_RESULT {"status":"ready"');
+      writeFileSync(join(dir, 'winworker'), '49791\n');
+      const withWorker = far.start(9444, '/tmp/aio-lt-mine');
+      expect(withWorker.stderr).not.toContain('unbound variable');
+      expect(withWorker.stdout).toMatch(/it stops by itself at \d\d:\d\d, with a disposable Windows worker\n/);
+      expect(far.standIns[0].exitCode).toBeNull();
+    } finally { far.endAll(); }
   }, LIMIT);
 
   it('never joins or replaces a profile running in a different package mode', () => {
@@ -1089,4 +1564,10 @@ describe('remote-run.sh dev-app commands', () => {
       server.kill();
     }
   }, LIMIT);
+
+  it('gives the disposable Windows worker room for a session and its side chat', () => {
+    const script = readFileSync(join(__dirname, 'remote-run.sh'), 'utf8');
+    const slots = Number(/maxConcurrentInstances = (\d+);/.exec(script)?.[1]);
+    expect(slots).toBeGreaterThanOrEqual(2);
+  });
 });

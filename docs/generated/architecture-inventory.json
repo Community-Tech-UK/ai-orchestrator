@@ -6767,6 +6767,10 @@
       "lines": 1575
     },
     {
+      "path": "scripts/remote-checks/dev-app.spec.ts",
+      "lines": 1574
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
     },
@@ -7211,6 +7215,10 @@
       "lines": 1126
     },
     {
+      "path": "scripts/remote-checks/dev-app.js",
+      "lines": 1122
+    },
+    {
       "path": "src/main/app/compaction-runtime.spec.ts",
       "lines": 1122
     },
@@ -7245,10 +7253,6 @@
     {
       "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
       "lines": 1096
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.spec.ts",
-      "lines": 1093
     },
     {
       "path": "docs/plans/livetest-backlog.md",
@@ -7633,10 +7637,6 @@
     {
       "path": "src/main/rlm/context-persistence-loader.integration.spec.ts",
       "lines": 883
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.js",
-      "lines": 882
     },
     {
       "path": "benchmarks/plan-execute-ab/runner.spec.ts",

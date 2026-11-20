@@ -268,6 +268,24 @@ A worker built this way advertises whatever local model server is listening on t
 break it on demand by killing one process. Check whether real Ollama/LM Studio are *running* first —
 installed but stopped is the safe case, and it is the normal state on this Mac.
 
+A worker that must really be **Windows** (a check of Windows paths, such as sidechat LT-SC-7) comes from the PC
+instead. `dev-app.js start --pc ...` puts the copy on the PC's Linux space (never this Mac), and the same two settings
+apply there (a free port, not 4878; on at launch). Issue the pairing token in the copy, then:
+
+```bash
+printf '%s\n' "$TOKEN" | node "$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js" \
+  worker-start --port <debugging port> --coordinator-port <remote nodes port>
+node .../dev-app.js worker-stop --port <debugging port>
+```
+
+`worker-start` runs a copy of the installed Windows worker's files, as a separate worker, under a folder of its own in
+Windows's temp folder (its own home, config, logs, node id and one workspace folder). The receipt gives the node id and
+the Windows workspace to pass as `forceNodeId` and the working directory. It never touches the installed worker, its
+pairing or its updates; `worker-stop` (or the copy stopping) kills it and removes the folder, and says whether both
+are gone. `worker-stop` also revokes the worker's node in the copy through its debugging port and waits (up to a
+minute; the copy drops a dead worker's connection after about 30 seconds) until `remoteNodeList()` no longer lists it.
+The token goes through the environment only, never a command line or a file.
+
 ### Signed test package — for packaged behaviour without the real profile
 
 Use the same remote runner with `start --packaged --port <owned-port> --data /tmp/aio-lt-<owned-name>`.
