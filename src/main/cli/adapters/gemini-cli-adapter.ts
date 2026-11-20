@@ -209,6 +209,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
+      this.logPromptSize(message, args);
       assertAdapterInputCurrent(dispatch);
       dispatch?.beforeProviderDispatch?.();
       assertAdapterInputCurrent(dispatch);
@@ -401,6 +402,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     const args = this.buildArgs(message);
+    this.logPromptSize(message, args);
     this.process = this.spawnProcess(args);
     let streamOutput = '';
     // A successful exit alone is insufficient: consume and inspect the final
@@ -558,6 +560,21 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helper Methods ============
+
+  /**
+   * Record how many characters this call's prompt holds (never its text), so a
+   * test can compare the first call with later ones through the app log: the
+   * spawned command line itself cannot be read from inside a hardened session.
+   * buildArgs adds the prompt as the last argument only when there is content.
+   */
+  private logPromptSize(message: CliMessage, args: string[]): void {
+    logger.debug('gemini prompt size', {
+      surface: 'gemini',
+      sessionId: this.sessionId,
+      promptChars: message.content ? args.at(-1)?.length ?? 0 : 0,
+      advisoryMemoryDelivered: this.advisoryMemoryDelivered,
+    });
+  }
 
   private emitErrorIfObserved(error: Error): void {
     if (this.listenerCount('error') > 0) {

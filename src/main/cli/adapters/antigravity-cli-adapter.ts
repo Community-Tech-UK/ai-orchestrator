@@ -209,6 +209,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
+      this.logPromptSize(args);
       assertAdapterInputCurrent(dispatch);
       dispatch?.beforeProviderDispatch?.();
       assertAdapterInputCurrent(dispatch);
@@ -347,6 +348,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {
     const args = this.buildArgs(message);
+    this.logPromptSize(args);
     this.process = this.spawnProcess(args);
     let spawnError: Error | null = null;
     this.process.on('error', (err) => {
@@ -482,6 +484,20 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   }
 
   // ============ Private Helpers ============
+
+  /**
+   * Record how many characters this call's prompt holds (never its text), so a
+   * test can compare the first call with later ones through the app log: the
+   * spawned command line itself cannot be read from inside a hardened session.
+   */
+  private logPromptSize(args: string[]): void {
+    logger.debug('agy prompt size', {
+      surface: 'antigravity',
+      sessionId: this.sessionId,
+      promptChars: args.at(-1)?.length ?? 0,
+      advisoryMemoryDelivered: this.advisoryMemoryDelivered,
+    });
+  }
 
   private emitErrorIfObserved(error: Error): void {
     if (this.listenerCount('error') > 0) {

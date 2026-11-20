@@ -7815,6 +7815,10 @@
       "lines": 829
     },
     {
+      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
+      "lines": 827
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",
       "lines": 826
     },
@@ -7857,10 +7861,6 @@
     {
       "path": "src/renderer/app/features/loop/loop-config-panel.component.spec.ts",
       "lines": 811
-    },
-    {
-      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
-      "lines": 810
     },
     {
       "path": "docs/plans/completed/interrupt-resume-recovery-plan_completed.md",

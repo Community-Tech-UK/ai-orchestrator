@@ -4,6 +4,7 @@ import type { ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GeminiCliAdapter } from './gemini-cli-adapter';
 import { AntigravityCliAdapter } from './antigravity-cli-adapter';
+import { getLogger } from '../../logging/logger';
 import { createBudgetedSystemPromptComposer } from '../../context/budgeted-system-prompt';
 import type { CliMessage } from './base-cli-adapter';
 
@@ -84,6 +85,35 @@ describe.each([['gemini', GeminiCliAdapter], ['antigravity', AntigravityCliAdapt
     expect(second).toContain('Governing approval rules');
     expect(second).toContain('Sensitive operations require approval');
     expect(second).toContain('[RTK AWARENESS]');
+  });
+
+  it('logs each call\'s prompt length, larger on the first call, without the prompt text', async () => {
+    const composer = createBudgetedSystemPromptComposer(provider);
+    composer.add('instructions', 'Governing approval rules');
+    composer.add('project-brief', 'Secret memory detail from the project');
+    const result = composer.compose();
+    const adapter = new Adapter({ systemPrompt: result.text, systemPromptAfterFirstTurn: result.textAfterFirstTurn, rtkEnabled: true });
+    const spawn = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+    spawn.mockImplementation(() => {
+      const process = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+      queueMicrotask(() => {
+        process.stdout.write(provider === 'gemini' ? '{"type":"message","role":"assistant","content":"result"}\n' : 'result');
+        process.emit('close', 0);
+      });
+      return process as unknown as ChildProcess;
+    });
+    const debug = vi.spyOn(getLogger(provider === 'gemini' ? 'GeminiCliAdapter' : 'AntigravityCliAdapter'), 'debug');
+    await adapter.sendMessage({ role: 'user', content: 'same request' });
+    await adapter.sendMessage({ role: 'user', content: 'same request' });
+    const sizes = debug.mock.calls.filter(call => /prompt size/.test(call[0]));
+    expect(sizes).toHaveLength(2);
+    const [first, second] = sizes.map(call => call[1] as Record<string, unknown>);
+    const prompts = spawn.mock.calls.map(call => call[0].at(-1)!);
+    expect(first).toMatchObject({ surface: provider, promptChars: prompts[0].length, advisoryMemoryDelivered: false });
+    expect(second).toMatchObject({ surface: provider, promptChars: prompts[1].length, advisoryMemoryDelivered: true });
+    expect(first['promptChars'] as number).toBeGreaterThan(second['promptChars'] as number);
+    expect(JSON.stringify(sizes)).not.toContain('Secret memory detail');
+    expect(JSON.stringify(sizes)).not.toContain('Governing approval rules');
   });
 
   it('does not consume first-turn memory when merely preparing arguments', () => {
