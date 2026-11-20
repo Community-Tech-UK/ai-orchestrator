@@ -60,6 +60,9 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # macOS has neither systemd nor flock, and its date, sha256sum, tail and mv lack the GNU options used
 # here. These stand in on a Mac; on Linux each is the command it always was.
 if [ "$(uname -s)" = Darwin ]; then MAC=1; NODE_PLATFORM=darwin-arm64; else MAC=0; NODE_PLATFORM=linux-x64; fi
+# Spotlight indexed the checkouts and installs here (about 10 GB, rebuilt constantly), which held the test Mac's load
+# over the dev-app limit on 20 November 2026. This marker keeps the folder out of its index.
+if [ "$MAC" = 1 ] && [ ! -e "$BASE/.metadata_never_index" ]; then : > "$BASE/.metadata_never_index"; fi
 # An ssh command on a Mac reads no login profile, so it sees only the system's folders. Tests need rg and flock, from
 # Homebrew there; after the system's own, so bash, perl and tar stay the ones above.
 [ "$MAC" = 1 ] && [ -d /opt/homebrew/bin ] && PATH="$PATH:/opt/homebrew/bin"
