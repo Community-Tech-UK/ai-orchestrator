@@ -24,8 +24,8 @@ lifecycle. Keep it current; delete anything that stops being true.
 > `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item
 > (index row + a section with observed behaviour, root cause, required behaviour, acceptance), and
 > implementation notes in the plan or livetest document that fixes it. The register index row owns
-> the defect status. Run `node scripts/next-lt-id.mjs` and recheck before adding a row; it does not
-> reserve the number. Per-check evidence still goes in the owning `*_livetest.md`.
+> the defect status. Run `node scripts/next-lt-id.mjs --reserve` before adding a row; keep the returned
+> identifier for that defect and never delete its reservation. Per-check evidence still goes in the owning `*_livetest.md`.
 > Read the register archive only when an index row points there; never add work to closed plans.
 >
 > Finish by updating `docs/plans/livetest-backlog.md`. Do **not** create a new dated
@@ -63,6 +63,61 @@ Leftover-folder removal is an ask-first action: review one folder, then get Jame
 
 ### Dev app — for anything interactive
 
+**Start it with `dev-app.js`, not by hand on this Mac.** This overrides an older instruction you may have been given to
+"build and launch the dev app from your worktree" or to set `AIO_DEV_USER_DATA_PATH` and `--remote-debugging-port`
+yourself: use the same port and data folder with the command below instead. On 13 November 2026 four or five
+live-test copies at once, each with its own build and screens server, held James's Mac at a load of about 30 on 18
+cores. `dev-app.js` sends your checkout's files (uncommitted ones included) to the first computer that isn't busy, in
+James's order: the test Mac, then the Windows PC (its Linux space, on a screen nobody sees), then this Mac. It installs,
+builds and starts Harness there and tunnels the debugging port back, so `http://127.0.0.1:<port>` here reaches it and
+every CDP step below works unchanged. Run it from inside your checkout or queue worktree; the path below finds the main
+checkout's copy of the script, so it works in a worktree made before the script existed:
+
+```bash
+DEV_APP="$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js"
+node "$DEV_APP" start --port 9444 --data /tmp/aio-lt-<batch>    # a few minutes; ~10 after a package change
+curl -s http://127.0.0.1:9444/json/version                       # the copy, wherever it started
+node "$DEV_APP" shell --port 9444 'ls "$AIO_DEV_USER_DATA_PATH"'  # its data folder is on that computer
+node "$DEV_APP" stop --port 9444                                 # always, before you finish
+```
+
+- Give `start` your tool's longest timeout. If the tool cuts it off, run the same command again: it joins the copy
+  that is still starting rather than building twice. Changed code? Run `start` again; it replaces the copy.
+- A copy stops by itself 4 hours after it started (`start` and `status` print the time), and the connection here
+  closes with it. Run `start` again for a fresh four hours. The data folder stays on that computer after a stop (it
+  is under `/tmp`, so a restart there clears it), and a start with the same `--data` on the same computer carries on
+  with it.
+- Use only the port and data folder you were given. A port held here by anything else, or on the far computer by
+  another live test's copy, is refused and that copy is left alone.
+- **Never judge a computer's load yourself, and never stop or end your turn because one is busy.** `start` does that:
+  busy means a 5-minute load of 1.5 per processor or more, or (on the test Mac or the PC) already three copies. It
+  passes a busy computer by (except one already running your port's copy from the same files, which a rerun joins; a
+  changed copy on a busy computer is stopped and rebuilt on one that isn't), and when all three are busy it prints
+  `every computer is busy (...)` and keeps looking every 2 minutes until one is free, then starts the copy there (or
+  exits 75 if this Mac is the one). Leave it running (in the background if your tool cuts commands off, then check its
+  output); if it is cut off anyway, run the same command again. On 14 November 2026 a session saw the test Mac at a
+  load of 35, decided by itself to hold its live tests, and sat idle until James noticed.
+- Exit 75 means this Mac is the one free computer: use "On this Mac" below. `--mac`, for a check that needs a
+  signed-in AI tool (see below), skips the PC. A signed package (`--packaged`) needs a remote Mac: it skips the PC and
+  this Mac, never exits 75, and waits for the test Mac.
+- Add `--remote-only` to `start` when the launch must stay on a remote computer. It keeps checking eligible remotes
+  without considering this Mac's load or returning exit 75, including when they are busy, paused or unavailable.
+  Combine it with `--mac` or `--packaged` to wait for an eligible remote Mac; a free PC is still skipped. The usual
+  load and copy limits remain in force. Stop, status and shell do not take this launch option.
+- What a copy can use depends on where it runs. On 13 November 2026 one on the test Mac could use Claude (signed in)
+  and no other AI tool. One on the PC (measured 14 November 2026) draws every screen but has no AI tool signed in, so
+  it suits checks of screens, settings and stored data, not ones that need a model to answer. Neither has this Mac's
+  real profile, paired workers or browser. Ask the copy itself what it can use
+  (`window.electronAPI.getStartupCapabilities()` over CDP) rather than assuming: a command run through `shell` comes in
+  over SSH, which on a Mac can't read the keychain, so there `claude auth status` says signed out whatever the copy
+  sees. When a check needs a signed-in AI tool, start with `--mac`: it waits for the test Mac or this Mac rather than
+  taking the PC. When a copy still lacks what a check needs, stop it and use "On this Mac", and say why in the
+  evidence.
+- Files the copy writes (its data folder, `app.log`, databases) are on that computer: read them with `shell`, which
+  runs in the copy's checkout. Screenshots and anything else you take over CDP arrive here as usual.
+
+#### On this Mac (when `start` exits 75, or a check needs this Mac)
+
 ```bash
 npm run build:main
 # the renderer must be served; if nothing is on :4567 yet:
@@ -71,7 +126,7 @@ nohup npx electron . --remote-debugging-port=9444 > _scratch/dev-app.log 2>&1 &
 sleep 25 && curl -s http://127.0.0.1:9444/json/version
 ```
 
-Then evaluate JS in the renderer (expression read from a file to avoid shell quoting):
+Either way, evaluate JS in the renderer (expression read from a file to avoid shell quoting):
 
 ```bash
 sed 's/9333/9444/' /tmp/cdp-eval.mjs > /tmp/cdp-eval2.mjs   # if the old helper exists
@@ -112,8 +167,9 @@ focus emulation was used, is worth re-reading before it is trusted.
 #### Running several agents at once
 
 `harness-dev` is single-instance **per profile**, so parallel agents must not share one. Give each
-its own `AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-<batch>` and its own `--remote-debugging-port`; they can
-all reuse one `ng serve` on `:4567`. Note an isolated profile is empty — checks needing the real
+its own `AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-<batch>` and its own `--remote-debugging-port` (with `dev-app.js`,
+its own `--data` and `--port`, and each copy gets its own screens server); copies started on this Mac can all reuse
+one `ng serve` on `:4567`. Note an isolated profile is empty — checks needing the real
 corpus, archived history or the paired worker still belong on the packaged app.
 
 **Use the `AIO_DEV_USER_DATA_PATH` env var, not Electron's `--user-data-dir` flag.** The flag is
@@ -212,7 +268,16 @@ A worker built this way advertises whatever local model server is listening on t
 break it on demand by killing one process. Check whether real Ollama/LM Studio are *running* first —
 installed but stopped is the safe case, and it is the normal state on this Mac.
 
-### Packaged app — for the real profile, and only that
+### Signed test package — for packaged behaviour without the real profile
+
+Use the same remote runner with `start --packaged --port <owned-port> --data /tmp/aio-lt-<owned-name>`.
+It builds the normal signed directory package in its owned copy and starts it with a validated private profile;
+it neither installs nor publishes the app. Keep its launch and runtime receipts. Use `--checked-tree` when a
+checker must prove the running build matches its reviewed checkpoint. Follow the
+[capability-repair runbook](livetest-capability-repair-runbook.md) for signing credentials and cleanup.
+Do not substitute a fake home or symlink a keychain to obtain profile isolation.
+
+### Installed production app — only for checks requiring the real profile
 
 `/Applications/Harness.app` has **no debug port**. Use it when a check specifically needs the real
 profile: the 2.9 GB RLM corpus, real archived history, the live `windows-pc` worker, real long-lived
@@ -239,7 +304,7 @@ use the dev app and a real `sendInput`.
 | A signal/`computed` is right but the DOM never changes; a toast/banner "never renders" | The dev-app window is occluded, so rAF never fires and the zoneless scheduler never flushes. **Not a product bug.** Enable focus emulation (above) before asserting on the DOM. |
 | `terminateInstance('id')` fails with `expected object, received string` | Most IPC takes an object: `terminateInstance({instanceId})`, `sendInput({instanceId, message})`, `compactInstance({instanceId})`. |
 | A provider swap you expected to be refused succeeds | `antigravity` is **detected and available** even though `command -v antigravity` finds nothing. For a guaranteed local refusal use `gemini` — a valid `CliType` deliberately excluded from `SUPPORTED_CLIS`. |
-| Dev-app log lines appear in the production log | The dev app writes `app.log` into the **production** profile (`Logger` reads `app.getPath('userData')` at import time, before the dev path is set). Timestamp-check every log-based claim against your dev-app window, or prefer zero-count assertions where contamination can only add. |
+| Dev-app log lines appear in the production log | Historical builds selected their profile after importing loggers. Current `main-process-entry.ts` sets the validated profile before importing the app. Read logs through the owned remote runner and verify the runtime receipt's profile; production-log contamination on a current build is a defect, not an expected testing shortcut. |
 | Renderer behaves unlike current source | A pre-existing `ng serve` may be days old. Either restart it or treat renderer-side conclusions as provisional. Main-process answers (IPC results, DB rows) are unaffected. |
 | `window.ng` is `undefined`, so no component, store or router is reachable | You served a **production** renderer build. `ng build --configuration production` strips the debug global; `ng build --configuration development` (~14 s) keeps it. Without it you cannot click a real button or read a real signal, only the preload API — which is exactly how a broken renderer→preload seam gets missed. |
 | The app reloads into a 404 page after `location.reload()` | Whatever is serving `dist/renderer/browser` has no SPA fallback (`python3 -m http.server` does not), so a deep link like `/skills` 404s. Serve it with a fallback to `index.html`, or drive routing through the Angular router instead of reloading. |
@@ -251,7 +316,7 @@ use the dev app and a real `sendInput`.
 | The packaged app suddenly reports `localExtension: {state: "not_installed"}` mid-campaign | A batch's dev app took the machine's Chrome native-messaging manifest. It lives at `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.ai_orchestrator.browser_gateway.json`, is **machine-global**, and `AIO_DEV_USER_DATA_PATH` never isolated it — so the last app to start owns the local extension channel and the other one reports itself uninstalled with remediation text that wrongly blames the extension. Filed and fixed as LT-520 (packaged always wins; an unpackaged app declines unless `AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1`). **Confirmed live 2026-08-25 and no longer a hazard:** the packaged app now claims the manifest at start-up, and seven dev apps launched afterwards all declined it, logging `Another Harness install owns the Chrome native-messaging manifest — leaving it alone`. You no longer need to restore the manifest, and deleting a `/tmp/aio-lt-*` profile can no longer break the user's local channel. If you *do* still see this symptom, check the manifest's mtime against your dev app's start time before assuming the fix regressed — and note a dev app deliberately has no local extension channel of its own, so `browser.health` from a dev app reporting no local extension is expected, not a fault. Remote (`windows-pc`) browser work goes over the worker relay and is unaffected. **One exception found 2026-09-20 (LT-540):** a *packaged* app in startup-smoke mode (`AIO_STARTUP_SMOKE=1` + `AIO_STARTUP_SMOKE_USER_DATA_PATH`) still claims the manifest and points it at its throwaway profile, because the claim gate reads `app.isPackaged` and the manifest path comes from `os.homedir()`, not `userData`. If you build and run a packaged app during a campaign, snapshot that manifest's sha1 first and restore it afterwards. |
 | A tool call returns "requires approval" for the wrong machine | Browser-gateway prompts **once per session** about main-vs-worker routing ("Approve = run it here on the main machine. Deny = reroute…"). **Just retry the same call — the gate trips on the first browser-gateway call of the session whatever arguments you pass, and the second call is allowed.** Resolved 2026-08-19 in a fresh session, which is what the 2026-08-18 row said was needed to separate the two hypotheses: that day's "lead with `computer`, not `nodeId`" advice was right by accident. Measured 2026-08-19: first call *with* `computer: "windows-pc"` → gate; identical retry → allowed. So neither argument disambiguates anything; it is purely once-per-session. It is not a permanent block and needs no input from James, and clearing it implies no local-Mac work — a `computer`/`nodeId`-scoped call returns only that node's tabs. A whole browser batch was once written off as "structurally unreachable" on the original (inverted) advice. |
 | Packaging from an AIO worktree produces an app that exits 0 instantly with no window and no log | electron-builder cannot walk a `<repo>/.worktrees/*` `node_modules`, which is a **symlink farm** into the root checkout. It logs `cannot find path for dependency` for ~120 packages, silently omits them from the asar, and the app dies on the first `require` that needs one (`Cannot find module 'ret'`, via `safe-regex2` ← `settings-validators.js`). To see the error at all you must pass `--js-flags=--max-old-space-size=8192` yourself: without it `startHarnessMainProcess` relaunches and `app.exit(0)`s before anything is printed. Fix: materialise the unresolved symlinks as real directories (`rm node_modules/<d>; cp -R "$(readlink …)" node_modules/<d>`) and repackage; repeat until the warning is gone (three passes, 124 → 38 → 5 → 0, on 2026-09-20). Not a product defect. |
-| You need a *running* packaged app on a profile that is not James's | `AIO_DEV_USER_DATA_PATH` is unpackaged-only, and `AIO_STARTUP_SMOKE_USER_DATA_PATH` makes the app quit the moment it finishes initialising. What works: `HOME=/tmp/<yours> CFFIXED_USER_HOME=/tmp/<yours> ./Harness.app/Contents/MacOS/Harness --js-flags=--max-old-space-size=8192 --remote-debugging-port=<yours>` — `appData` **does** follow `HOME` on macOS, so the profile, the single-instance lock and the Chrome manifest path all move with it. Then symlink into that home: `.claude`, `.claude.json`, the other provider homes, and — the one that is easy to miss — **`Library/Keychains`**, or every provider CLI fails with `Failed to authenticate: OAuth session expired and could not be refreshed`. Prove any auth failure is the harness, not the feature, with an unhardened/plain control in the same app and a bare `HOME=… claude --print` outside AIO. |
+| You need a running signed package on an isolated profile | Use the owned remote runner's `--packaged` route above. Its explicit live-test context validates profile ownership and executable identity before imports. Do not use the old fake-home/keychain-symlink workaround. Provider authentication must still be checked through the actual running package and selected account. |
 | You need a hardened instance sitting in `error` with a sandbox-denial classification (WS13 checks 10/11) | Three sessions failed to find a lever because they tried to make the CLI crash on its own startup write. Don't. Stage it: give the hardened instance a **real** jail denial in its output buffer (ask it to write outside the writable roots — `Operation not permitted` lands in the buffer), make it busy, `interruptInstance`, then `kill -9` its CLI within ~35 s. `interrupt-respawn-handler.ts:413` sets `autoRespawnSuppressedUntil = requestedAt + INTERRUPT_FORCE_ABORT_MS + 5_000`, which is what forces the exit down the **terminal** branch (`instance-communication.ts:2196`) that calls `noteSandboxDenialOnExit`, instead of auto-respawning. Levers that do **not** work: a child instance (auto-terminated the instant its turn completes), `restartInstance` to exhaust `restartCount < 5` (returns `Illegal transition: initializing → busy` and wedges the instance), and repeated kills (the respawn circuit breaker backs off 10 s then 30 s and the instance is terminated at restartCount 4). |
 | A hardened spawn shows no `sandbox-exec` process in `ps` | Expected, not a bug. `buildSeatbeltCommand` returns `/usr/bin/sandbox-exec -p <policy> -D WRITABLE_ROOT_n=… -- <cmd>`, and `sandbox-exec` **`exec`s the target in place** — the jail survives, the argv does not. Any livetest step that says "`ps` shows the sandbox-exec invocation" is unobservable; assert on the `BaseCliAdapter: Spawning CLI under Seatbelt hardened mode` log line (it carries `grantedRoots`) plus an actual allow/deny write probe instead. |
 
@@ -279,8 +344,10 @@ was already running.
 - **Never run the full suite while batch agents are live.** It is the single biggest load contributor
   and it is exactly what the orchestrator is tempted to do "while waiting". Run it once, at the end,
   alone.
-- **`uptime` before dispatching and before the suite.** Above ~30, wait. The brief already says this;
-  the point is that the *orchestrator* has to obey it too, not just the batch agents.
+- **`uptime` before dispatching and before the suite.** Above ~30, wait, checking again every few minutes; never end
+  your turn on it. The brief already says this; the point is that the *orchestrator* has to obey it too, not just the
+  batch agents. This is about this Mac's own work: for a dev app copy, `dev-app.js start` checks every computer's load
+  itself and waits when all are busy.
 - **Do not diagnose a stall or a test failure without checking loadavg first.** Two hypotheses were
   wasted on this — API contention, then "no confirmed cause" — before anyone looked at `uptime`. The
   5- and 15-minute averages matter more than the 1-minute, which can look calm while the box is still
@@ -326,20 +393,18 @@ a technical/external prerequisite, not a James action.
   section. Preserve prior dated sections; never rewrite history.
 - **Reproduced defects** → `docs/plans/livetest-remediation-register.md`
   (index row + full section). The index row owns status; implementation notes go in the plan or
-  livetest document that fixes it. Use `node scripts/next-lt-id.mjs`, then recheck before adding
-  the row because it does not reserve the number. Read the archive only when an index row points there.
+  livetest document that fixes it. Use `node scripts/next-lt-id.mjs --reserve` before adding the row. Reservations use the
+  common root register and durable Git ledger; remote clones must ask the coordinator to reserve
+  there. Never allocate from read-only output or delete reservations. See
+  [defect identifier reservations](../defect-id-reservations.md). Read the archive only when an index row points there.
 - **Cross-cutting rollup** → `docs/plans/livetest-backlog.md` (update in place). **Not
   `_scratch/`** — that is disposable and the user will not find it there. `_scratch/` is fine for
   the working matrix and scratch scripts.
 - **A quoted main-process log line needs a source that outlives the run.** Redirecting Electron's
-  stdout does not capture it: `LogManager` fixes its path from `app.getPath('userData')` when the
-  first `getLogger()` runs (`src/main/logging/logger.ts`), which is during module import — before
-  `app.setPath('userData', …)` applies `AIO_DEV_USER_DATA_PATH` at `src/main/index.ts:64`. A dev app
-  therefore writes into the **production** `~/Library/Application Support/harness/logs/app.log`, and
-  deleting your `/tmp` profile does not destroy that evidence — but the file rotates at 10 MB
-  (`logger.ts:88`). Copy the slice you cite into your evidence directory before cleanup, and quote
-  the timestamp and `loopRunId`/instance id so the claim stays checkable after the line numbers
-  move.
+  stdout does not capture every structured log. Current startup selects the isolated profile before
+  importing loggers. Read its logs through the owned remote runner, copy the redacted slice into the
+  evidence directory before cleanup, and retain its timestamp and run/instance identifier. Removing
+  the owned profile removes its logs; a citation to a temporary path alone is not retained evidence.
 - **Running a doc as a Plan Queue item:** an item that reproduces no defect legitimately ends with
   **zero commits** on its branch. That is not lost work — the coordinator reads the untracked
   document from the root checkout and puts its `_completed` copy into the landing commit itself
