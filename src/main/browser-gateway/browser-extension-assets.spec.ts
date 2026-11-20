@@ -337,6 +337,9 @@ describe('browser extension assets', () => {
     // Also: a Harness recovery release takes its sites out of automatic-release
     // tracking, and an automatic release keeps Harness reviews of other sites.
     '0.2.56': '67bab82fed7f',
+    // handle_dialog accept on the pop-up that stopped a close_tab finishes the
+    // close when Chrome leaves the tab open (LT-1158).
+    '0.2.57': '286d45e92d47',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -3072,6 +3075,101 @@ describe('browser extension assets', () => {
 
       expect(harness.activeCommandCount()).toBe(0);
       expect(harness.chrome.debugger.detach).toHaveBeenCalledWith({ tabId: 42 });
+    });
+
+    // LT-1158: live on windows-pc, "Leave" on the pop-up that stopped a close
+    // answered cleanly but the tab stayed open until close_tab was sent again.
+    describe('answering the pop-up that stopped close_tab', () => {
+      async function startHeldClose(): Promise<{
+        harness: PopupHarness;
+        send: (command: Record<string, unknown>) => Promise<void>;
+        result: (commandId: string) => Record<string, unknown> | undefined;
+        chromeClosesTab: () => void;
+      }> {
+        const popup = await startPopupHarness();
+        const { harness, send, openDialog } = popup;
+        const tabGet = harness.chrome.tabs.get.getMockImplementation() as (tabId: number) => Promise<unknown>;
+        let tabClosed = false;
+        harness.chrome.tabs.get.mockImplementation((tabId: number) => (
+          tabClosed ? Promise.reject(new Error(`No tab with id: ${tabId}.`)) : tabGet(tabId)
+        ));
+        // The wait between checks passes at once; other timers (command time
+        // limits) stay unfired.
+        harness.timers.setTimeout.mockImplementation((fn: () => void, delayMs: number) => {
+          if (delayMs === 500) {
+            void Promise.resolve().then(fn);
+          }
+          return 0;
+        });
+        // The first tabs.remove is the one the pop-up holds; it never settles.
+        harness.chrome.tabs.remove.mockImplementationOnce(() => new Promise<never>(() => undefined));
+        await send({
+          id: 'close-held', command: 'close_tab', target: { tabId: 42 },
+          payload: { allowCloseLastInWindow: true },
+        });
+        openDialog({ type: 'beforeunload', message: '' });
+        await flushPromises();
+        expect(popup.result('close-held')).toEqual(expect.objectContaining({
+          ok: false,
+          error: expect.stringMatching(/^browser_dialog_open: the page opened/),
+        }));
+        return {
+          harness, send, result: popup.result, chromeClosesTab: () => { tabClosed = true; },
+        };
+      }
+
+      it('closes the tab itself when Chrome leaves it open after Leave', async () => {
+        const { harness, send, result } = await startHeldClose();
+        expect(harness.chrome.tabs.remove).toHaveBeenCalledTimes(1);
+
+        await send({ id: 'leave', command: 'handle_dialog', target: { tabId: 42 }, payload: { accept: true } });
+        await flushPromises();
+
+        expect(result('leave')).toEqual(expect.objectContaining({
+          ok: true,
+          result: { handled: true, accepted: true, dialogType: 'beforeunload' },
+        }));
+        expect(harness.chrome.tabs.remove).toHaveBeenCalledTimes(2);
+        expect(harness.chrome.tabs.remove).toHaveBeenLastCalledWith(42);
+      });
+
+      it('does not close it again when Chrome finishes the close after Leave', async () => {
+        const { harness, send, result, chromeClosesTab } = await startHeldClose();
+        chromeClosesTab();
+
+        await send({ id: 'leave', command: 'handle_dialog', target: { tabId: 42 }, payload: { accept: true } });
+        await flushPromises();
+
+        expect(result('leave')).toEqual(expect.objectContaining({ ok: true }));
+        expect(harness.chrome.tabs.remove).toHaveBeenCalledTimes(1);
+      });
+
+      it('leaves the tab open when the pop-up is answered with Stay', async () => {
+        const { harness, send, result } = await startHeldClose();
+
+        await send({ id: 'stay', command: 'handle_dialog', target: { tabId: 42 }, payload: { accept: false } });
+        await flushPromises();
+
+        expect(result('stay')).toEqual(expect.objectContaining({ ok: true }));
+        expect(harness.chrome.tabs.remove).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not close a tab after Leave on a pop-up a navigate raised', async () => {
+        const { harness, send, result, openDialog } = await startPopupHarness();
+        hangNavigation(harness);
+        await send({
+          id: 'navigate-away', command: 'navigate', target: { tabId: 42 },
+          payload: { url: 'https://example.test/next' },
+        });
+        openDialog({ type: 'beforeunload', message: '' });
+        await flushPromises();
+
+        await send({ id: 'leave', command: 'handle_dialog', target: { tabId: 42 }, payload: { accept: true } });
+        await flushPromises();
+
+        expect(result('leave')).toEqual(expect.objectContaining({ ok: true }));
+        expect(harness.chrome.tabs.remove).not.toHaveBeenCalled();
+      });
     });
 
     it('sees a second pop-up from the same action after the first is answered', async () => {

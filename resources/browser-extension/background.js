@@ -3744,6 +3744,11 @@ const DIALOG_WATCH_COMMANDS = new Set([
   'evaluate',
 ]);
 const DIALOG_TYPES = new Set(['alert', 'confirm', 'prompt', 'beforeunload']);
+// After "Leave" on a close, wait up to POLLS x POLL_MS for Chrome to close the
+// tab itself before asking again, and wait at most REMOVE_WAIT_MS for that.
+const CLOSE_AFTER_LEAVE_POLLS = 4;
+const CLOSE_AFTER_LEAVE_POLL_MS = 500;
+const CLOSE_AFTER_LEAVE_REMOVE_WAIT_MS = 2000;
 // Page.enable is answered by the renderer, which a pop-up already open (one no
 // watch saw) never lets reply. The browser side is enabled before that reply,
 // so a later pop-up is still reported; do not wait long for it.
@@ -4003,6 +4008,7 @@ async function executeBrowserCommandWatchingDialogs(command, deadlineAt) {
   // longer: a close the person kept with "Stay" may never settle, and running
   // work holds off the extension's reload onto a new version.
   dialogInterruptedCommands.add(command);
+  outcome.dialog.interruptedCommand = command.command;
   activeBrowserCommandCount += 1;
   void Promise.race([
     work.then(() => undefined, () => undefined),
@@ -4059,8 +4065,35 @@ async function answerDialogCommand(command) {
   if (watch.dialog === dialog) {
     watch.dialog = null;
   }
+  if (accept && dialog.interruptedCommand === 'close_tab') {
+    await finishCloseAfterLeave(tabId);
+  }
   await endDialogWatchIfIdle(watch);
   return { handled: true, accepted: accept, dialogType: dialog.type };
+}
+
+// Live test 2026-11-12 (LT-1158): after "Leave" on the pop-up that stopped a
+// close, Chrome did not resume the close it had been holding: the tab stayed
+// open and answering for 20 seconds, and only a second close_tab closed it
+// (with no new pop-up). Give Chrome a moment to finish by itself, then ask
+// again; the pop-up has been answered, so the second request is not held. It is
+// bounded so a pop-up raised a second time cannot hang the answer.
+async function finishCloseAfterLeave(tabId) {
+  for (let poll = 0; poll < CLOSE_AFTER_LEAVE_POLLS; poll += 1) {
+    if (!(await chrome.tabs.get(tabId).then(Boolean, () => false))) {
+      return;
+    }
+    await delay(CLOSE_AFTER_LEAVE_POLL_MS);
+  }
+  await Promise.race([
+    chrome.tabs.remove(tabId).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/no tab|not found/i.test(message)) {
+        throw error;
+      }
+    }),
+    delay(CLOSE_AFTER_LEAVE_REMOVE_WAIT_MS),
+  ]);
 }
 
 const CDP_UID_OBJECT_GROUP = 'aio-uid';

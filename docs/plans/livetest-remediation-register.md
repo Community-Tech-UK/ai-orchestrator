@@ -456,6 +456,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
+| LT-1158 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (extension 0.2.57); installed-extension check pending.** Answering "Leave" (`browser.handle_dialog` accept) on the "Leave site?" pop-up that stopped `browser.close_tab` returned success but left the tab open and responding (still there 20 seconds later, twice on windows-pc); only a second `close_tab` closed it. The extension now finishes the close itself after Leave. | [LT-1158 detail](#lt-1158) | [Browser page pop-ups livetest, Check 2b](2026-10-28-browser-page-popups_livetest.md) |
 | LT-1142 | P2 | **OPEN — reproduced live 2026-11-12.** The worker saves its connection config, which holds the node and recovery tokens, with default file permissions, so it is readable by every user account on the computer (mode 644 in a 755 folder). `persistConfig` in `src/worker-agent/worker-config.ts` writes it with no mode. Found while running the agent-issued pairing checks; not caused by that feature. | [LT-1142 detail](#lt-1142) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
 | LT-1143 | P1 | **OPEN — reproduced live 2026-11-12; cause not isolated.** A dev app on the main Mac accepts connections to its worker port (4979) and then drops them for every non-loopback address (LAN, Tailscale name and IPs), so a worker on another address cannot connect, while a plain Node server on the same LAN address answers. The worker's `aio-worker pair` address probe is a bare TCP connect, so it reports those addresses as "answered" and never tries a fallback. Found while running the agent-issued pairing checks, which then needed a loopback edit of the worker config. **Update 2026-11-14: not reproduced from this Mac to a dev app on the test Mac (LAN and Tailscale both answer, pairing works without edits), so it is specific to the main Mac's Electron; the probe weakness stands.** | [LT-1143 detail](#lt-1143) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
 | LT-1144 | P3 | **REPRODUCED LIVE 2026-11-14 in a dev copy; source in this worktree already accepts both keys, so the cause of the copy's rejection is unconfirmed (suspected stale compiled contracts).** The dev app's renderer-event validation log warned about two keys it did not recognise: `waitingSessionCount` on `cli-update-pill:delta` and `origin` on `cost:usage-recorded`. | [LT-1144 detail](#lt-1144) | [Agent-issued pairing evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-14) |
@@ -16084,6 +16085,41 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 ### Required behaviour and acceptance
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
+
+<a id="lt-1158"></a>
+
+## LT-1158
+
+### LT-1158 — accepting "Leave" on a pop-up that stopped close_tab leaves the tab open
+
+**Status: source fix verified 12 November 2026 (extension 0.2.57); installed-extension check pending.**
+
+### Observed behaviour
+
+Reproduced twice on windows-pc on 12 November 2026 (Browser Gateway to the real Chrome, throwaway page with a
+`beforeunload` listener and a real key press). `browser.close_tab` failed with `browser_dialog_open: the page opened
+Chrome's "Leave site?" pop-up`; `browser.handle_dialog { accept: true, actionHint: "close the test tab" }` returned
+`succeeded` (`dialogType: "beforeunload"`); the tab then stayed open: a snapshot succeeded 8 seconds later (first run)
+and 20 seconds later (second run), and `list_targets { refresh: true }` still listed it. A second `close_tab` then
+closed it with no new pop-up. The same accept after a pop-up raised by `navigate` does complete the navigation.
+Evidence: [Check 2b](2026-10-28-browser-page-popups_livetest.md).
+
+### Root cause
+
+Confirmed only as far as the code and the two runs show. `resources/browser-extension/background.js` answers the
+pop-up with `Page.handleJavaScriptDialog` and relies on the `chrome.tabs.remove` it left pending to finish the close.
+In real Chrome that pending call did not close the tab. Why Chrome drops it is not established (the extension's
+debugger session and the pop-up were both answered cleanly); a second `tabs.remove` after the answer works, which
+is what the fix uses. The previous test only covered the Stay path.
+
+### Required behaviour and acceptance
+
+After `handle_dialog { accept: true }` on a pop-up that interrupted `close_tab`, the tab is closed without the caller
+repeating the close. Extension 0.2.57 (`finishCloseAfterLeave`) checks for the tab for up to two seconds and, if it is
+still open, asks Chrome to close it again (bounded to two seconds so a second pop-up cannot hang the answer). Stay and
+a pop-up raised by another command are unchanged. Acceptance: `browser-extension-assets.spec.ts` cases under
+"answering the pop-up that stopped close_tab" (the Leave case fails without the fix); and on windows-pc running 0.2.57,
+Check 2b of the page pop-ups livetest ends with the tab gone from `list_targets { refresh: true }` after one accept.
 
 <a id="lt-1156"></a>
 
