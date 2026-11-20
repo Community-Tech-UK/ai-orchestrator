@@ -198,6 +198,104 @@ describe('fillCredentialOperation secure extension revalidation', () => {
   );
 });
 
+describe('fillCredentialOperation required portal path', () => {
+  const BUYER_ORIGIN = 'https://supplier.in-tend.co.uk';
+  const request: BrowserGatewayFillCredentialRequest = {
+    profileId: 'existing-tab:node-1:42',
+    targetId: 'extension:node-1:42',
+    vaultItemRef: 'opaque-vault-ref',
+    fields: [{ selector: '#password', kind: 'password' }],
+    requiredPortalPath: '/cpcatapult',
+  };
+  const makeDeps = (readTargetUrl: FillOperationDeps['readTargetUrl']) => {
+    const vaultRead = vi.fn(async () => 'NON_SECRET_TEST_PLACEHOLDER');
+    const deps: FillOperationDeps = {
+      result: (<T>(input: unknown) => input as BrowserGatewayResult<T>) as FillOperationDeps['result'],
+      hasExistingTab: () => true,
+      sharedTabCredentialFillAllowed: () => true,
+      sharedTabSecureCredentialFillSupported: () => true,
+      resolveCredentialProfileScope: () => 'node-1',
+      type: vi.fn(),
+      select: vi.fn(),
+      click: vi.fn(),
+      readControl: vi.fn(),
+      driverType: vi.fn(async () => ({ valueApplied: true })),
+      httpAuthNavigate: vi.fn(),
+      // Origin alone cannot tell the two buyers apart: it is the same for both.
+      refreshTargetOrigin: vi.fn(async () => BUYER_ORIGIN),
+      ...(readTargetUrl ? { readTargetUrl } : {}),
+      credentialVault: {
+        getSecretForFill: vaultRead,
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      } as unknown as FillOperationDeps['credentialVault'],
+      credentialAuthorizations: {
+        check: vi.fn(() => ({ authorized: true as const })),
+      } as unknown as FillOperationDeps['credentialAuthorizations'],
+    };
+    return { deps, vaultRead };
+  };
+
+  it('types when the live page is inside the required portal', async () => {
+    const { deps } = makeDeps(vi.fn(async () => `${BUYER_ORIGIN}/cpcatapult/home`));
+    expect(await fillCredentialOperation(deps, request)).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(deps.driverType).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses before the vault is read when the page is already in another portal', async () => {
+    const { deps, vaultRead } = makeDeps(vi.fn(async () => `${BUYER_ORIGIN}/publicagroup/home`));
+    expect(await fillCredentialOperation(deps, request))
+      .toMatchObject({ decision: 'denied', reason: 'portal_changed_before_fill' });
+    expect(vaultRead).not.toHaveBeenCalled();
+    expect(deps.driverType).not.toHaveBeenCalled();
+  });
+
+  it('refuses a same-origin redirect that lands after the first read, just before typing', async () => {
+    const readTargetUrl = vi.fn()
+      .mockResolvedValueOnce(`${BUYER_ORIGIN}/cpcatapult/home`)
+      .mockResolvedValue(`${BUYER_ORIGIN}/publicagroup/home`);
+    const { deps } = makeDeps(readTargetUrl);
+    expect(await fillCredentialOperation(deps, request))
+      .toMatchObject({ decision: 'denied', reason: 'portal_changed_before_fill' });
+    expect(deps.driverType).not.toHaveBeenCalled();
+  });
+
+  it('hands the portal path to the type command so the extension re-checks it at the write', async () => {
+    const { deps } = makeDeps(vi.fn(async () => `${BUYER_ORIGIN}/cpcatapult/home`));
+    await fillCredentialOperation(deps, request);
+    expect(vi.mocked(deps.driverType).mock.calls[0]?.[8]).toBe('/cpcatapult');
+    const { requiredPortalPath: _omit, ...open } = request;
+    const { deps: openDeps } = makeDeps(undefined);
+    await fillCredentialOperation(openDeps, open);
+    expect(vi.mocked(openDeps.driverType).mock.calls[0]?.[8]).toBeUndefined();
+  });
+
+  it('refuses before the vault is read when the extension cannot enforce the portal path', async () => {
+    const { deps, vaultRead } = makeDeps(vi.fn(async () => `${BUYER_ORIGIN}/cpcatapult/home`));
+    // An older bundle is secure for origin-only fills but cannot re-check the path.
+    deps.sharedTabSecureCredentialFillSupported = vi.fn((_p, _t, requiresPortalBinding) => !requiresPortalBinding);
+    expect(await fillCredentialOperation(deps, request))
+      .toMatchObject({ decision: 'denied', reason: 'shared_tab_secure_credential_fill_unavailable' });
+    expect(vaultRead).not.toHaveBeenCalled();
+    expect(deps.driverType).not.toHaveBeenCalled();
+    const { requiredPortalPath: _omit, ...open } = request;
+    expect(await fillCredentialOperation(deps, open)).toMatchObject({ decision: 'allowed' });
+  });
+
+  it('fails closed when the live URL cannot be read', async () => {
+    const { deps } = makeDeps(undefined);
+    expect(await fillCredentialOperation(deps, request))
+      .toMatchObject({ decision: 'denied', reason: 'target_unavailable' });
+    expect(deps.driverType).not.toHaveBeenCalled();
+  });
+
+  it('keeps the origin-only check when no portal is required', async () => {
+    const { deps } = makeDeps(undefined);
+    const { requiredPortalPath: _omit, ...open } = request;
+    expect(await fillCredentialOperation(deps, open)).toMatchObject({ decision: 'allowed' });
+  });
+});
+
 describe('fillCredentialOperation authorization denial', () => {
   it('returns an actionable reason when the live origin is not on the standing grant', async () => {
     const NODE_ID = 'bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be';
@@ -341,6 +439,7 @@ describe('fillCredentialOperation fill-origin resolution (embedded cross-origin 
         expect.any(String),
         expect.any(Function),
         PAGE_ORIGIN,
+        undefined,
       ]);
     }
   });

@@ -340,6 +340,10 @@ describe('browser extension assets', () => {
     // handle_dialog accept on the pop-up that stopped a close_tab finishes the
     // close when Chrome leaves the tab open (LT-1158).
     '0.2.57': '286d45e92d47',
+    // The credential write re-checks a buyer portal's live path, not only its
+    // origin, at both top-level reads around the frame probe. 0.2.55 to 0.2.57
+    // were built without it, so portal-bound fills need this version or newer.
+    '0.2.58': 'dfa9eb61de05',
   };
 
   it('ships each background bundle under its own manifest version', () => {

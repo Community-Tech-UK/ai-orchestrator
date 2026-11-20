@@ -20,6 +20,7 @@ import {
 import { resolveEmailCode, resolveEmailSenderDomains } from './browser-credential-email-senders';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
+import { readCredentialFillLivePage } from './browser-credential-fill-live-page';
 import { resolveCredentialTaskScope } from './browser-credential-access-session';
 import { resolveCredentialComputerId } from './browser-credential-access-runtime';
 import type { BrowserEmailCodeReader } from './browser-email-code-reader';
@@ -63,8 +64,14 @@ export interface FillOperationDeps {
    * Whether the exact local/remote extension channel has a fresh runtime at or
    * above the secure credential protocol floor. Default absent = false for a
    * shared tab. Checked before a vault secret or one-time code is resolved.
+   * `requiresPortalBinding` also asks for a build that re-checks the portal
+   * path itself right before typing (see `requiredPortalPath`).
    */
-  sharedTabSecureCredentialFillSupported?: (profileId: string, targetId: string) => boolean;
+  sharedTabSecureCredentialFillSupported?: (
+    profileId: string,
+    targetId: string,
+    requiresPortalBinding?: boolean,
+  ) => boolean;
   /**
    * Whether the exact local/remote extension channel can answer Chrome's own
    * HTTP Basic/Digest prompt (fill_http_auth; needs the build that registers
@@ -126,6 +133,12 @@ export interface FillOperationDeps {
      * re-check still watches the page the user is actually looking at.
      */
     pageOrigin?: string,
+    /**
+     * Portal path prefix the TOP-LEVEL page must still sit under. The extension
+     * re-reads the tab's live path with its own origin check right before the
+     * value is written; buyers that share an origin differ only by this path.
+     */
+    portalPath?: string,
   ) => Promise<{ valueApplied?: boolean } | void>;
   refreshTargetOrigin: (profileId: string, targetId: string) => Promise<string>;
   /**
@@ -308,6 +321,11 @@ export async function fillCredentialOperation(
   // the standing-authorization gate below still has to pass for the resolved
   // node scope + live origin, so an unauthorized origin can never be filled.
   const isExistingTab = deps.hasExistingTab(request.profileId, request.targetId);
+  const secureTabSupported = (): boolean => Boolean(deps.sharedTabSecureCredentialFillSupported?.(
+    request.profileId,
+    request.targetId,
+    Boolean(request.requiredPortalPath),
+  ));
   if (isExistingTab && !deps.sharedTabCredentialFillAllowed?.(request.profileId)) {
     return deny(
       'fill_credential_managed_profile_only',
@@ -317,7 +335,7 @@ export async function fillCredentialOperation(
   if (request.fields.length === 0) {
     return deny('no_fields', `${toolName} requires at least one field`);
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
+  if (isExistingTab && !secureTabSupported()) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -326,14 +344,18 @@ export async function fillCredentialOperation(
 
   let pageOrigin = '';
   try {
-    pageOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
+    const livePage = await readCredentialFillLivePage(deps, request);
+    pageOrigin = livePage.origin;
+    if (livePage.outsidePortal) {
+      return deny('portal_changed_before_fill', `${toolName} aborted: the tab is not in the required portal`);
+    }
   } catch {
     return deny('target_unavailable', `${toolName} could not resolve the live page origin`);
   }
   if (!pageOrigin) {
     return deny('origin_unknown', `${toolName} could not determine the live page origin`);
   }
-  if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
+  if (isExistingTab && !secureTabSupported()) {
     return deny(
       'shared_tab_secure_credential_fill_unavailable',
       `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -436,7 +458,7 @@ export async function fillCredentialOperation(
       // asking the vault or mailbox to resolve anything, so a disconnect/reload
       // during those checks cannot cause an unsafe generation to trigger a read.
       step = 'secure_extension';
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
+      if (isExistingTab && !secureTabSupported()) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} requires a current secure Browser Gateway extension on this shared tab`,
@@ -462,25 +484,20 @@ export async function fillCredentialOperation(
       // the receiving frame's own origin is re-verified in-page immediately before
       // the DOM write.
       step = 'origin_recheck';
-      if (isExistingTab && !secretObservationBlocked) {
-        let liveOrigin: string;
-        try {
-          liveOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
-        } catch {
-          return deny(
-            'target_unavailable',
-            `${toolName} could not re-confirm the live page origin before filling`,
-          );
+      if ((isExistingTab || request.requiredPortalPath) && !secretObservationBlocked) {
+        const livePage = await readCredentialFillLivePage(deps, request).catch(() => null);
+        if (!livePage) {
+          return deny('target_unavailable', `${toolName} could not re-confirm the live page origin before filling`);
         }
-        if (liveOrigin !== pageOrigin) {
-          return deny(
-            'origin_changed_during_fill',
-            `${toolName} aborted: the tab navigated away from ${pageOrigin} before the secret was typed`,
-          );
+        const moved = livePage.outsidePortal
+          ? 'portal_changed_before_fill'
+          : livePage.origin !== pageOrigin ? 'origin_changed_during_fill' : null;
+        if (moved) {
+          return deny(moved, `${toolName} aborted: the tab left ${pageOrigin} or its portal before the secret was typed`);
         }
       }
       step = 'secure_extension';
-      if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) {
+      if (isExistingTab && !secureTabSupported()) {
         return deny(
           'shared_tab_secure_credential_fill_unavailable',
           `${toolName} aborted because the secure Browser Gateway extension changed before filling`,
@@ -507,10 +524,11 @@ export async function fillCredentialOperation(
           step = 'pre_dispatch_guard';
           assertFillUnlocked?.();
           if (!checkField(purpose, field.selector).authorized) throw new Error('credential_authorization_changed');
-          if (isExistingTab && !deps.sharedTabSecureCredentialFillSupported?.(request.profileId, request.targetId)) throw new Error('shared_tab_secure_credential_fill_unavailable');
+          if (isExistingTab && !secureTabSupported()) throw new Error('shared_tab_secure_credential_fill_unavailable');
           step = 'dispatch';
         },
         pageOrigin,
+        request.requiredPortalPath,
       );
       step = 'write_confirmation';
       if (protection !== 'public') secretObservationBlocked = true;
@@ -559,136 +577,7 @@ export async function fillCredentialOperation(
   });
 }
 
-export async function createAgentCredentialOperation(
-  deps: FillOperationDeps,
-  request: BrowserGatewayCreateAgentCredentialRequest,
-): Promise<BrowserGatewayResult<{ vaultItemRef: string; username: string } | null>> {
-  const toolName = 'browser.create_agent_credential';
-  const action = 'create_agent_credential';
-  const context = contextOf(request);
-  let origin = '';
-  const deny = (reason: string, summary: string): BrowserGatewayResult<null> =>
-    deps.result({
-      context,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: 'credential',
-      decision: 'denied',
-      outcome: 'not_run',
-      reason,
-      summary,
-      ...(origin ? { origin } : {}),
-      data: null,
-    });
-
-  const vault = deps.credentialVault;
-  const authorizations = deps.credentialAuthorizations;
-  if (!vault || !authorizations) {
-    return deny('credential_vault_unavailable', `${toolName} is not configured on this instance`);
-  }
-  // Never let an extension-shaped caller fall through to the managed driver.
-  // Shared-tab profile ids encode the worker node used by authorization scope,
-  // so the trusted extension store must contain this exact profile/target pair
-  // before any caller-controlled node id can influence a grant lookup.
-  if (
-    request.profileId.startsWith('existing-tab:') &&
-    !deps.hasExistingTab(request.profileId, request.targetId)
-  ) {
-    return deny('target_unavailable', `${toolName} could not resolve the shared browser target`);
-  }
-  let liveOrigin: string;
-  try {
-    liveOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
-  } catch {
-    return deny('target_unavailable', `${toolName} could not resolve the live page origin`);
-  }
-  if (!liveOrigin) {
-    return deny('origin_unknown', `${toolName} could not determine the live page origin`);
-  }
-
-  origin = liveOrigin;
-  if (request.loginUri) {
-    const parsed = parseCredentialLoginUri(request.loginUri);
-    if (!parsed) {
-      return deny(
-        'invalid_login_uri',
-        `${toolName} requires an http(s) login URI without embedded credentials`,
-      );
-    }
-    origin = parsed.origin;
-  }
-
-  // The target was proved live above before its scope can authorize anything.
-  // Shared extension tabs have ephemeral profile ids, so register permission is
-  // checked against their stable worker-node scope. The explicit login URI can
-  // differ from the currently shared Meta tab, but the credential remains bound
-  // exactly to that URI's origin; fill_credential still refuses every other origin.
-  const authProfileId = deps.resolveCredentialProfileScope?.(request.profileId) ?? request.profileId;
-  const decision = authorizations.check({ profileId: authProfileId, origin, purpose: 'register' });
-  if (!decision.authorized) {
-    const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
-      toolName,
-      origin,
-      purpose: 'register',
-      reason: decision.reason ?? 'unknown',
-      scope: authProfileId,
-    });
-    return deny(denial.reason, denial.summary);
-  }
-
-  try {
-    const created = await vault.createAgentCredential({
-      origin,
-      ...(request.itemTitle ? { itemTitle: request.itemTitle } : {}),
-      ...(request.loginUri ? { loginUri: request.loginUri } : {}),
-      username: request.username,
-    });
-    deps.recordNewAccount?.({ ...request, url: origin });
-    return deps.result({
-      context,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: 'credential',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: `Created a vaulted credential for ${request.username} on ${origin}`,
-      // Returns a reference + username only — the generated password stays in the vault.
-      data: { vaultItemRef: created.vaultItemRef, username: created.username },
-    });
-  } catch (error) {
-    return deps.result({
-      context,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: 'credential',
-      decision: 'denied',
-      outcome: 'failed',
-      reason: credentialFailureCode(error, 'create_agent_credential_failed'),
-      summary: `${toolName} failed`,
-      data: null,
-    });
-  }
-}
-
-function parseCredentialLoginUri(value: string): URL | null {
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username !== '' || url.password !== '') {
-      return null;
-    }
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-function contextOf(request: BrowserGatewayContext): BrowserGatewayContext {
+export function contextOf(request: BrowserGatewayContext): BrowserGatewayContext {
   return {
     ...(request.instanceId ? { instanceId: request.instanceId } : {}),
     ...(request.provider ? { provider: request.provider } : {}),

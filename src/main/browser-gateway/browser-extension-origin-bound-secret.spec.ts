@@ -138,6 +138,7 @@ return runOriginBoundType;`,
     expectedOrigin: string,
     credentialProtection?: string,
     expectedPageOrigin?: string,
+    expectedPortalPath?: string,
   ) => Promise<unknown>;
   return { chrome, markSecretTaint, rememberSecretValueCheck, runOriginBoundType };
 }
@@ -863,6 +864,7 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
       AUTHORIZED_ORIGIN,
       undefined,
       undefined,
+      undefined,
     );
     expect(runInTargetTab).not.toHaveBeenCalled();
     expect(typeByUid).not.toHaveBeenCalled();
@@ -920,6 +922,74 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
       JSON.stringify(input));
     expect(serializedCalls).toHaveLength(1);
     expect(serializedCalls.join('\n')).not.toContain(SECRET);
+  });
+
+  describe('required portal path (buyers that share one origin)', () => {
+    const PORTAL_PAGE = `${AUTHORIZED_ORIGIN}/cpcatapult/home`;
+    const OTHER_PORTAL_PAGE = `${AUTHORIZED_ORIGIN}/publicagroup/home`;
+
+    it('writes when the live path stays inside the portal', async () => {
+      const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({
+        tabUrls: [PORTAL_PAGE, `${AUTHORIZED_ORIGIN}/cpcatapult/tenders`],
+        typeResults: [{ frameId: 0, found: true }],
+      });
+
+      await runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '/cpcatapult',
+      );
+
+      expect(chrome.scripting.executeScript).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses before the origin probe when the tab is already in the other portal', async () => {
+      const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({ tabUrls: [OTHER_PORTAL_PAGE] });
+
+      await expect(runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '/cpcatapult',
+      )).rejects.toThrow('credential_origin_changed_before_write');
+
+      expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
+    });
+
+    it('sends no secret when a same-origin redirect lands after the probe', async () => {
+      const { chrome, markSecretTaint, runOriginBoundType } = buildOriginBoundTypeHarness({
+        tabUrls: [PORTAL_PAGE, OTHER_PORTAL_PAGE],
+      });
+
+      await expect(runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '/cpcatapult',
+      )).rejects.toThrow('credential_origin_changed_before_write');
+
+      const serializedCalls = chrome.scripting.executeScript.mock.calls.map(([input]) => JSON.stringify(input));
+      expect(serializedCalls).toHaveLength(1);
+      expect(serializedCalls.join('\n')).not.toContain(SECRET);
+      expect(markSecretTaint).not.toHaveBeenCalled();
+    });
+
+    it('does not treat a longer sibling path as inside the portal', async () => {
+      const { runOriginBoundType } = buildOriginBoundTypeHarness({
+        tabUrls: [`${AUTHORIZED_ORIGIN}/cpcatapult-other/home`],
+      });
+
+      await expect(runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '/cpcatapult',
+      )).rejects.toThrow('credential_origin_changed_before_write');
+    });
+
+    it('rejects a malformed portal path before touching the tab', async () => {
+      const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({ tabUrls: [PORTAL_PAGE] });
+
+      await expect(runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '//evil.example/x',
+      )).rejects.toThrow('invalid_credential_portal_path');
+
+      expect(chrome.tabs.get).not.toHaveBeenCalled();
+    });
   });
 
   it('remembers how to recognise the value before protecting the tab and writing it', async () => {
@@ -1022,6 +1092,104 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
     expect(result).toEqual({ __credentialOriginMismatch: true });
     expect((dom.window.document.querySelector('#password') as HTMLInputElement).value).toBe('');
     expect(JSON.stringify(result)).not.toContain(SECRET);
+  });
+
+  describe('portal path checked inside the injected function', () => {
+    function buildBridge(pagePath: string, windowOverride?: unknown) {
+      const dom = new JSDOM('<!doctype html><input id="password" type="password">', {
+        url: `${AUTHORIZED_ORIGIN}${pagePath}`,
+      });
+      dom.window.Element.prototype.scrollIntoView = () => undefined;
+      const build = new Function(
+        'window',
+        'document',
+        'location',
+        'HTMLInputElement',
+        'HTMLTextAreaElement',
+        'HTMLSelectElement',
+        'InputEvent',
+        'Event',
+        `${extractFunctionSource(background, 'pageBridgeScript')}; return pageBridgeScript;`,
+      );
+      const pageBridgeScript = build(
+        windowOverride ?? dom.window,
+        dom.window.document,
+        dom.window.location,
+        dom.window.HTMLInputElement,
+        dom.window.HTMLTextAreaElement,
+        dom.window.HTMLSelectElement,
+        dom.window.InputEvent,
+        dom.window.Event,
+      ) as (...args: unknown[]) => Record<string, unknown>;
+      const input = () => dom.window.document.querySelector('#password') as HTMLInputElement;
+      return { pageBridgeScript, input };
+    }
+
+    it('refuses to write when a same-origin redirect landed in the other portal after the last read', () => {
+      const { pageBridgeScript, input } = buildBridge('/publicagroup/home');
+
+      const result = pageBridgeScript(
+        'type', ['#password', SECRET], AUTHORIZED_ORIGIN, 'password', '/cpcatapult',
+      );
+
+      expect(result).toEqual({ __credentialOriginMismatch: true });
+      expect(input().value).toBe('');
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+    });
+
+    it('refuses a longer sibling path and writes inside the portal', () => {
+      const sibling = buildBridge('/cpcatapult-other/home');
+      expect(sibling.pageBridgeScript(
+        'type', ['#password', SECRET], AUTHORIZED_ORIGIN, 'password', '/cpcatapult',
+      )).toEqual({ __credentialOriginMismatch: true });
+      expect(sibling.input().value).toBe('');
+
+      const inside = buildBridge('/cpcatapult/tenders');
+      const result = inside.pageBridgeScript(
+        'type', ['#password', SECRET], AUTHORIZED_ORIGIN, 'password', '/cpcatapult',
+      );
+      expect(result).not.toHaveProperty('__credentialOriginMismatch');
+      expect(inside.input().value).toBe(SECRET);
+    });
+
+    it('fails closed when the top-level page path cannot be read', () => {
+      const opaqueTop = {
+        get top() {
+          throw new Error('cross-origin');
+        },
+      };
+      const { pageBridgeScript, input } = buildBridge('/cpcatapult/home', opaqueTop);
+
+      expect(pageBridgeScript(
+        'type', ['#password', SECRET], AUTHORIZED_ORIGIN, 'password', '/cpcatapult',
+      )).toEqual({ __credentialOriginMismatch: true });
+      expect(input().value).toBe('');
+    });
+
+    it('keeps the origin-only behaviour when no portal path is given', () => {
+      const { pageBridgeScript, input } = buildBridge('/publicagroup/home');
+
+      pageBridgeScript('type', ['#password', SECRET], AUTHORIZED_ORIGIN, 'password');
+
+      expect(input().value).toBe(SECRET);
+    });
+
+    it('hands the portal path to the injected write so the last window is covered', async () => {
+      const { chrome, runOriginBoundType } = buildOriginBoundTypeHarness({
+        tabUrls: [`${AUTHORIZED_ORIGIN}/cpcatapult/home`],
+        typeResults: [{ frameId: 0, found: true }],
+      });
+
+      await runOriginBoundType(
+        { target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN,
+        'password', AUTHORIZED_ORIGIN, '/cpcatapult',
+      );
+
+      const writeCall = chrome.scripting.executeScript.mock.calls
+        .map(([input]) => input)
+        .find((input) => input.func?.name === 'pageBridgeScript');
+      expect(writeCall?.args?.[4]).toBe('/cpcatapult');
+    });
   });
 
   it('returns only non-secret write status from an authorized frame', () => {

@@ -169,9 +169,9 @@ import type { FillControlReadback, FillPlanResult } from './browser-fill-plan-ex
 import {
   executeFillPlanOperation,
   fillCredentialOperation,
-  createAgentCredentialOperation,
   type FillOperationDeps,
 } from './browser-form-fill-operations';
+import { createAgentCredentialOperation } from './browser-agent-credential-operation';
 import { fillHttpAuthOperation } from './browser-http-auth-fill-operation';
 import { BrowserOneTimeCodeFillLedger } from './browser-one-time-code-submit';
 import { fillSecretOperation } from './browser-secret-fill-operation';
@@ -1757,9 +1757,9 @@ export class BrowserGatewayService {
       // reader resolves correctly. The global-flag reader ignores the argument.
       sharedTabCredentialFillAllowed: (profileId) =>
         this.allowSharedTabCredentialFill(credentialScopeForProfile(profileId)),
-      sharedTabSecureCredentialFillSupported: (profileId, targetId) => {
+      sharedTabSecureCredentialFillSupported: (profileId, targetId, requiresPortalBinding) => {
         const tab = this.extensionTabStore.getTab(profileId, targetId); // gone: no evidence to judge
-        return Boolean(tab) && supportsSecureBrowserExtensionCredentialFill(this.extensionContactState, credentialScopeForProfile(profileId), tab?.extensionInstanceId);
+        return Boolean(tab) && supportsSecureBrowserExtensionCredentialFill(this.extensionContactState, credentialScopeForProfile(profileId), tab?.extensionInstanceId, requiresPortalBinding);
       },
       sharedTabSecureHttpAuthSupported: (profileId, targetId) => {
         const tab = this.extensionTabStore.getTab(profileId, targetId); // gone: no evidence to judge
@@ -1777,7 +1777,7 @@ export class BrowserGatewayService {
       // land on. Rides the same extension read_control reply (`__frameOrigin`).
       resolveFieldFrameOrigin: async (profileId, targetId, selector) =>
         (await this.readControlForTarget(profileId, targetId, selector)).frameOrigin,
-      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection, beforeDispatch, pageOrigin) =>
+      driverType: (profileId, targetId, selector, value, authorizedOrigin, protection, beforeDispatch, pageOrigin, portalPath) =>
         this.driverTypeForTarget(
           profileId,
           targetId,
@@ -1787,6 +1787,7 @@ export class BrowserGatewayService {
           protection,
           beforeDispatch,
           pageOrigin,
+          portalPath,
         ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       readTargetUrl: (profileId, targetId) => this.readTargetUrl(profileId, targetId),
@@ -1840,6 +1841,7 @@ export class BrowserGatewayService {
     protection: 'public' | 'password' | 'secret',
     beforeDispatch?: () => void,
     pageOrigin: string = authorizedOrigin,
+    portalPath?: string,
   ): Promise<{ valueApplied?: boolean } | void> {
     const existingTab = this.extensionTabStore.getTab(profileId, targetId);
     if (existingTab) {
@@ -1847,6 +1849,7 @@ export class BrowserGatewayService {
         this.extensionContactState,
         credentialScopeForProfile(profileId),
         existingTab.extensionInstanceId,
+        Boolean(portalPath),
       )) {
         throw new Error('shared_tab_secure_credential_fill_unavailable');
       }
@@ -1856,6 +1859,7 @@ export class BrowserGatewayService {
         credentialOrigin: authorizedOrigin,
         credentialProtection: protection,
         credentialPageOrigin: pageOrigin,
+        ...(portalPath ? { credentialPortalPath: portalPath } : {}),
       }, undefined, undefined, beforeDispatch);
       // Password/secret writes accept ONLY the extension's fixed two-field
       // taint sentinel. A legacy page-derived `{ valueApplied: true, ... }`

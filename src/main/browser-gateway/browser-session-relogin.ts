@@ -428,7 +428,14 @@ async function attemptRelogin(
     throw new Error(`relogin navigate refused: ${nav.reason ?? nav.decision}`);
   }
 
-  await assertLiveRecipe(deps, request, recipe);
+  // navigate resolves before the portal has rendered its form, so an immediate read can
+  // report zero elements on a page that is about to show one (LT-1159). Wait for the
+  // password input; if it never appears, the read below still decides what the page is.
+  await deps.waitFor({
+    ...base,
+    selector: relogin.passwordSelector,
+    timeoutMs: SETTLE_POLLS * SETTLE_INTERVAL_MS,
+  });
 
   const loginForm = await deps.queryElements({ ...base, limit: 100 });
   if (loginForm.decision !== 'allowed' || loginForm.outcome !== 'succeeded' || loginForm.data == null) {
@@ -438,6 +445,10 @@ async function attemptRelogin(
   if (!loginFormHasPassword) {
     throw new MarkersNotMatchedOnSignedInPage();
   }
+
+  // Check the live portal last, after the wait and the read, so a same-origin redirect into
+  // another buyer portal during either cannot receive this recipe's credential.
+  await assertLiveRecipe(deps, request, recipe);
 
   const fields: BrowserGatewayFillCredentialRequest['fields'] = [
     ...(relogin.usernameSelector
@@ -449,6 +460,7 @@ async function attemptRelogin(
     ...base,
     vaultItemRef: relogin.vaultItemRef,
     fields,
+    ...portalGuard(recipe),
   });
   if (fill.decision !== 'allowed' || fill.outcome !== 'succeeded') {
     throw new Error(`relogin credential fill refused: ${fill.reason ?? fill.decision}`);
@@ -471,6 +483,7 @@ async function attemptRelogin(
       ...base,
       vaultItemRef: relogin.vaultItemRef,
       fields: [{ selector: relogin.codeSelector, kind: relogin.codeKind }],
+      ...portalGuard(recipe),
     });
     if (codeFill.decision !== 'allowed' || codeFill.outcome !== 'succeeded') {
       throw new Error(`relogin 2FA fill refused: ${codeFill.reason ?? codeFill.decision}`);
@@ -479,6 +492,16 @@ async function attemptRelogin(
       await submit(deps, base, relogin.submitSelector);
     }
   }
+}
+
+/**
+ * The fill service re-reads the live URL immediately before it types and refuses when the
+ * tab has left this recipe's portal. assertLiveRecipe alone leaves a gap between its
+ * snapshot and the fill, and the fill's own origin check cannot see a same-origin
+ * redirect into another buyer's portal.
+ */
+function portalGuard(recipe: LoginRecipe): { requiredPortalPath?: string } {
+  return recipe.portalPath ? { requiredPortalPath: recipe.portalPath } : {};
 }
 
 async function assertLiveRecipe(

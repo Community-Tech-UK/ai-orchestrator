@@ -150,6 +150,66 @@ describe('checkSessionOperation', () => {
     );
   });
 
+  it('waits for the login form to render after navigation before filling it', async () => {
+    // A slow portal reports zero elements for the first moments after navigation.
+    // The form must be awaited by its password selector, not read straight away.
+    harness.page.hasPasswordField = true;
+    harness.page.text = 'Please sign in';
+    let formRendered = false;
+    let signedIn = false;
+    harness.deps.waitFor = vi.fn(async () => {
+      formRendered = true;
+      return allowed(null);
+    });
+    harness.deps.snapshot = vi.fn(async () => (signedIn
+      ? allowed({ title: 'Portal', url: `${ORIGIN}/dashboard`, text: 'Log out' })
+      : allowed({ title: 'Login', url: `${ORIGIN}/login`, text: 'Please sign in' })));
+    let queries = 0;
+    harness.deps.queryElements = vi.fn(async () => {
+      queries += 1;
+      if (signedIn) {
+        return allowed([]);
+      }
+      // The first read is the initial evaluation of the already-loaded login page.
+      return allowed(queries === 1 || formRendered
+        ? [{ selector: '#pass', tagName: 'input', inputType: 'password' }]
+        : []);
+    });
+    harness.deps.click = vi.fn(async () => {
+      signedIn = true;
+      return allowed(null);
+    });
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({ state: 'logged_in', reloggedIn: true, attempts: 1 });
+    expect(harness.deps.waitFor).toHaveBeenCalledWith(
+      expect.objectContaining({ selector: '#pass', profileId: 'profile-1', targetId: 'target-1' }),
+    );
+    expect(harness.deps.fillCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reports unknown without filling when no login form ever appears after navigation', async () => {
+    harness.page.hasPasswordField = true;
+    harness.page.text = 'Please sign in';
+    harness.deps.waitFor = vi.fn(async () =>
+      ({ decision: 'allowed', outcome: 'failed', reason: 'wait_for_timeout', data: null }) as never,
+    );
+    harness.deps.queryElements = vi.fn()
+      .mockResolvedValueOnce(allowed([{ selector: '#pass', tagName: 'input', inputType: 'password' }]))
+      .mockResolvedValue(allowed([]));
+
+    const outcome = await checkSessionOperation(harness.deps, REQUEST);
+
+    expect(outcome).toMatchObject({
+      state: 'unknown',
+      reason: 'markers_not_matched_on_signed_in_page',
+      attempts: 1,
+    });
+    expect(harness.deps.fillCredential).not.toHaveBeenCalled();
+    expect(harness.escalations.raise).not.toHaveBeenCalled();
+  });
+
   it('parks a relogin_failed escalation after two failed attempts', async () => {
     harness.page.hasPasswordField = true;
     harness.page.text = 'Please sign in';

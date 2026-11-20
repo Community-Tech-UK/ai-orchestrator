@@ -1210,6 +1210,56 @@ describe('BrowserGatewayService credentials', () => {
     expect(JSON.stringify(audits)).not.toContain(SECRET);
   });
 
+  it('fillCredential sends the required portal path to the extension, and refuses a build that cannot enforce it', async () => {
+    const fill = async (extensionVersion: string) => {
+      const vault = {
+        getSecretForFill: vi.fn(async () => 'NON_SECRET_TEST_PLACEHOLDER'),
+        createAgentCredential: vi.fn(),
+        getGenericSecretForFill: vi.fn(),
+      };
+      const extensionCommandStore = portalExtensionCommandStore();
+      const { service } = makeService({
+        credentialVault: vault,
+        credentialAuthorizations: { check: vi.fn(() => ({ authorized: true, authorizationId: 'auth-1' })) },
+        extensionCommandStore,
+        extensionContactState: extensionContactState(extensionVersion),
+        allowSharedTabCredentialFill: () => true,
+        existingTab: sharedPortalTab(),
+      });
+      const result = await service.fillCredential({
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        instanceId: 'instance-1',
+        provider: 'claude',
+        vaultItemRef: 'item-1',
+        fields: [{ selector: '#pass', kind: 'password' }],
+        requiredPortalPath: '/login',
+      });
+      return { result, vault, extensionCommandStore };
+    };
+
+    const current = await fill('0.2.58');
+    expect(current.result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    expect(current.extensionCommandStore.sendCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: 'type',
+        payload: expect.objectContaining({ selector: '#pass', credentialPortalPath: '/login' }),
+      }),
+    );
+
+    // 0.2.57 is secure for origin-only fills but only checks the origin, which
+    // two buyers on one site share: refused before the vault is read.
+    const older = await fill('0.2.57');
+    expect(older.result).toMatchObject({
+      decision: 'denied',
+      reason: 'shared_tab_secure_credential_fill_unavailable',
+    });
+    expect(older.vault.getSecretForFill).not.toHaveBeenCalled();
+    expect(older.extensionCommandStore.sendCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'type' }),
+    );
+  });
+
   it('fillHttpAuth answers Chrome\'s own sign-in prompt over the extension without leaking the secret', async () => {
     const SECRET = 'Http-Auth-S3cret!';
     const vault = {

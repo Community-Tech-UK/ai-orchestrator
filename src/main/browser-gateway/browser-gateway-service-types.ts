@@ -187,6 +187,13 @@ export interface BrowserGatewayFillCredentialRequest extends BrowserGatewayConte
   fields: BrowserGatewayFillCredentialField[];
   /** Tuning for email_code fields only. */
   emailCode?: BrowserGatewayFillCredentialEmailCodeOptions;
+  /**
+   * Internal callers only (never read from MCP input). The portal path prefix the live
+   * page must still sit under; checked from the tab's live URL right before each field is
+   * typed. Buyers that share an origin differ only by path, so the origin check alone
+   * cannot stop a redirect into another buyer's portal.
+   */
+  requiredPortalPath?: string;
 }
 
 export interface BrowserGatewayCreateAgentCredentialRequest extends BrowserGatewayContext {

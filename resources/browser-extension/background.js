@@ -2582,6 +2582,7 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
     const safeCredentialWriteErrors = [
       'invalid_credential_origin',
       'invalid_credential_protection',
+      'invalid_credential_portal_path',
       'credential_origin_changed_before_write',
       'credential_origin_changed_may_have_applied',
       'credential_authorized_origin_not_in_frames',
@@ -3238,6 +3239,7 @@ async function executeBrowserCommand(command, deadlineAt) {
           requirePayloadString(command, 'credentialOrigin'),
           command.payload?.credentialProtection,
           command.payload?.credentialPageOrigin,
+          command.payload?.credentialPortalPath,
         );
       }
       if (uid !== null) {
@@ -5874,6 +5876,7 @@ async function runOriginBoundType(
   expectedOriginValue,
   credentialProtectionValue,
   expectedPageOriginValue,
+  expectedPortalPathValue,
 ) {
   assertGatewayEnabled();
   const expectedOrigin = normalizeCredentialOrigin(expectedOriginValue);
@@ -5889,11 +5892,30 @@ async function runOriginBoundType(
   if (!['public', 'password', 'secret'].includes(credentialProtection)) {
     throw new Error('invalid_credential_protection');
   }
+  // Buyer portals can share one origin and differ only by path, so the origin
+  // guard alone cannot stop a redirect from one buyer's portal into another's.
+  // When the coordinator names a portal path, the tab's live path must stay under
+  // it at every top-level read below (same rule as the coordinator's own check).
+  if (expectedPortalPathValue !== undefined
+    && (typeof expectedPortalPathValue !== 'string'
+      || !expectedPortalPathValue.startsWith('/')
+      || expectedPortalPathValue.startsWith('//'))) {
+    throw new Error('invalid_credential_portal_path');
+  }
   const tabId = requireTargetTabId(command);
   const readTopLevelOrigin = async () => {
     const tab = await chrome.tabs.get(tabId);
     try {
-      return new URL(tab?.url ?? '').origin;
+      const url = new URL(tab?.url ?? '');
+      if (expectedPortalPathValue !== undefined
+        && expectedPortalPathValue !== '/'
+        && url.pathname !== expectedPortalPathValue
+        && !url.pathname.startsWith(`${expectedPortalPathValue}/`)) {
+        // Reported as an origin mismatch so the existing fail-closed branches
+        // refuse the write; the origin text itself is never returned.
+        return '';
+      }
+      return url.origin;
     } catch {
       return '';
     }
@@ -5932,7 +5954,9 @@ async function runOriginBoundType(
       injectionResults = await chrome.scripting.executeScript({
         target: { tabId, frameIds: authorizedFrameIds },
         func: pageBridgeScript,
-        args: ['type', [selector, value], expectedOrigin, credentialProtection],
+        args: expectedPortalPathValue === undefined
+          ? ['type', [selector, value], expectedOrigin, credentialProtection]
+          : ['type', [selector, value], expectedOrigin, credentialProtection, expectedPortalPathValue],
         world: 'ISOLATED',
       });
     } catch {
@@ -7598,10 +7622,32 @@ function removeControlGlowScript() {
   document.getElementById('aio-browser-control-glow')?.remove();
 }
 
-function pageBridgeScript(action, args, expectedCredentialOrigin, credentialProtection) {
+function pageBridgeScript(
+  action,
+  args,
+  expectedCredentialOrigin,
+  credentialProtection,
+  expectedPortalPath,
+) {
   const originBound = typeof expectedCredentialOrigin === 'string';
   if (originBound && location.origin !== expectedCredentialOrigin) {
     return { __credentialOriginMismatch: true };
+  }
+  if (originBound && typeof expectedPortalPath === 'string' && expectedPortalPath !== '/') {
+    // Portals that share an origin differ only by path, and a same-origin
+    // redirect can land after the coordinator's and the extension's last reads.
+    // Check the TOP-level page's path here, inside the injected function that
+    // touches the DOM. An unreadable top frame (cross-origin) fails closed.
+    let topPath = null;
+    try {
+      topPath = window.top.location.pathname;
+    } catch {
+      topPath = null;
+    }
+    if (topPath !== expectedPortalPath && !(typeof topPath === 'string'
+      && topPath.startsWith(`${expectedPortalPath}/`))) {
+      return { __credentialOriginMismatch: true };
+    }
   }
   function deepQuerySelector(selector, root = document) {
     const direct = root.querySelector?.(selector);

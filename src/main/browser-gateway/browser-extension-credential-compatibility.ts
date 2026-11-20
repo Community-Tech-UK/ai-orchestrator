@@ -21,6 +21,9 @@ export const BROWSER_EXTENSION_CODEX_DEVICE_HANDOFF_MIN_VERSION = '0.2.52';
 /** First bundle enforcing session claims and shared-Harness secret policy. */
 export const BROWSER_EXTENSION_SESSION_CLAIMS_MIN_VERSION = '0.2.54';
 
+/** First bundle whose credential write re-checks the portal path, not just the origin. */
+export const BROWSER_EXTENSION_PORTAL_BOUND_FILL_MIN_VERSION = '0.2.58';
+
 /** First bundle with the Harness-approved secret protection review and release commands. */
 export const BROWSER_EXTENSION_SECRET_RECOVERY_MIN_VERSION = '0.2.55';
 
@@ -126,19 +129,24 @@ export function withoutBrowserExtensionRuntimeEvidence(
  * vault resolution when the loaded extension is already known to be unsafe.
  *
  * Pass the extension instance (Chrome profile) that will run the write when it
- * is known; each profile's install is judged on its own evidence.
+ * is known; each profile's install is judged on its own evidence. A fill that
+ * must stay inside one buyer portal (`requiresPortalBinding`) also needs a
+ * bundle that re-checks the portal path itself: an older one would check only
+ * the origin, which two buyers on one site share.
  */
 export function supportsSecureBrowserExtensionCredentialFill(
   contactState: BrowserExtensionContactStateReader,
   channelId: string,
   extensionInstanceId?: string,
+  requiresPortalBinding = false,
 ): boolean {
   if (!contactState.isExtensionContactFresh(channelId)) {
     return false;
   }
-  return isSecureBrowserExtensionRuntimeEvidence(
-    contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
-  );
+  const runtime = contactState.getExtensionRuntime?.(channelId, extensionInstanceId);
+  return isSecureBrowserExtensionRuntimeEvidence(runtime)
+    && (!requiresPortalBinding
+      || isRuntimeAtLeast(runtime, BROWSER_EXTENSION_PORTAL_BOUND_FILL_MIN_VERSION));
 }
 
 /** Validate build evidence carried by one exact authenticated native poll. */

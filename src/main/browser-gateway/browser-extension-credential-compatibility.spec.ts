@@ -82,6 +82,19 @@ describe('browser extension credential compatibility', () => {
     ).toBe(false);
   });
 
+  it.each([
+    ['0.2.54', false],
+    ['0.2.56', false],
+    ['0.2.57', false],
+    ['0.2.58', true],
+    ['0.3.0', true],
+    ['0.2.58-rc.1', false],
+  ])('portal-bound fills need the path-checking bundle: %s -> %s', (version, expected) => {
+    // Origin-only fills stay allowed on any secure bundle.
+    expect(supportsSecureBrowserExtensionCredentialFill(contactState(version), 'local')).toBe(true);
+    expect(supportsSecureBrowserExtensionCredentialFill(contactState(version), 'local', undefined, true)).toBe(expected);
+  });
+
   it('reads runtime evidence from the exact remote contact channel', () => {
     const state = contactState('0.2.18');
     expect(supportsSecureBrowserExtensionCredentialFill(state, 'windows-pc')).toBe(true);

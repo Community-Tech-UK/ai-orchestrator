@@ -148,6 +148,26 @@ describe.each(['sqlite', 'memory'])('shared-origin buyer login recipes (LT-708, 
     expect(deps.fillCredential).not.toHaveBeenCalled();
   });
 
+  it('stops before filling when the portal changes while waiting for the login form', async () => {
+    remember('cpcatapult');
+    remember('publicagroup');
+    const { page, deps } = session('cpcatapult');
+    deps.waitFor = vi.fn(async () => { page.url = `${ORIGIN}/publicagroup/home`; return allowed(null); });
+    expect(await checkSessionOperation(deps, { profileId: PROFILE, targetId: 'TEST_ONLY_tab' }))
+      .toMatchObject({ state: 'unknown', reason: 'login_recipe_portal_changed', attempts: 1 });
+    expect(deps.fillCredential).not.toHaveBeenCalled();
+  });
+
+  it('asks the fill service to enforce the selected portal path at the moment of typing', async () => {
+    remember('cpcatapult');
+    remember('publicagroup');
+    const { deps } = session('cpcatapult');
+    await checkSessionOperation(deps, { profileId: PROFILE, targetId: 'TEST_ONLY_tab' });
+    expect(deps.fillCredential).toHaveBeenCalledWith(expect.objectContaining({
+      vaultItemRef: 'TEST_ONLY_cpcatapult', requiredPortalPath: '/cpcatapult',
+    }));
+  });
+
   it('does not report success from the other portal even when Logout is visible', async () => {
     remember('cpcatapult');
     remember('publicagroup');
@@ -184,8 +204,12 @@ describe.each(['sqlite', 'memory'])('shared-origin buyer login recipes (LT-708, 
     const { page, deps } = session('cpcatapult');
     // The click returns before navigation, as it can on the real extension.
     deps.click = vi.fn(async () => allowed(null));
-    const waitFor = vi.fn(async () => { page.url = `${ORIGIN}/publicagroup/home`; return allowed(null); });
-    deps.waitFor = waitFor;
+    // Only the code wait (after the password submit) redirects; the password wait must not.
+    const waitFor = vi.fn(async ({ selector }: { selector?: string }) => {
+      if (selector === '#code') { page.url = `${ORIGIN}/publicagroup/home`; }
+      return allowed(null);
+    });
+    deps.waitFor = waitFor as unknown as CheckSessionDeps['waitFor'];
     expect(await checkSessionOperation(deps, { profileId: PROFILE, targetId: 'TEST_ONLY_tab' }))
       .toMatchObject({ state: 'unknown', reason: 'login_recipe_portal_changed', attempts: 1 });
     expect(waitFor).toHaveBeenCalledWith(expect.objectContaining({ selector: '#code' }));
@@ -210,7 +234,10 @@ describe.each(['sqlite', 'memory'])('shared-origin buyer login recipes (LT-708, 
       loggedInMarkers: ['Logout'], relogin: { ...recipe.relogin!, codeSelector: '#code', codeKind: 'totp' } });
     const { page, deps } = session('publicagroup');
     let codeReady = false;
-    deps.waitFor = vi.fn(async () => { codeReady = true; return allowed(null); });
+    deps.waitFor = vi.fn(async ({ selector }: { selector?: string }) => {
+      if (selector === '#code') { codeReady = true; }
+      return allowed(null);
+    }) as unknown as CheckSessionDeps['waitFor'];
     deps.snapshot = vi.fn(async () => allowed({ url: page.url, title: 'Buyer', text: codeReady ? '' : 'Sign in',
       ...(codeReady ? { textUnavailableReason: 'browser_secret_observation_blocked_for_tainted_origin' } : {}) }));
     expect(await checkSessionOperation(deps, { profileId: PROFILE, targetId: 'TEST_ONLY_tab' }))

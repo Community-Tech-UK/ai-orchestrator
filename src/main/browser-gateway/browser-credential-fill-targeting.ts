@@ -47,6 +47,7 @@ export const SAFE_CREDENTIAL_CODES: ReadonlySet<string> = new Set([
   // Extension origin-bound writer.
   'invalid_credential_origin',
   'invalid_credential_protection',
+  'invalid_credential_portal_path',
   'credential_origin_changed_before_write',
   'credential_origin_changed_may_have_applied',
   'credential_authorized_origin_not_in_frames',
