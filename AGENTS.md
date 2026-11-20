@@ -93,6 +93,8 @@ load yourself or stop because a computer is busy. A check that needs Codex, Copi
 as a setup gap; it is not exit 75 and not a reason to use this Mac). It proves installation, not sign-in. This overrides
 any older instruction to build and launch the dev app from your worktree. Start it here yourself only when `start`
 exits 75 or a check needs something only this Mac has, and say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
+Driving that copy over its debugging port (CDP, puppeteer-core, chrome-devtools) is testing the app, not browser work:
+the browser-computer rule does not stop it, on the test Mac or the PC (James, 20 November 2026).
 
 ## Documentation Formats
 
