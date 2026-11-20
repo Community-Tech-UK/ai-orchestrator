@@ -1,9 +1,8 @@
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { PlanQueueAccountRules, PlanQueueCapabilityGap, PlanQueueReportCapabilityGapArgs,
   PlanQueueReportCapabilityProbeArgs, PlanQueueReportCapabilityCheckArgs } from '@contracts/schemas/plan-queue';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import type { CapabilityRepair, CapabilityOrigin } from './plan-queue-capability-store';
+import { FAILED_RERUN, heldForOwner, type CapabilityRepair, type CapabilityOrigin } from './plan-queue-capability-store';
 import { launchCapabilityRun } from './plan-queue-capability-launch';
 import { ensureCapabilityPlan, validateCapabilityProbe } from './plan-queue-capability-plan';
 import { gitExec } from '../workspace/git/git-exec';
@@ -21,6 +20,7 @@ export interface CapabilityHooks {
   controlRun(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<void>;
   retryOrigin(itemId: string): Promise<boolean>;
 }
+const RELEASE = 'Resume the original job to recheck it.';
 const technical = (gap: PlanQueueCapabilityGap): boolean => gap.classification === 'capability' || gap.classification === 'setup';
 const activeOrigin = (origin: CapabilityOrigin): boolean => origin.state !== 'withdrawn' && origin.state !== 'passed';
 
@@ -66,11 +66,12 @@ export class PlanQueueCapabilityService {
       config: { ...run.config, capabilityRepairExcludedProviders: [...new Set([...(run.config.startingProviderExclusions ?? []), ...this.hooks.excludedProviders()])] },
       accountRules: this.hooks.accountRules(), planDirectory: 'docs/plans',
       reportedBy: { instanceId: caller, role: this.host.roleOf(caller)!.role, round: item.round, at: this.now() } });
-    const retried = this.host.store.capabilities.origins(repair.id).find(origin => origin.itemId === item.id && origin.check === gap.check && origin.state === 'retrying');
-    if (retried && technical(gap)) {
-      this.host.store.capabilities.setOriginState(retried, 'waiting');
-      const detail = 'The repaired control did not satisfy the original check. Its owner must investigate the new evidence and arrange a corrective plan; the landed repair is not retried blindly.';
-      this.host.store.capabilities.save({ ...repair, state: 'waiting', detail });
+    // Any check of this item being rerun on this repair counts, however the new report words it.
+    const retried = this.host.store.capabilities.origins(repair.id).filter(origin => origin.itemId === item.id && origin.state === 'retrying');
+    if (retried.length && technical(gap)) {
+      for (const origin of retried) this.host.store.capabilities.setOriginState(origin, 'waiting');
+      const detail = `${FAILED_RERUN} Its owner must investigate the new evidence and arrange a corrective plan; the landed repair is not retried blindly. ${RELEASE}`;
+      this.host.store.capabilities.save({ ...repair, state: 'waiting', detail, heldForOwner: true });
       this.host.notifyParent(run, `${detail} Existing repair plan: ${repair.planPath}`, undefined, true);
     }
     if (technical(args.gap) && repair.state === 'investigating') {
@@ -132,8 +133,8 @@ export class PlanQueueCapabilityService {
     if (current.checkpointCommit !== item.checkpointCommit) throw new Error('The reviewed checkpoint changed during the probe report.');
     const latest = this.host.store.capabilities.get(repair.id)!;
     if (latest.state === 'cancelled') throw new Error('This capability repair was cancelled while its probe was read.');
-    this.host.store.capabilities.save({ ...latest, probe: args.probe, probeCheckedTree: tree.trim(), probeCheckedCommit: item.checkpointCommit, probeReceipt: receipt });
-    return { accepted: true, message: 'Runtime evidence retained. Independent PASS and unchanged verified landing are still required.' };
+    this.host.store.capabilities.save({ ...latest, probe: args.probe, probeCheckedCommit: item.checkpointCommit, probeReceipt: receipt });
+    return { accepted: true, message: 'Runtime evidence retained. An independent PASS and landing are still required.' };
   }
 
   reportCheck(caller: string, args: PlanQueueReportCapabilityCheckArgs) {
@@ -152,7 +153,12 @@ export class PlanQueueCapabilityService {
       try { await this.reconcileOne(repair); }
       catch (error) {
         const current = store.get(repair.id)!;
-        if (current.state !== 'cancelled') store.save({ ...current, state: 'waiting', detail: redactValue(error instanceof Error ? error.message : String(error), { homeDir: '' }) });
+        if (current.state === 'cancelled' || current.state === 'resolved') continue;
+        // A landed repair that keeps failing here would otherwise be retried on every pass; it waits for its owner.
+        const landed = current.repairItemId ? this.host.store.getItem(current.repairItemId)?.state === 'landed' : false;
+        const message = redactValue(error instanceof Error ? error.message : String(error), { homeDir: '' });
+        store.save({ ...current, state: 'waiting', detail: landed ? `${message} ${RELEASE}` : message, ...(landed ? { heldForOwner: true } : {}) });
+        if (landed && !current.heldForOwner) this.host.notifyParent(this.host.getRun(current.sourceRunId), `Harness could not move on after a repair landed: ${message} ${RELEASE} Repair plan: ${current.planPath}`, undefined, true);
       }
     }
     // The repairs each original job still waits for after this pass, oldest first (the order `list()` returns).
@@ -238,23 +244,19 @@ export class PlanQueueCapabilityService {
       await this.hooks.controlRun(run.id, 'resume'); store.save({ ...store.get(repair.id)!, autoPaused: false }); return;
     }
     if (run.status === 'paused') return;
-    if (item.state === 'parked') {
-      store.save({ ...repair, state: 'waiting', detail: 'The repair is set aside. Its owner may resume the existing job; another job is not created.' }); return;
-    }
-    if (item.state !== 'landed' || repair.state === 'waiting') return;
-    if (item.verdict?.verdict !== 'PASS' || !repair.probe || !repair.probeReceipt || !item.checkpointCommit || !item.landedCommit) {
-      store.save({ ...repair, state: 'waiting', detail: 'The repair landed without a matching independently checked runtime probe. The original checks remain open.' }); return;
-    }
-    const tree = (await gitExec(['rev-parse', `${item.checkpointCommit}^{tree}`], repair.repository)).trim();
-    // Landing may close this one planning document; every other byte must still match the reviewed snapshot.
-    const closedPlan = path.relative(repair.repository, repair.planPath).replace(/_plan\.md$/, '_plan_completed.md').split(path.sep).join('/');
-    const changed = await gitExec(['diff', '--name-only', item.checkpointCommit, item.landedCommit, '--', '.', `:(exclude,literal)${closedPlan}`], repair.repository);
+    // Earlier repairs in this pass may have awaited, and a cancel may have arrived meanwhile: act on the saved record.
     const current = store.get(repair.id)!;
-    if (current.state === 'cancelled' || ['cancelled', 'paused'].includes(this.host.getRun(run.id).status)) return;
-    if (tree !== current.probeCheckedTree || changed.trim()) {
-      store.save({ ...current, state: 'waiting', detail: 'Landing changed the reviewed runtime snapshot. A new runtime probe and review are required before retrying the original checks.' }); return;
+    if (current.state === 'cancelled' || current.state === 'resolved') return;
+    if (item.state === 'parked') {
+      store.save({ ...current, state: 'waiting', detail: 'The repair is set aside. Its owner may resume the existing job; another job is not created.' }); return;
     }
-    store.save({ ...current, state: 'verifying-origin', detail: 'The repair passed review and runtime probing. Rechecking the original acceptance criteria.' });
+    // A failed rerun or an error after landing waits for its owner.
+    if (item.state !== 'landed' || heldForOwner(current)) return;
+    // The repair is on the base branch. Each original check is rerun on the merged code and passes only with its own
+    // independent checker's evidence, so other work landing alongside the repair does not hold the originals back.
+    if (current.state !== 'verifying-origin') {
+      store.save({ ...current, state: 'verifying-origin', detail: 'The repair landed. Rechecking the original acceptance criteria.' });
+    }
     for (const itemId of new Set(runnable.filter(origin => origin.state === 'waiting').map(origin => origin.itemId))) {
       const linked = store.forOrigin(itemId).filter(other => technical(other.gap));
       if (linked.some(other => other.state !== 'verifying-origin' && other.state !== 'resolved')) continue;

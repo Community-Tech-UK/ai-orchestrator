@@ -22,7 +22,7 @@ import { recheckReadiness } from './plan-queue-recheck-readiness';
 import { getTicketRetention } from './plan-queue-ticket-retention';
 import { answerTicketAsk, CONTROLS_THAT_START_WORK, refuseJamesOnlyAnswer, refuseWhileTicketAskOpen, type TicketAnswerInput } from './plan-queue-ticket-answer';
 import { PlanQueueCapabilityService } from './plan-queue-capability-service';
-import { capabilityAccountRulesFor, capabilityProviderExclusions, enableCapabilityRepairs, noteCapabilityControl, retryCapabilityOrigin } from './plan-queue-capability-control';
+import { capabilityAccountRulesFor, capabilityProviderExclusions, enableCapabilityRepairs, noteCapabilityControl, noteResumedCapabilityItem, retryCapabilityOrigin } from './plan-queue-capability-control';
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import {
@@ -527,6 +527,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
           await this.requireFlow().park(previous.id, 'cancelled', 'The request to resume this work was cancelled. Resume it from Set aside when ready.');
           return;
         }
+        noteResumedCapabilityItem(this, previous.runId, previous.id);
         this.reopen(this.getRun(previous.runId));
         this.transition(this.getItem(item.id), 'skipped', { question: null, detail: 'Resumed the earlier set-aside job.' });
         this.requestPump(); return;
@@ -638,7 +639,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         break;
       case 'resume-item':
         await flow.resume(item.id);
-        noteCapabilityControl(this, run.id, payload.action);
+        noteResumedCapabilityItem(this, run.id, item.id);
         this.reopen(this.getRun(run.id));
         break;
       case 'land-anyway':
@@ -646,6 +647,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         // gate), which only the scheduler of an open run picks up.
         this.reopen(run);
         await flow.landAnyway(item.id, landAnyway!);
+        noteCapabilityControl(this, run.id, payload.action);
         break;
       case 'discard-item':
         await flow.discard(item.id, actor);
@@ -655,6 +657,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         break;
       case 'retry-landing':
         await flow.retryLanding(item.id);
+        noteCapabilityControl(this, run.id, payload.action);
         this.reopen(run);
         break;
     }

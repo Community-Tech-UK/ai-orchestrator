@@ -7539,6 +7539,10 @@
       "lines": 915
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 913
+    },
+    {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
       "lines": 913
     },
@@ -7549,10 +7553,6 @@
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
       "lines": 911
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 910
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",

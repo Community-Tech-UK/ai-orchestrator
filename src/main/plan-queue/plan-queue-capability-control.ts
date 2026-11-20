@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { repositoryRoot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueRun } from './plan-queue.types';
+import { heldForOwner } from './plan-queue-capability-store';
 import type { PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
 import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
@@ -20,9 +21,28 @@ export function capabilityAccountRulesFor(host: PlanQueueFlowHost, instanceId: s
 export function noteCapabilityControl(host: PlanQueueFlowHost, runId: string, action: string): void {
   const id = host.getRun(runId).config.capabilityRepairId;
   const repair = id && host.store.capabilities.get(id);
-  if (!repair || !['pause', 'resume', 'resume-item', 'cancel'].includes(action)) return;
+  if (!repair || !['pause', 'resume', 'resume-item', 'retry-landing', 'land-anyway', 'cancel'].includes(action)) return;
+  // Sending a set-aside repair to merge makes it active again, so a clash its worker fixes is not re-parked as waiting.
+  // A cancelled or finished repair stays as it is.
+  if ((action === 'retry-landing' || action === 'land-anyway') && repair.state !== 'waiting') return;
+  const resumed = action !== 'pause' && action !== 'cancel';
   host.store.capabilities.save({ ...repair, autoPaused: false, operatorPaused: action === 'pause',
-    state: action === 'cancel' ? 'cancelled' : action === 'resume' || action === 'resume-item' ? 'running' : repair.state });
+    state: action === 'cancel' ? 'cancelled' : resumed ? 'running' : repair.state, heldForOwner: resumed ? false : repair.heldForOwner });
+}
+
+/** Resuming an original job is its owner's release for a landed repair held after a failed rerun or an error. */
+export function releaseHeldCapabilityRepairs(host: PlanQueueFlowHost, itemId: string): void {
+  for (const repair of host.store.capabilities.forOrigin(itemId)) {
+    if (repair.state === 'cancelled' || repair.state === 'resolved' || !heldForOwner(repair) || !repair.repairItemId || host.store.getItem(repair.repairItemId)?.state !== 'landed') continue;
+    host.store.capabilities.save({ ...repair, heldForOwner: false, state: 'verifying-origin',
+      detail: 'Its owner resumed the original job. Rechecking the original acceptance criteria.' });
+  }
+}
+
+/** A resumed job: an active repair again if it is one, and the owner's release for any held repair it waits on. */
+export function noteResumedCapabilityItem(host: PlanQueueFlowHost, runId: string, itemId: string): void {
+  noteCapabilityControl(host, runId, 'resume-item');
+  releaseHeldCapabilityRepairs(host, itemId);
 }
 
 /** Called only after the ordinary parent-control check, and checked again after canonicalising paths. */

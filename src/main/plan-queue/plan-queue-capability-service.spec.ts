@@ -9,7 +9,7 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueCapabilityService, type CapabilityHooks } from './plan-queue-capability-service';
 import type { PlanQueueRun } from './plan-queue.types';
 import type { CapabilityRepair } from './plan-queue-capability-store';
-import { enableCapabilityRepairs, retryCapabilityOrigin } from './plan-queue-capability-control';
+import { enableCapabilityRepairs, releaseHeldCapabilityRepairs, retryCapabilityOrigin } from './plan-queue-capability-control';
 
 function fixture(role: 'worker' | 'triage' | 'verifier' = 'worker') {
   const parent = fake.addParent();
@@ -174,7 +174,7 @@ function landedRepair(repair: CapabilityRepair, suffix = '') {
     state: 'landed', checkpointCommit: checkpoint, landedCommit: checkpoint,
     verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
   }));
-  store.capabilities.save({ ...repair, repairRunId: `repair-run${suffix}`, repairItemId: `repair-item${suffix}`, state: 'running', probeCheckedTree: git(['rev-parse', 'HEAD^{tree}']),
+  store.capabilities.save({ ...repair, repairRunId: `repair-run${suffix}`, repairItemId: `repair-item${suffix}`, state: 'running',
     probeReceipt: '{}', probe: { computer: 'ct-test-mac', runtimeBuild: git(['rev-parse', 'HEAD^{tree}']), testedTree: git(['rev-parse', 'HEAD^{tree}']),
       observedAt: Date.now(), operation: 'Create owned session', result: 'Responded and removed', receiptPath: '_scratch/probe.json', receiptSha256: 'a'.repeat(64) } });
 }
@@ -279,6 +279,114 @@ describe('repair completion and original check revalidation', () => {
     expect(store.capabilities.get(repairId)?.state).toBe('waiting');
     expect(hooks.retryOrigin).not.toHaveBeenCalled();
   });
+  it('holds a landed repair whose original rerun failed under different wording until its owner resumes the original job', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.capabilities.setOriginState(store.capabilities.origins(repairId)[0]!, 'retrying');
+    await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, check: 'Disposable session, reworded' } });
+    expect(store.capabilities.get(repairId)).toMatchObject({ state: 'waiting', heldForOwner: true });
+    expect(store.capabilities.get(repairId)?.detail).toContain('Resume the original job');
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    await service.reconcile(); await service.reconcile();
+    expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    releaseHeldCapabilityRepairs(coordinator, 'origin');
+    expect(store.capabilities.get(repairId)).toMatchObject({ state: 'verifying-origin', heldForOwner: false });
+    await service.reconcile();
+    expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+  });
+  it.each(['retry-landing', 'land-anyway'] as const)('a set-aside repair sent to merge (%s) is active again, so a clash fixed by its worker is not re-parked', async action => {
+    const { service, gap } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    coordinator.save({ ...coordinator.getItem('repair-item'), state: 'parked', parkReason: 'land-blocked' });
+    await service.reconcile();
+    expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+    expect(service.waitingForRepair('repair-item')).toBe(true);
+    // The flow's own awaits leave the item parked while a queue pass runs, then the landing starts.
+    const merge = vi.spyOn(PlanQueueItemFlow.prototype, action === 'retry-landing' ? 'retryLanding' : 'landAnyway').mockImplementation(async () => {
+      await service.reconcile();
+      coordinator.save({ ...coordinator.getItem('repair-item'), state: 'landing', parkReason: null });
+    });
+    try {
+      await coordinator.control({ action, itemId: 'repair-item' });
+      expect(store.capabilities.get(repairId)?.state).toBe('running');
+      expect(service.waitingForRepair('repair-item')).toBe(false);
+    } finally { merge.mockRestore(); }
+  });
+  it('leaves a cancelled repair cancelled when its job is sent to merge', async () => {
+    const { service, gap } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    coordinator.save({ ...coordinator.getItem('repair-item'), state: 'parked', parkReason: 'land-blocked' });
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, state: 'cancelled' });
+    const merge = vi.spyOn(PlanQueueItemFlow.prototype, 'retryLanding').mockResolvedValue(undefined);
+    try {
+      await coordinator.control({ action: 'retry-landing', itemId: 'repair-item' });
+      expect(store.capabilities.get(repairId)?.state).toBe('cancelled');
+    } finally { merge.mockRestore(); }
+  });
+  it('releases a held landed repair when its owner resumes the original job, and retries it without a second resume', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.capabilities.setOriginState(store.capabilities.origins(repairId)[0]!, 'retrying');
+    await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null });
+    const resume = vi.spyOn(PlanQueueItemFlow.prototype, 'resume').mockImplementation(async itemId => {
+      coordinator.transition(coordinator.getItem(itemId), 'queued', { parkReason: null });
+    });
+    hooks.retryOrigin = id => retryCapabilityOrigin(coordinator, id, (itemId, admitted) => new PlanQueueItemFlow(coordinator).resume(itemId, admitted), () => undefined);
+    try {
+      await coordinator.control({ action: 'resume-item', itemId: 'origin' });
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(store.capabilities.get(repairId)).toMatchObject({ state: 'verifying-origin', heldForOwner: false });
+      await service.reconcile();
+      expect(store.capabilities.origins(repairId)[0]?.state).toBe('retrying');
+      expect(resume).toHaveBeenCalledTimes(1);
+    } finally { resume.mockRestore(); }
+  });
+  it('holds a landed repair saved before heldForOwner existed after its original rerun failed', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, state: 'waiting',
+      detail: 'The repaired control did not satisfy the original check. Its owner must investigate the new evidence and arrange a corrective plan; the landed repair is not retried blindly.' });
+    await service.reconcile();
+    expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+  });
+  it('does not retry a landed repair on every pass when rechecking its original keeps failing, and tells the owner once', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    const notify = vi.spyOn(coordinator, 'notifyParent');
+    try {
+      hooks.retryOrigin = vi.fn(async () => { throw new Error('git could not restore the retained work'); });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ state: 'waiting', heldForOwner: true,
+        detail: 'git could not restore the retained work Resume the original job to recheck it.' });
+      await service.reconcile();
+      expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify.mock.calls[0]![1]).toContain('Resume the original job');
+    } finally { notify.mockRestore(); }
+  });
+  it('does not revive a repair cancelled while an earlier repair was being reconciled', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    const snapshot = store.capabilities.list();
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, state: 'cancelled' });
+    const list = vi.spyOn(store.capabilities, 'list').mockReturnValueOnce(snapshot);
+    await service.reconcile();
+    list.mockRestore();
+    expect(store.capabilities.get(repairId)?.state).toBe('cancelled');
+    expect(hooks.retryOrigin).not.toHaveBeenCalled();
+  });
   it('retries once only after both capabilities for the same original item are verified', async () => {
     const { service, gap, hooks } = fixture();
     const first = await service.reportGap('caller', { item_id: 'origin', gap });
@@ -318,7 +426,7 @@ describe('repair completion and original check revalidation', () => {
     expect(coordinator.getItem('origin').verdict?.documentComplete).toBe(false);
   });
 
-  it('does not resume a paused source or retry code that changed while landing', async () => {
+  it('does not resume a paused source, and retries the original once other work landed alongside the repair', async () => {
     const { service, gap, hooks } = fixture();
     const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
     coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
@@ -328,8 +436,26 @@ describe('repair completion and original check revalidation', () => {
     store.upsertRun({ ...coordinator.getRun('source'), status: 'running' });
     writeFileSync(join(repo, 'changed.ts'), 'export const changed = true;'); git(['add', 'changed.ts']); git(['commit', '-qm', 'changed during landing']);
     coordinator.save({ ...coordinator.getItem('repair-item'), landedCommit: git(['rev-parse', 'HEAD']) });
-    await service.reconcile(); expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    await service.reconcile();
+    expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+    expect(store.capabilities.get(repairId)?.state).toBe('verifying-origin');
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('retrying');
+  });
+
+  it('retries the original after a repair that was set aside is merged without a checker pass', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    coordinator.save({ ...coordinator.getItem('repair-item'), state: 'parked' });
+    await service.reconcile();
     expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+    expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    coordinator.save({ ...coordinator.getItem('repair-item'), state: 'landed',
+      verdict: { verdict: 'FAIL', findings: [], gatesRun: [], documentComplete: false, needJames: [] } });
+    await service.reconcile();
+    expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+    expect(store.capabilities.get(repairId)?.state).toBe('verifying-origin');
   });
 
   it('validates and retains checker receipt bytes before cleanup; rejects a worker probe', async () => {

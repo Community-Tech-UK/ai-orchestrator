@@ -18,10 +18,11 @@ export interface CapabilityRepair {
   accountRules: PlanQueueAccountRules;
   detail: string;
   probe?: PlanQueueCapabilityProbe;
-  probeCheckedTree?: string;
   probeCheckedCommit?: string;
   probeReceipt?: string;
   autoPaused?: boolean;
+  /** After landing, an original check's rerun failed or rechecking it threw. Resuming the original job releases it. */
+  heldForOwner?: boolean;
   operatorPaused?: boolean;
   createdAt: number;
   updatedAt: number;
@@ -38,6 +39,10 @@ export interface CapabilityOrigin {
   retryIntent?: boolean;
   reportedBy: { instanceId: string; role: 'triage' | 'worker' | 'verifier'; round: number; at: number };
 }
+export const FAILED_RERUN = 'The repaired control did not satisfy the original check.';
+/** Held after landing until its owner resumes the original job (records saved before the flag carry only the wording). */
+export const heldForOwner = (repair: CapabilityRepair): boolean =>
+  repair.heldForOwner === true || (repair.state === 'waiting' && repair.detail.startsWith(FAILED_RERUN));
 interface AttachInput {
   repository: string;
   sourceRunId: string;
