@@ -21,7 +21,7 @@
  */
 
 import {
-  DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, DEFAULT_PLAN_QUEUE_ROUTING, type PlanQueueAccountRules, type PlanQueueRole,
+  DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, DEFAULT_PLAN_QUEUE_ROUTING, PLAN_QUEUE_PROVIDER_EFFORTS, type PlanQueueAccountRules, type PlanQueueRole,
   type PlanQueueRouteChoice, type PlanQueueRouteChoiceArgs, type PlanQueueRouting,
 } from '@contracts/schemas/plan-queue';
 import type { CopilotAccountProfile, CopilotInvocationOrigin } from '../../shared/types/copilot-account.types';
@@ -125,6 +125,7 @@ export function routeChoiceFromArgs(args: PlanQueueRouteChoiceArgs): PlanQueueRo
   return {
     provider: args.provider,
     ...(args.model ? { model: args.model } : {}),
+    ...(args.effort !== undefined ? { reasoningEffort: args.effort } : {}),
     ...(args.account_ids?.length ? { accountProfileIds: [...new Set(args.account_ids)] } : {}),
     ...(args.copilot_account_id ? { copilotProfileId: args.copilot_account_id } : {}),
   };
@@ -167,6 +168,9 @@ export function assertRouteChoice(
   const known = role === 'verifier' ? CHECKER_PROVIDERS : KNOWN_PROVIDERS;
   if (!known.has(provider)) {
     throw new PlanQueueRoutingError(`${label}: "${choice.provider}" is not a provider the queue can use here (${[...known].join(', ')}).`);
+  }
+  if (choice.reasoningEffort && !PLAN_QUEUE_PROVIDER_EFFORTS[provider]?.includes(choice.reasoningEffort)) {
+    throw new PlanQueueRoutingError(`${label}: ${provider} does not support the thinking level "${choice.reasoningEffort}". Choose a supported level or the provider default.`);
   }
   const listed = [asGiven, provider].find((id) => deps.isProviderExcluded(id));
   if (!relaxExclusions && listed) {
@@ -451,6 +455,8 @@ export function routeQueueSpawn(
   // Remove a stale caller snapshot before filling every route field from the chosen route.
   delete routed.provider;
   delete routed.modelOverride;
+  // Missing preserves the app default on saved routes; null explicitly requests the CLI default.
+  routed.reasoningEffort = worker?.reasoningEffort;
   delete routed.allowedAccountProfileIds;
   delete routed.copilotAccountProfileId;
   if (provider) routed.provider = provider as InstanceCreateConfig['provider'];
@@ -492,7 +498,9 @@ export async function assertRoutingInstalled(routing: PlanQueueRouting, deps: Pi
 export function describeRouteChoice(choice: PlanQueueRouteChoice): string {
   const accounts = choice.accountProfileIds?.length ? ` (accounts: ${choice.accountProfileIds.join(', ')})` : '';
   const copilot = choice.copilotProfileId ? ` (account: ${choice.copilotProfileId})` : '';
-  return `${choice.provider}${choice.model ? ` / ${choice.model}` : ''}${accounts}${copilot}`;
+  const thinking = choice.reasoningEffort === null ? ' (thinking: provider default)'
+    : choice.reasoningEffort ? ` (thinking: ${choice.reasoningEffort})` : '';
+  return `${choice.provider}${choice.model ? ` / ${choice.model}` : ''}${thinking}${accounts}${copilot}`;
 }
 
 /** One line per role, for status output and logs. */

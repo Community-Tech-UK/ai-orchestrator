@@ -59,7 +59,9 @@ function describeRouteChoice(choice: PlanQueueRouteChoice, accountLabel: PlanQue
   const accounts = choice.accountProfileIds?.length
     ? ` (accounts: ${choice.accountProfileIds.map((id) => accountLabel(choice.provider, id)).join(', ')})` : '';
   const copilot = choice.copilotProfileId ? ` (account: ${accountLabel('copilot', choice.copilotProfileId)})` : '';
-  return `${choice.provider}${choice.model ? `/${choice.model}` : ''}${accounts}${copilot}`;
+  const thinking = choice.reasoningEffort === null ? ' (thinking: provider default)'
+    : choice.reasoningEffort ? ` (thinking: ${choice.reasoningEffort})` : '';
+  return `${choice.provider}${choice.model ? `/${choice.model}` : ''}${thinking}${accounts}${copilot}`;
 }
 
 /**

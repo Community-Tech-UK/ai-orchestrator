@@ -7,12 +7,12 @@
 
 export const REPORT_READY_TOOL = 'plan_queue_report_ready';
 
-/** The steps that find a Harness tool from a provider that does not list it natively (shared with the verdict tool). */
-export function toolDiscoverySteps(tool: string): readonly string[] {
+/** The steps that find a Harness tool from a provider that does not list it natively (shared by the verdict, report and triage tools). `fields` names what goes in the arguments object. */
+export function toolDiscoverySteps(tool: string, fields = tool === REPORT_READY_TOOL ? 'report' : 'verdict'): readonly string[] {
   return [
     '- If Harness tools are not already callable, use your provider discovery mechanism to find orchestrator.tool_search or orchestrator.tool_describe. Searching only the provider native tool list is insufficient.',
     `- Search Harness for ${tool}, or describe that exact name. Follow the returned input schema and invocation route.`,
-    `- If the returned invocation names orchestrator.tool_execute, call it with name ${tool} and an arguments object containing your ${tool === REPORT_READY_TOOL ? 'report' : 'verdict'} fields; discover tool_execute through the provider mechanism if needed.`,
+    `- If the returned invocation names orchestrator.tool_execute, call it with name ${tool} and an arguments object containing your ${fields} fields; discover tool_execute through the provider mechanism if needed.`,
   ];
 }
 

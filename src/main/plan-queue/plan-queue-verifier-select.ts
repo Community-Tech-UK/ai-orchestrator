@@ -30,6 +30,7 @@ const VERIFIER_PREFERENCE: readonly string[] = ['codex', 'claude', 'copilot'];
 
 export interface VerifierChoice {
   provider: string;
+  reasoningEffort?: PlanQueueRouteChoice['reasoningEffort'];
   modelOverride?: string;
   copilotProfileId?: string;
   /** Pool accounts the verifier may use (James's checker choice). */
@@ -272,6 +273,7 @@ async function selectFromChoices(
     choice: {
       provider: choice.provider,
       ...model,
+      ...(choice.reasoningEffort !== undefined ? { reasoningEffort: choice.reasoningEffort } : {}),
       ...(choice.copilotProfileId ? { copilotProfileId: choice.copilotProfileId } : {}),
       ...(choice.accountProfileIds?.length ? { accountProfileIds: [...choice.accountProfileIds] } : {}),
     },

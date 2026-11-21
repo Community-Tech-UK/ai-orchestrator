@@ -53,6 +53,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         workingDirectory: worktreePath,
         initialPrompt: await deps.prompt(item, run, baseBranch),
         provider: choice.provider as InstanceProvider,
+        reasoningEffort: choice.reasoningEffort,
         ...(choice.modelOverride ? { modelOverride: choice.modelOverride } : {}),
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),

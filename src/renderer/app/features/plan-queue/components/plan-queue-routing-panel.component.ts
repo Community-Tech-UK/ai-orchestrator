@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Injector, OnInit, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, DEFAULT_PLAN_QUEUE_ROUTING, type PlanQueueRouteChoice, type PlanQueueRouting, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, DEFAULT_PLAN_QUEUE_ROUTING, PLAN_QUEUE_PROVIDER_EFFORTS, PlanQueueRouteChoiceSchema, type PlanQueueRouteChoice, type PlanQueueRouting, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { sameFamily } from '../../../../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../../../../shared/models/multi-maker-providers';
 import { AUTOMATION_PROVIDER_DEFINITIONS } from '../../../../../shared/types/automation-provider.types';
@@ -27,6 +27,7 @@ interface RouteDraft {
   readonly key: number;
   readonly provider: string;
   readonly model: string;
+  readonly reasoningEffort: PlanQueueRouteChoice['reasoningEffort'];
   readonly accountIds: readonly string[];
   readonly copilotProfileId: string;
 }
@@ -78,6 +79,7 @@ interface RouteView {
   /** Ties the model box to its suggestion list; unique on the page. */
   readonly modelListId: string;
   readonly modelOptions: PlanQueueModelOption[];
+  readonly thinkingOptions: PlanQueueModelOption[];
   readonly pooled: boolean;
   readonly accountRows: PlanQueueAccountRow[];
   readonly accountsNote: string | null;
@@ -106,7 +108,7 @@ function runsAs(provider: string): string {
 }
 
 function emptyDraft(key: number, provider: string): RouteDraft {
-  return { key, provider, model: '', accountIds: [], copilotProfileId: '' };
+  return { key, provider, model: '', reasoningEffort: undefined, accountIds: [], copilotProfileId: '' };
 }
 
 /**
@@ -119,6 +121,7 @@ function cleanChoice(draft: RouteDraft): PlanQueueRouteChoice {
   return {
     provider: draft.provider,
     ...(model ? { model } : {}),
+    ...(draft.reasoningEffort !== undefined ? { reasoningEffort: draft.reasoningEffort } : {}),
     ...(isPooledProvider(draft.provider) && accountIds.length > 0 ? { accountProfileIds: accountIds } : {}),
     ...(draft.provider === 'copilot' && draft.copilotProfileId ? { copilotProfileId: draft.copilotProfileId } : {}),
   };
@@ -246,7 +249,8 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     const errors: string[] = [];
     const workers = this.workerMode() === 'list' ? this.workerDrafts() : [];
     const only = workers.length === 1 ? workers[0] : undefined;
-    if (only && runsAs(only.provider) === runsAs(stepUp.provider) && only.model.trim() === stepUp.model.trim()) {
+    if (only && runsAs(only.provider) === runsAs(stepUp.provider) && only.model.trim() === stepUp.model.trim()
+      && only.reasoningEffort === stepUp.reasoningEffort) {
       errors.push('This is the same as the worker, so handing over would change nothing.');
     }
     // Mirrors the main process: a chosen checker list must be able to judge the stronger worker too.
@@ -370,11 +374,15 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
   // ---- Row editing ----
 
   setProvider(list: RouteList, index: number, provider: string): void {
-    this.patchDraft(list, index, { provider, accountIds: [], copilotProfileId: '' });
+    this.patchDraft(list, index, { provider, reasoningEffort: undefined, accountIds: [], copilotProfileId: '' });
   }
 
   setModel(list: RouteList, index: number, model: string): void {
     this.patchDraft(list, index, { model });
+  }
+
+  setThinking(list: RouteList, index: number, value: string): void {
+    this.patchDraft(list, index, { reasoningEffort: PlanQueueRouteChoiceSchema.shape.reasoningEffort.parse(value === 'provider-default' ? null : value || undefined) });
   }
 
   toggleAccount(list: RouteList, index: number, accountId: string, checked: boolean): void {
@@ -457,6 +465,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
       key,
       provider: choice.provider,
       model: choice.model ?? '',
+      reasoningEffort: choice.reasoningEffort,
       accountIds: choice.accountProfileIds ?? [],
       copilotProfileId: choice.copilotProfileId ?? '',
     };
@@ -514,6 +523,16 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     return (catalog.length > 0 ? catalog : getModelsForProvider(id)).map((model) => ({ id: model.id, label: model.name }));
   }
 
+  private thinkingOptions(draft: RouteDraft): PlanQueueModelOption[] {
+    const provider = runsAs(draft.provider);
+    const model = this.modelCatalog.displayModelsForProvider(provider).find(model => model.id === draft.model.trim());
+    const efforts = provider === 'codex' ? [...(model?.reasoning?.supportedEfforts ?? [])]
+      : [...(PLAN_QUEUE_PROVIDER_EFFORTS[provider] ?? [])];
+    // Preserve an explicit saved value while the model catalog is loading.
+    if (draft.reasoningEffort && !efforts.includes(draft.reasoningEffort)) efforts.push(draft.reasoningEffort);
+    return efforts.map(id => ({ id, label: id === 'none' ? 'Off' : id === 'xhigh' ? 'Extra' : id[0].toUpperCase() + id.slice(1) }));
+  }
+
   /** Why an account cannot be ticked or picked, plus the harmless "use last" label. */
   private ruleNotes(provider: string, accountId: string): { blocked: string | null; label: string | null } {
     const rules = this.accountRules();
@@ -539,6 +558,11 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
     }
     if (draft.model.trim().length > MAX_MODEL_LENGTH) {
       errors.push(`The ${role} model name is too long.`);
+    }
+    const model = this.modelCatalog.displayModelsForProvider(runsAs(draft.provider)).find(model => model.id === draft.model.trim());
+    if (draft.reasoningEffort && runsAs(draft.provider) === 'codex' && model?.reasoning
+      && !model.reasoning.supportedEfforts.includes(draft.reasoningEffort)) {
+      errors.push(`The ${role} thinking level is not available for this model. Choose another level or Provider default.`);
     }
 
     const pooled = isPooledProvider(draft.provider);
@@ -603,6 +627,7 @@ export class PlanQueueRoutingPanelComponent implements OnInit {
       providerOptions,
       modelListId: `pq-routing-models${this.radioSuffix()}-${draft.key}`,
       modelOptions: this.modelOptions(draft.provider),
+      thinkingOptions: this.thinkingOptions(draft),
       pooled,
       accountRows,
       accountsNote,

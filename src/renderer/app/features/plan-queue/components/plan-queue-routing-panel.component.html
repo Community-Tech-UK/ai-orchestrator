@@ -53,6 +53,18 @@
             </select>
           </label>
         }
+        @if (view.thinkingOptions.length) {
+          <label class="pq-routing-field">
+            Thinking
+            <select class="pq-routing-thinking" (change)="setThinking(view.list, view.index, inputValue($event))">
+              <option value="" [selected]="view.draft.reasoningEffort === undefined">Harness default</option>
+              <option value="provider-default" [selected]="view.draft.reasoningEffort === null">Provider default</option>
+              @for (option of view.thinkingOptions; track option.id) {
+                <option [value]="option.id" [selected]="option.id === view.draft.reasoningEffort">{{ option.label }}</option>
+              }
+            </select>
+          </label>
+        }
       </div>
 
       @if (view.pooled) {

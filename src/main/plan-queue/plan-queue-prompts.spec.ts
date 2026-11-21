@@ -355,6 +355,18 @@ it('builds the parked carry-over from the findings and the park note, and nothin
   expect(buildParkedCarryOver({ verdict: null, detail: null })).toBeNull();
 });
 
+it('gives triage the Harness reporting route and explains its receipt (LT-722)', () => {
+  const prompt = buildTriagePrompt('run-1', ['/repo/docs/plans/a_plan.md']);
+  const task = prompt.indexOf('Task: call');
+  for (const text of ['provider discovery mechanism', 'orchestrator.tool_search', 'orchestrator.tool_describe',
+    `Search Harness for ${TRIAGE_TOOL}`, `call it with name ${TRIAGE_TOOL}`, '`applied`', '`unmatched`', 'quote the exact tool error']) {
+    expect(prompt.indexOf(text)).toBeGreaterThan(-1);
+    expect(prompt.indexOf(text)).toBeLessThan(task);
+  }
+  expect(prompt).not.toContain(VERDICT_TOOL);
+  expect(() => PlanQueueReportTriageArgsSchema.parse(lastJsonBlock(prompt))).not.toThrow();
+});
+
 it('carries the last verifier findings into a replacement only when no instruction survives', () => {
   const verdict = { verdict: 'FAIL' as const, findings: [{ severity: 'high' as const, confidence: 90, summary: 'Repair the retry.' }], gatesRun: [], documentComplete: false, needJames: [] };
   const ctx = { item: { ...item, verdict }, kind: 'plans' as const, repoRoot: '/repo', worktreePath: '/w' };

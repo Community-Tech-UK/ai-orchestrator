@@ -37,8 +37,10 @@ const BUDGET = {
   // authorize_capability_repairs), the recheck-readiness control and capability_gaps on the worker report:
   // 84,986 bytes; next 1 KiB ceiling is 84,992.
   // Nov-17: `stale_plan_text` on plan_queue_report_ready and plan_queue_report_verdict (one shared, trimmed schema), so
-  // agents can say which plan sentence a change made directly on main overtook: 85,415 bytes; next 1 KiB ceiling is 86,016.
-  orchestratorFull: { bytes: 86016, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // agents can say which plan sentence a change made directly on main overtook: 85,415 bytes.
+  // Nov-16/17 (merge): that plus the optional `effort` on the plan_queue route choice (+1,008 bytes) is about 86,423
+  // bytes; next 1 KiB ceiling is 87,040.
+  orchestratorFull: { bytes: 87040, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },

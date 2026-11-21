@@ -137,7 +137,8 @@ const BUDGET = {
   queueTicketResume: { chars: 6500, render: () => buildTicketResumePrompt(ticketPrompt, 'Continue verified earlier work') },
   queueTicketStepUp: { chars: 8100, render: () => buildTicketStepUpPrompt(ticketPrompt, 3, findings) },
   queueTicketChecker: { chars: 6200, render: () => buildTicketCheckerPrompt({ ...ticketPrompt, baseBranch: 'main', gates: ['npm run lint', 'npm run test:quiet'] }) },
-  queueTriage: { chars: 7100, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
+  // 16 Nov (merge): main's capability-gap triage wording plus the tool-discovery steps (LT-722): 7,881 chars, rounded to 100.
+  queueTriage: { chars: 7900, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
   structuredReview: { chars: 3700, render: () => buildStructuredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   tieredReview: { chars: 4600, render: () => buildTieredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   structuredRepair: { chars: 1300, render: () => buildReviewFormatRepairPrompt('structured', 'Pinned invalid response') },

@@ -127,6 +127,7 @@ const ROUTE_CHOICE_SCHEMA = {
   properties: {
     provider: { type: 'string', description: 'CLI id, for example "claude", "codex" or "copilot".' },
     model: { type: 'string', description: 'Optional model id. Omit for the provider\'s default.' },
+    effort: { type: ['string', 'null'], enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow', null], description: 'Optional thinking level. Omit for the Harness default; null selects the provider default.' },
     account_ids: { type: 'array', items: { type: 'string' }, maxItems: 20, description: 'Claude, Codex or OpenCode account ids (Settings → Accounts) the session may use, including after a usage-limit switch. Omit for the account pool\'s own choice.' },
     copilot_account_id: { type: 'string', description: 'Copilot account id. Omit to let the Copilot account rules decide.' },
   },

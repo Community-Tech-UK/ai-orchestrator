@@ -62,6 +62,8 @@
     "check:knip": "node scripts/check-knip.js",
     "check:provider-parity": "node scripts/check-provider-parity.js",
     "audit:queue-mimo-spend": "node scripts/queue-mimo-spend-report.mjs",
+    "audit:coder-trial": "node scripts/coder-trial-reconcile.mjs",
+    "audit:queue-coder-outcomes": "node scripts/queue-coder-outcomes-report.mjs",
     "audit:claude-cost": "node scripts/claude-cost-audit-report.mjs",
     "audit:codex-helpers": "node scripts/codex-helper-trial-report.mjs",
     "audit:context-ceiling": "node scripts/context-ceiling-replay.mjs",

@@ -69,6 +69,15 @@ export const PlanQueueParkReasonSchema = z.enum([
 
 export const PlanQueueRoleSchema = z.enum(['triage', 'worker', 'verifier']);
 
+const PlanQueueReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow']);
+
+/** Provider-level options shared by route validation and the editor. Codex models narrow these further. */
+export const PLAN_QUEUE_PROVIDER_EFFORTS: Readonly<Record<string, readonly z.infer<typeof PlanQueueReasoningEffortSchema>[]>> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max', 'workflow'],
+  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  copilot: ['low', 'medium', 'high', 'xhigh'],
+};
+
 export const PlanQueueFindingSeveritySchema = z.enum(['critical', 'high', 'medium', 'low']);
 
 /** What a finding needs: a code fix, missing setup (`environment`), or an answer only James has. Stored findings without one read as `code`. */
@@ -249,6 +258,8 @@ export function triageRecordRef(record: { documentPath?: string; sourceRef?: str
 export const PlanQueueRouteChoiceSchema = z.object({
   provider: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(200).optional(),
+  /** Missing preserves the app default on existing routes; null explicitly selects the CLI default. */
+  reasoningEffort: PlanQueueReasoningEffortSchema.nullable().optional(),
   accountProfileIds: z.array(z.string().min(1).max(100)).max(20).optional(),
   copilotProfileId: z.string().min(1).max(100).optional(),
 }).strict();
@@ -594,6 +605,7 @@ export const PlanQueueReportTriageArgsSchema = z.object({
 export const PlanQueueRouteChoiceArgsSchema = z.object({
   provider: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(200).optional(),
+  effort: PlanQueueReasoningEffortSchema.nullable().optional(),
   account_ids: z.array(z.string().min(1).max(100)).max(20).optional(),
   copilot_account_id: z.string().min(1).max(100).optional(),
 }).strict();

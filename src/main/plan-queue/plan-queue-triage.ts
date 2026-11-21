@@ -161,6 +161,7 @@ export class PlanQueueTriage {
       initialPrompt: buildTriagePrompt(run.id, documents, headers),
       ...(session.provider ? { provider: session.provider as InstanceProvider } : {}),
       ...(choice ? { ...(choice.modelOverride ? { modelOverride: choice.modelOverride } : {}),
+        reasoningEffort: choice.reasoningEffort,
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: [...choice.accountProfileIds] } : {}) }
         : run.workerModel ? { modelOverride: run.workerModel } : {}),
