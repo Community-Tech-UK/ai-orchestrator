@@ -492,7 +492,8 @@ describe('PlanQueuePageComponent', () => {
     (owner.querySelector('.pq-run-owner-change') as HTMLButtonElement).click();
     fixture.detectChanges();
     const select = owner.querySelector('select') as HTMLSelectElement;
-    expect(Array.from(select.options).map(option => option.textContent?.trim())).toEqual(['Choose a session…', 'Taker (codex) — /repo']);
+    expect(Array.from(select.options).map(option => option.textContent?.trim()))
+      .toEqual(['Choose a session…', 'Taker (codex) — /repo', 'Sort out set-aside work: repo (claude) — /repo']);
     select.value = 'inst-2';
     select.dispatchEvent(new Event('change'));
     fixture.detectChanges();

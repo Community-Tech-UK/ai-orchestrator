@@ -44,7 +44,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     return { runId: run.id, itemId: item.id, branch: item.branchName!, parentId: parent.id };
   }
 
-  it('the Set aside agent clears only an empty job and cannot skip or adopt', async () => {
+  it('the Set aside agent clears only an empty job, cannot skip, and adopts only like any other session', async () => {
     const { runId, itemId, branch } = await parkedAtRoundLimit();
     const agent = fake.addParent();
     agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
@@ -54,7 +54,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
     expect(git(['rev-parse', '--verify', branch])).toBeTruthy();
     await expect(coordinator.control({ action: 'skip-item', itemId }, agent.id)).rejects.toThrow('may only retry');
-    await expect(coordinator.control({ action: 'adopt', runId }, agent.id)).rejects.toThrow('may only retry');
+    await expect(coordinator.control({ action: 'adopt', runId }, agent.id)).rejects.toThrow('still has a live parent');
     await expect(coordinator.startRun({ parentInstanceId: agent.id, kind: 'plans' })).rejects.toThrow('Set aside session');
 
     git(['merge', '-q', '--no-edit', branch]);
@@ -69,6 +69,20 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(events[0]!.run?.items[0]).toMatchObject({ branchName: null });
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ branchName: null });
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
+  });
+
+  it('the Set aside agent may adopt a run whose owner has gone, and then lands without checks only as an owner may', async () => {
+    const { runId, itemId, parentId } = await parkedAtRoundLimit();
+    fake.live.delete(parentId);
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+
+    await coordinator.control({ action: 'adopt', runId }, agent.id);
+    expect(store.getRun(runId)?.parentInstanceId).toBe(agent.id);
+    // As the owner it needs a message James typed, like any owner; it no longer lands as the Set aside agent.
+    await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id))
+      .rejects.toThrow(/no message from James|wasn't a message James typed|turn start/);
+    expect(coordinator.getRunDto(runId)!.items[0].state).toBe('parked');
   });
 
   it('the Set aside agent can discard a job holding work, and bring it back', async () => {

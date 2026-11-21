@@ -289,6 +289,8 @@ export class PlanQueueSetAsideAgents {
    */
   checkRestart(callerInstanceId: string | undefined, action: PlanQueueControlPayload['action'], item: PlanQueueItem): void {
     if (callerInstanceId === undefined || this.folderOf(callerInstanceId) === undefined) return;
+    // On a run it owns, the agent acts as the owner.
+    if (this.deps.getRun(item.runId).parentInstanceId === callerInstanceId) return;
     if (action !== 'resume-item' && action !== 'retry-landing' && action !== 'land-anyway') return;
     if (item.state !== 'parked') throw new Error('Only a set-aside job can be retried, resumed or merged');
     if (this.deps.store.documentInPlay(item)) throw new Error('Another attempt at this document is in progress');

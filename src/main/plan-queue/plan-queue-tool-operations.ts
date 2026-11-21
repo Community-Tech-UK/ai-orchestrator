@@ -192,10 +192,8 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
     },
     async moveRun(callerInstanceId, runId, targetInstanceId) {
       const queue = coordinator();
-      // Neither may own a run (see startRun and requireSession), so neither may take or give one.
-      if (queue.isQueueInstance(callerInstanceId) || queue.setAsideAgents.folderOf(callerInstanceId) !== undefined) {
-        throw new Error('Plan Queue workers, checkers, triage and Set aside agents cannot move a run.');
-      }
+      // A queue session may not own a run (see startRun and requireSession), so it may not take or give one.
+      if (queue.isQueueInstance(callerInstanceId)) throw new Error('Plan Queue workers, checkers and triage cannot move a run.');
       const run = queue.getRunDto(runId);
       if (!run) throw new Error(`Plan queue run not found: ${runId}`);
       if (!planQueueRunCanMove(run)) throw new Error(`Plan Queue run ${runId} has finished and holds no set-aside work; there is nothing to move.`);

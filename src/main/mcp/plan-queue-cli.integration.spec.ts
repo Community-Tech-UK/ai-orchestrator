@@ -78,15 +78,15 @@ describe('aio-mcp plan-queue move through the parent dispatcher', () => {
 
   it('refuses a session the queue started, and an unknown run, before any change', async () => {
     const { control, cli } = harness(['worker']);
-    await expect(cli(['move', 'run-1'], 'worker')).rejects.toThrow('Plan Queue workers, checkers, triage and Set aside agents cannot move a run.');
+    await expect(cli(['move', 'run-1'], 'worker')).rejects.toThrow('Plan Queue workers, checkers and triage cannot move a run.');
     await expect(cli(['move', 'missing'])).rejects.toThrow('Plan queue run not found: missing');
     expect(control).not.toHaveBeenCalled();
   });
 
-  it('refuses a Set aside agent as the mover before any change (the handover refuses one as the new owner)', async () => {
+  it('moves a run to a Set aside agent that asks for it', async () => {
     const { control, cli } = harness([], ['set-aside']);
-    await expect(cli(['move', 'run-1'], 'set-aside')).rejects.toThrow('Plan Queue workers, checkers, triage and Set aside agents cannot move a run.');
-    expect(control).not.toHaveBeenCalled();
+    await cli(['move', 'run-1'], 'set-aside');
+    expect(control).toHaveBeenCalledWith({ action: 'handover', runId: 'run-1', targetInstanceId: 'set-aside' }, undefined);
   });
 
   it('refuses a finished or cancelled run with nothing set aside, but moves one that still holds set-aside work', async () => {

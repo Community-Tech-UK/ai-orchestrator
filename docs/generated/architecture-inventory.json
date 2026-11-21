@@ -7011,11 +7011,11 @@
       "lines": 1263
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 1262
+      "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
+      "lines": 1261
     },
     {
-      "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
       "lines": 1261
     },
     {
@@ -7905,6 +7905,10 @@
     {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 801
+    },
+    {
+      "path": "src/renderer/app/features/plan-queue/plan-queue-page.component.spec.ts",
+      "lines": 800
     },
     {
       "path": "src/renderer/app/features/workflow/workflow-page.component.ts",

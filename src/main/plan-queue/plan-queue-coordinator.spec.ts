@@ -283,13 +283,12 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     expect(store.getRun(run.id)).toMatchObject({ parentInstanceId: parent.id, status: 'cancelled' });
   });
 
-  it('never makes a Set aside agent the owner of a run', async () => {
-    const { parent, run } = await pendingRun();
+  it('may make a Set aside agent the owner of a run', async () => {
+    const { run } = await pendingRun();
     await coordinator.control({ action: 'pause', runId: run.id });
     const setAside = fake.addParent(); setAside.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
-    await expect(coordinator.control({ action: 'handover', runId: run.id, targetInstanceId: setAside.id }))
-      .rejects.toThrow('A Set aside agent cannot own a Plan Queue run.');
-    expect(store.getRun(run.id)?.parentInstanceId).toBe(parent.id);
+    await coordinator.control({ action: 'handover', runId: run.id, targetInstanceId: setAside.id });
+    expect(store.getRun(run.id)?.parentInstanceId).toBe(setAside.id);
   });
 
   it.each(['original', 'restored'] as const)('refuses adoption while the %s parent is live', async (kind) => {

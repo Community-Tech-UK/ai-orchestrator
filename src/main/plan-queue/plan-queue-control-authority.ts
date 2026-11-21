@@ -21,9 +21,9 @@
  * its own folder. When James asks, it may also skip a job there that has not
  * started, such as a fresh attempt that stops an older one from merging: only in
  * its reply to a message James typed, using the same check of who sent the latest
- * message as Land anyway (plan-queue-land-anyway-authority.ts). It may do nothing else,
- * even on a run it would otherwise be able to adopt. It clears empty jobs through
- * plan-queue-set-aside.ts.
+ * message as Land anyway (plan-queue-land-anyway-authority.ts). Like any other session,
+ * it may adopt a run whose parent session is gone, and a run it owns it controls as
+ * its owner. It clears empty jobs through plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
@@ -84,7 +84,7 @@ export function authorizePlanQueueControl(
   lookup: PlanQueueCallerLookup,
 ): string {
   const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
-  if (setAsideFolder !== undefined) {
+  if (setAsideFolder !== undefined && action !== 'adopt' && callerInstanceId !== run.parentInstanceId) {
     const agent = `the Set aside agent (session ${callerInstanceId})`;
     const ownFolder = setAsideFolder === run.workspaceCwd;
     if (DISCARD_ACTIONS.has(action) || (ownFolder && SET_ASIDE_AGENT_ACTIONS.has(action))) return agent;
@@ -93,7 +93,7 @@ export function authorizePlanQueueControl(
     const providerNote = turn?.reason === 'provider-cannot-report'
       ? " This session's provider can't report when a turn starts, so Harness can't tell it is answering James; he can skip the job on the Plan Queue page."
       : '';
-    throw new Error(`The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, skip a job there that has not started in its reply to a message James typed, or discard or restore a job. List this for James.${providerNote}`);
+    throw new Error(`The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, skip a job there that has not started in its reply to a message James typed, discard or restore a job, or adopt a run whose owner has gone. List this for James.${providerNote}`);
   }
   if (action === 'request-handover') {
     if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {

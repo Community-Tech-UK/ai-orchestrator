@@ -56,7 +56,7 @@ describe('Set aside agent authority', () => {
   });
 
   it("gains nothing else from James's message", () => {
-    for (const action of ['adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
+    for (const action of ['cancel', 'set-routing', 'handover', 'request-handover'] as const) {
       expect(() => authorizePlanQueueControl(run, action, 'agent', askedByJames)).toThrow('may only retry a merge, resume a job');
     }
   });
@@ -67,10 +67,21 @@ describe('Set aside agent authority', () => {
     }
   });
 
-  it('may not take over a run, even a stranded one', () => {
-    for (const action of ['adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
+  it('may adopt a run whose owner has gone, like any other session, but not cancel or reroute it', () => {
+    expect(authorizePlanQueueControl(run, 'adopt', 'agent', lookup)).toContain('session agent');
+    for (const action of ['cancel', 'set-routing', 'handover', 'request-handover'] as const) {
       expect(() => authorizePlanQueueControl(run, action, 'agent', lookup)).toThrow('may only retry a merge, resume a job');
     }
+  });
+
+  it('may not adopt a run whose owner is still there', () => {
+    const ownerAlive = { ...lookup, instanceExists: () => true };
+    expect(() => authorizePlanQueueControl(run, 'adopt', 'agent', ownerAlive)).toThrow('still has a live parent');
+  });
+
+  it('controls a run it owns as its owner', () => {
+    const owned = { ...run, parentInstanceId: 'agent' };
+    for (const action of ['set-routing', 'cancel', 'resume'] as const) expect(authorizePlanQueueControl(owned, action, 'agent', lookup)).toBe('James');
   });
 
   it('may not retry, merge or resume in another folder, but may discard or restore there', () => {
@@ -83,7 +94,4 @@ describe('Set aside agent authority', () => {
     }
   });
 
-  it('keeps those limits when it is the recorded parent', () => {
-    expect(() => authorizePlanQueueControl({ ...run, parentInstanceId: 'agent' }, 'cancel', 'agent', lookup)).toThrow('may only retry');
-  });
 });

@@ -31,7 +31,6 @@ function fixture() {
       restartFreshInstance: vi.fn(async () => { throw new Error('Unexpected fresh restart during handover'); }),
       sendInput: vi.fn().mockResolvedValue(undefined) },
     isQueueInstance: (id: string) => sessions.find(s => s.id === id)?.metadata?.['planQueueRole'] !== undefined,
-    isSetAsideAgent: (id: string) => sessions.find(s => s.id === id)?.metadata?.['planQueueSetAsideFolder'] !== undefined,
     getRun: () => stored, hasActiveWork: () => false, hasOwnerWork: () => true,
     setParent: vi.fn((_id: string, parentId: string, thread: string | null) => { stored = { ...stored, parentInstanceId: parentId, parentHistoryThreadId: thread }; }),
     onParentChanged: vi.fn(), notifyParent: vi.fn(),
@@ -124,13 +123,6 @@ describe('owner-approved Plan Queue handover', () => {
     expect(stored()).toBe(run);
     expect(deps.setParent).not.toHaveBeenCalled();
     expect(deps.onParentChanged).not.toHaveBeenCalled();
-  });
-  it.each(['owner', undefined])('never makes a Set aside agent a run\'s owner (%s)', caller => {
-    const { run, sessions, deps, stored } = fixture();
-    sessions[1].metadata = { planQueueSetAsideFolder: '/repo' };
-    expect(() => handoverRunParent(run, 'target', caller, deps)).toThrow('A Set aside agent cannot own a Plan Queue run.');
-    expect(stored()).toBe(run);
-    expect(deps.setParent).not.toHaveBeenCalled();
   });
   it('moves a run for James only to a top-level session, not a helper agent', () => {
     const { run, sessions, deps, stored } = fixture();

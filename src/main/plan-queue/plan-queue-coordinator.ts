@@ -584,10 +584,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         },
         notifyParent: (run, message) => this.notifyParent(run, message), requestPump: () => this.requestPump(),
         cancel: (run, actor) => this.cancelRun(run, actor), routing: this.requireDeps().routing,
-        requestHandover: (run, caller) => requestRunHandover(run, caller, { instances: this.instances, isQueueInstance: id => this.isQueueInstance(id),
-          isSetAsideAgent: id => this.setAside?.folderOf(id) !== undefined }),
+        requestHandover: (run, caller) => requestRunHandover(run, caller, { instances: this.instances, isQueueInstance: id => this.isQueueInstance(id) }),
         handover: (run, targetId, caller) => handoverRunParent(run, targetId, caller, {
-          instances: this.instances, isQueueInstance: id => this.isQueueInstance(id), isSetAsideAgent: id => this.setAside?.folderOf(id) !== undefined,
+          instances: this.instances, isQueueInstance: id => this.isQueueInstance(id),
           getRun: id => this.require(this.parents).follow(this.getRun(id)),
           hasActiveWork: id => !!this.triage?.hasActiveWork(id) || this.store.listItems(id).some(item => flow.hasActiveWork(item.id)),
           hasOwnerWork: id => planQueueRunCanMove({ status: this.getRun(id).status, items: this.store.listItems(id) }),
@@ -613,8 +612,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (CONTROLS_THAT_START_WORK.has(payload.action)) refuseWhileTicketAskOpen(item);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     // Land anyway has its own, stricter rule; it runs first so its plain reasons win over the general refusal.
-    // A Set aside agent is authorised by the general check below (its own folder only), so it skips the person-message rule.
-    const setAsideCaller = callerInstanceId !== undefined && this.setAside?.folderOf(callerInstanceId) !== undefined;
+    // A Set aside agent on a run it doesn't own is authorised by the general check below (its own folder only), so it
+    // skips the person-message rule; on a run it owns it follows the owner's rule.
+    const setAsideCaller = callerInstanceId !== undefined && callerInstanceId !== run.parentInstanceId && this.setAside?.folderOf(callerInstanceId) !== undefined;
     // No session, the starting one and the Set aside agent included, may take a job's version over a direct change.
     if (payload.action === 'land-anyway' && item.parkReason === 'undoes-direct-change' && callerInstanceId !== undefined) throw new Error(UNDO_DIRECT_CHANGE_REFUSAL);
     let landAnyway = payload.action === 'land-anyway' && !setAsideCaller

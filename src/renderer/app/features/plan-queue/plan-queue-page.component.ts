@@ -161,7 +161,7 @@ export class PlanQueuePageComponent implements OnInit {
 
   /**
    * Every session that may own a run, so a helper-session owner is still named. A new parent must be a root
-   * session, as in the start form, and not a Queue, Set aside or failed session, which the main process refuses.
+   * session, as in the start form, and not a Queue or failed session, which the main process refuses.
    */
   protected readonly runSessions = computed<PlanQueueSessionOption[]>(() =>
     this.instanceStore.instances()
@@ -170,8 +170,7 @@ export class PlanQueuePageComponent implements OnInit {
       .map(instance => ({
         id: instance.id,
         label: `${instance.displayName} (${instance.provider}) — ${instance.workingDirectory}`,
-        canBeParent: !instance.parentId && !AUTOMATION_FAILURE_STATUSES.has(instance.status)
-          && setAsideFolderOf(instance.metadata) === undefined,
+        canBeParent: !instance.parentId && !AUTOMATION_FAILURE_STATUSES.has(instance.status),
       })),
   );
 

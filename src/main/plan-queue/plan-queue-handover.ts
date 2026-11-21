@@ -9,8 +9,6 @@ const logger = getLogger('PlanQueueHandover');
 interface HandoverDeps {
   instances: Pick<PlanQueueInstancePort, 'getInstance' | 'getAllInstances' | 'sendInput'>;
   isQueueInstance(id: string): boolean;
-  /** Set aside agents may only act on set-aside jobs (see plan-queue-control-authority.ts), so they can never own a run. */
-  isSetAsideAgent(id: string): boolean;
 }
 
 function requireSession(id: string | undefined, deps: HandoverDeps): PlanQueueInstanceRecord {
@@ -18,7 +16,6 @@ function requireSession(id: string | undefined, deps: HandoverDeps): PlanQueueIn
   if (!session || AUTOMATION_FAILURE_STATUSES.has(session.status) || deps.isQueueInstance(session.id)) {
     throw new Error('Handover requires an existing session that the queue did not spawn');
   }
-  if (deps.isSetAsideAgent(session.id)) throw new Error('A Set aside agent cannot own a Plan Queue run.');
   return session;
 }
 
