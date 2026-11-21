@@ -586,7 +586,7 @@ Source branch had no register entries left (its branch was removed); these rows 
 
 | ID | Priority | Status / observed defect | Evidence | Acceptance owner |
 | --- | --- | --- | --- | --- |
-| LT-1197 | P2 | **REPRODUCED LIVE 2026-11-21; FIX BUILT, AWAITING LIVE RECHECK.** On `windows-pc` (a computer with sites under secret protection) Chrome's own HTTP sign-in prompt could not be answered: `request_credential_access` and `fill_http_auth` were refused (`target_unavailable` / `invalid_url`) because the extension cannot check the error page under the prompt, and the waiting challenge was never reported because the extension deleted it when Chrome marked that page loaded. | [LT-1197 detail](#lt-1197) | [HTTP prompt on a protected computer live checks](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest.md) |
+| LT-1197 | P2 | **FIXED 2026-11-21 (098888229); LIVE-VERIFIED 2026-11-21 on `windows-pc`.** On `windows-pc` (a computer with sites under secret protection) Chrome's own HTTP sign-in prompt could not be answered: `request_credential_access` and `fill_http_auth` were refused (`target_unavailable` / `invalid_url`) because the extension cannot check the error page under the prompt, and the waiting challenge was never reported because the extension deleted it when Chrome marked that page loaded. | [LT-1197 detail](#lt-1197) | [HTTP prompt on a protected computer live checks](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest_completed.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -16647,7 +16647,7 @@ A `process` search with the default limit returns both tools on the deferred and
 
 ### LT-1197 — Chrome's HTTP sign-in prompt cannot be answered on a computer with a protected site
 
-**Status: reproduced live 21 November 2026 on `windows-pc`; fix built 21 November 2026; awaiting the live recheck.**
+**Status: reproduced live 21 November 2026 on `windows-pc`; fixed in 098888229; live checks passed on `windows-pc` the same day.**
 
 ### Observed behaviour
 

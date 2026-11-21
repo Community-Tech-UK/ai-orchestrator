@@ -4,10 +4,9 @@
 
 Implemented and verified in code on 21 November 2026: targeted tests, `npm run checks`, full
 `npm run test:quiet` (51,603 tests), and two independent reviews (the first found two
-protection gaps, now fixed; the second passed). Live checks that need the released extension
-on `windows-pc` and a rebuilt, restarted Harness are deferred to
-[the live-test document](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest.md);
-they are not verified. Defect: [LT-1197](livetest-remediation-register.md#lt-1197). Known,
+protection gaps, now fixed; the second passed). Live checks on `windows-pc` with the released
+extension and the rebuilt Harness passed the same day:
+[the live-test document](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest_completed.md). Defect: [LT-1197](livetest-remediation-register.md#lt-1197). Known,
 not changed here: `open_tab` sets its lease after `tabs.create`, so a very fast 401 on a fresh
 tab could go unrecorded (timing-dependent, unmeasured; live check 1 will show it).
 
