@@ -18,6 +18,7 @@ import { getLogger } from '../../../logging/logger';
 import { preserveHarnessCliShellPolicy } from './codex-harness-shell-policy';
 import { disableClaudeToolsCodexCannotUse } from './codex-claude-mcp-policy';
 import { mergeCodexMcpConfig } from './codex-mcp-config-merge';
+import { applyCodexLiveTestOverlay, readCodexLiveTestOverlay } from './codex-live-test-overlay';
 
 const logger = getLogger('CodexHomeManager');
 const OWNER_FILE = '.aio-codex-home-owner.json';
@@ -103,8 +104,11 @@ export class CodexHomeManager {
       const configPath = join(codexDir, 'config.toml');
       const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
       const stripConfig = opts.stripUserMcp && configContent !== null;
+      const overlay = readCodexLiveTestOverlay();
       const nextConfig = preserveHarnessCliShellPolicy(
-        stripConfig ? stripMcpServers(configContent) : disableClaudeToolsCodexCannotUse(configContent ?? ''),
+        stripConfig
+          ? applyCodexLiveTestOverlay(stripMcpServers(configContent), overlay)
+          : disableClaudeToolsCodexCannotUse(applyCodexLiveTestOverlay(configContent ?? '', overlay)),
         this.options.harnessCliEnv,
       );
       const writePrivateConfig = stripConfig || nextConfig !== (configContent ?? '');
@@ -155,7 +159,9 @@ export class CodexHomeManager {
         ? readFileSync(configPath, 'utf-8')
         : '';
       const nextConfig = preserveHarnessCliShellPolicy(
-        disableClaudeToolsCodexCannotUse(mergeCodexMcpConfig(baseConfig, mcpConfigToml, mode === 'exec')), this.options.harnessCliEnv,
+        disableClaudeToolsCodexCannotUse(applyCodexLiveTestOverlay(
+          mergeCodexMcpConfig(baseConfig, mcpConfigToml, mode === 'exec'), readCodexLiveTestOverlay(),
+        )), this.options.harnessCliEnv,
       );
       writeFileSync(join(tempDir, 'config.toml'), nextConfig, { encoding: 'utf-8', mode: 0o600 });
       this.linkSessionStore(tempDir);
