@@ -598,6 +598,12 @@ Source branch had no register entries left (its branch was removed); these rows 
 | --- | --- | --- | --- | --- |
 | LT-1197 | P2 | **FIXED 2026-11-21 (098888229); LIVE-VERIFIED 2026-11-21 on `windows-pc`.** On `windows-pc` (a computer with sites under secret protection) Chrome's own HTTP sign-in prompt could not be answered: `request_credential_access` and `fill_http_auth` were refused (`target_unavailable` / `invalid_url`) because the extension cannot check the error page under the prompt, and the waiting challenge was never reported because the extension deleted it when Chrome marked that page loaded. | [LT-1197 detail](#lt-1197) | [HTTP prompt on a protected computer live checks](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest_completed.md) |
 
+### New findings — 2026-11-21 hardened Codex session
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1200 | P1 | **REPRODUCED LIVE 2026-11-21 in the installed app; NOT FIXED (needs a decision on what a hardened, non-YOLO Codex session may write).** Every shell command in a hardened Codex session that is not in YOLO mode fails at once with `sandbox-exec: sandbox_apply: Operation not permitted` (exit 71), because Codex wraps each command in its own macOS sandbox inside Harness's. | [Codex exec progress live test, 21 November](2026-10-15-codex-exec-progress_livetest.md#evidence-run--2026-11-21-hardened-launch-from-a-root-session); [detail](#lt-1200) | Codex exec progress live test |
+
 ## LT-1152
 
 ### LT-1152 — the Steer explanation on a queued message never appears
@@ -17139,3 +17145,39 @@ was never reported on any computer (the open question in the 2026-10-17 HTTP aut
   under protection and a prompt for another site are still refused.
 - Live: the checks in the linked live-test document pass on `windows-pc`.
 - Fix record: [2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md](2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md).
+
+## LT-1200
+
+### LT-1200 — Every shell command fails in a hardened, non-YOLO Codex session
+
+**Status: reproduced live 21 November 2026 in the installed app; not fixed.**
+
+### Observed behaviour
+
+21 November 2026, 23:12:58Z: a root session in the installed app started a child with
+`spawn_child` `provider:"codex"`, `hardened:true`. `app.log` shows `Spawning CLI under Seatbelt
+hardened mode` and `Codex adapter using exec mode (hardened mode requires subprocess isolation)`.
+Asked to run `rtk proxy node -e 'setTimeout(() => console.log("Progress check complete"), 5000)'`,
+Codex got exit code 71 and `sandbox-exec: sandbox_apply: Operation not permitted`, twice, and
+reported that it could not run any command.
+
+### Root cause
+
+A non-YOLO Codex session is created with `sandboxMode: 'read-only'`
+(`src/main/cli/adapters/adapter-factory.ts`, `createCodexAdapter`), and the exec adapter passes it
+as `--sandbox read-only` (`src/main/cli/adapters/codex-exec-adapter.ts`, `buildArgs` and
+`resolveExecSandboxMode`). Codex then starts each shell command under its own `sandbox-exec`.
+Hardened mode already runs Codex inside Harness's Seatbelt jail, and macOS refuses a sandbox
+inside a sandbox (the same refusal recorded for queue workers on 11 and 19 November). YOLO
+sessions pass `danger-full-access`, so Codex applies no sandbox of its own and is not affected.
+
+### Required behaviour and acceptance
+
+- A hardened Codex session that is not in YOLO mode can run shell commands, and still cannot
+  write to the working directory or reach the network, which is what `read-only` promises today.
+  Simply passing `danger-full-access` would let it write anywhere the jail allows, including the
+  working directory, so that alone does not meet this.
+- Acceptance: both checks in the Codex exec progress live test pass in a hardened Codex session
+  started with `spawn_child hardened:true` from a root session in the rebuilt app, and a
+  `touch` in the working directory from that session is refused.
+
