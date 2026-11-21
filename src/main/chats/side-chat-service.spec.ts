@@ -470,6 +470,32 @@ describe('SideChatService', () => {
       expect(h.runtimes.creates.at(-1)).toMatchObject({ forceNodeId: 'windows-pc', workingDirectory: 'C:\\work\\aio' });
     });
 
+    it('refuses a send with the forced-worker message once the worker is gone, without touching the runtime', async () => {
+      const h = harness();
+      h.runtimes.addSession({
+        historyThreadId: 'thread-remote', workingDirectory: 'C:\\work\\aio', displayName: 'On Windows', executionLocation: { type: 'remote', nodeId: 'windows-pc' },
+      });
+      const ref: SideChatParentRef = { kind: 'session', historyThreadId: 'thread-remote', originNodeId: null };
+      const side = await h.service.sideChats.create({ parent: ref, selection: CLAUDE, currentCwd: '/ignored' });
+      expect(await h.service.sideChats.send({ chatId: side.chat.id, text: 'Where are you?' })).toMatchObject({ ok: true });
+      const runtimeId = h.runtimes.getAllInstances().at(-1)!.id;
+      const creates = h.runtimes.creates.length;
+      const inputs = h.runtimes.inputsFor(runtimeId).length;
+
+      for (const status of ['disconnected', 'connecting', undefined] as const) {
+        h.workerNodes.set('windows-pc', status);
+        expect(await h.service.sideChats.send({ chatId: side.chat.id, text: 'Still there?' })).toMatchObject({
+          ok: false,
+          error: `Forced worker node "windows-pc" is unavailable (${status ?? 'not found'})`,
+        });
+      }
+
+      expect(h.runtimes.creates).toHaveLength(creates);
+      expect(h.runtimes.inputsFor(runtimeId)).toHaveLength(inputs);
+      h.workerNodes.set('windows-pc', 'degraded');
+      expect(await h.service.sideChats.send({ chatId: side.chat.id, text: 'Back?' })).toMatchObject({ ok: true });
+    });
+
     it('never routes a local parent\'s sidechat to a worker, even with a look-alike path', async () => {
       const h = harness();
       const parent = h.runtimes.addSession({ historyThreadId: 'thread-local', workingDirectory: 'C:\\work\\aio', displayName: 'Local' });

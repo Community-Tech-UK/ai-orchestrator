@@ -119,6 +119,8 @@ export interface SideChatHarness {
   /** Agent id → permissions served to the authority resolver; edit to change a parent's policy. */
   agentPermissions: Map<string, AgentToolPermissions>;
   archive: { entries: Map<string, { title: string; workspacePath: string; messages: OutputMessage[] }> };
+  /** Worker node id → roster status; a node not listed is connected, `undefined` means removed. */
+  workerNodes: Map<string, string | undefined>;
   /** Simulate an app restart: a fresh service and runtime manager over the same stores. */
   restart(): SideChatHarness;
   dispose(): Promise<void>;
@@ -151,6 +153,7 @@ export function createSideChatHarness(shared?: {
     loadMessages: async (entryId) => archive.entries.get(entryId)?.messages ?? null,
   };
   const runtimes = new FakeRuntimeManager();
+  const workerNodes = new Map<string, string | undefined>();
   const eventBus = new EventEmitter();
   const events: ChatEvent[] = [];
   eventBus.on('chat:event', (event: ChatEvent) => events.push(event));
@@ -175,6 +178,7 @@ export function createSideChatHarness(shared?: {
       return { ...permissions! };
     }),
     sideChatArchive: archiveLookup,
+    sideChatWorkerNodeStatus: (nodeId) => (workerNodes.has(nodeId) ? workerNodes.get(nodeId) : 'connected'),
   });
   service.initialize();
   const harness: SideChatHarness = {
@@ -185,6 +189,7 @@ export function createSideChatHarness(shared?: {
     events,
     agentPermissions,
     archive,
+    workerNodes,
     restart: () => {
       service.dispose();
       return createSideChatHarness({ db, ledger, agentPermissions, archive }, options);

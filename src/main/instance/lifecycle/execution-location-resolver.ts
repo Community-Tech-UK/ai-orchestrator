@@ -8,6 +8,21 @@ import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InstanceLifecycle');
 
+/** A degraded node is still reachable; anything else cannot take work. */
+function isForcedWorkerUsable(status: string | undefined): boolean {
+  return status === 'connected' || status === 'degraded';
+}
+
+/** The one message every forced-worker refusal uses; no status means the node is not in the roster. */
+function forcedWorkerUnavailableMessage(nodeId: string, status: string | undefined): string {
+  return `Forced worker node "${nodeId}" is unavailable (${status ?? 'not found'})`;
+}
+
+/** The refusal for a forced worker that cannot take work, or null when it can. */
+export function forcedWorkerError(nodeId: string, status: string | undefined): string | null {
+  return isForcedWorkerUsable(status) ? null : forcedWorkerUnavailableMessage(nodeId, status);
+}
+
 /**
  * Determine where an instance should execute based on its creation config.
  * Returns local by default. Remote is selected only for an explicit forced node
@@ -70,7 +85,7 @@ export function resolveExecutionLocation(config: InstanceCreateConfig, registryO
     }
     const node = registry.getNode(config.forceNodeId);
     if (directories?.length && node?.capabilities.openCodeMajor !== 2) throw new Error('Additional directories require a worker with OpenCode 2.');
-    if (node?.status === 'connected' || node?.status === 'degraded') {
+    if (node && isForcedWorkerUsable(node.status)) {
       logger.info('Resolved execution location', {
         type: 'remote',
         reason: 'forceNodeId',
@@ -79,9 +94,7 @@ export function resolveExecutionLocation(config: InstanceCreateConfig, registryO
       });
       return { type: 'remote', nodeId: config.forceNodeId };
     }
-    throw new Error(
-      `Forced worker node "${config.forceNodeId}" is unavailable (${node?.status ?? 'not found'})`,
-    );
+    throw new Error(forcedWorkerUnavailableMessage(config.forceNodeId, node?.status));
   }
 
   if (nodePlacement) {

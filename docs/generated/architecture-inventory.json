@@ -6416,7 +6416,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 16637
+      "lines": 16681
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7343,6 +7343,10 @@
       "lines": 1003
     },
     {
+      "path": "src/main/chats/chat-service.ts",
+      "lines": 1001
+    },
+    {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1001
     },
@@ -7377,10 +7381,6 @@
     {
       "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
       "lines": 988
-    },
-    {
-      "path": "src/main/chats/chat-service.ts",
-      "lines": 987
     },
     {
       "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",

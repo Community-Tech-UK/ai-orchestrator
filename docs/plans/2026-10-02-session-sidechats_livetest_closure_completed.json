@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-02-session-sidechats_livetest.md",
+      "sha256": "267008fe0d7c32a5abe4c98f108d47bbb90505a24bde95d19803fc3f5274cc7a",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-02-session-sidechats_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-02-session-sidechats_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-02-session-sidechats_livetest_completed.md",
+      "sha256": "267008fe0d7c32a5abe4c98f108d47bbb90505a24bde95d19803fc3f5274cc7a"
+    }
+  ]
+}

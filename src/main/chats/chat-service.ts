@@ -192,6 +192,7 @@ export class ChatService {
       },
       resolveAgentPermissions: config.resolveAgentPermissions ?? resolveAgentPermissionsLazily,
       archive: config.sideChatArchive ?? createHistoryArchiveLookup(getHistoryManagerLazily),
+      workerNodeStatus: config.sideChatWorkerNodeStatus ?? workerNodeStatusLazily,
     });
   }
 
@@ -969,6 +970,19 @@ async function resolveAgentPermissionsLazily(workingDirectory: string, agentId: 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getAgentRegistry } = require('../agents/agent-registry') as typeof import('../agents/agent-registry');
   return (await getAgentRegistry().resolveAgent(workingDirectory, agentId)).permissions;
+}
+
+/**
+ * Roster status of a worker, treating a closed socket as disconnected: the roster
+ * keeps saying `connected` for a while after the worker's socket has gone.
+ */
+function workerNodeStatusLazily(nodeId: string): string | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getWorkerNodeRegistry } = require('../remote-node') as typeof import('../remote-node');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getWorkerNodeConnectionServer } = require('../remote-node/worker-node-connection') as typeof import('../remote-node/worker-node-connection');
+  const status = getWorkerNodeRegistry().getNode(nodeId)?.status;
+  return status && !getWorkerNodeConnectionServer().isNodeConnected(nodeId) ? 'disconnected' : status;
 }
 
 function getHistoryManagerLazily() {

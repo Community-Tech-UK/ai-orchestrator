@@ -26,6 +26,8 @@ export interface ChatServiceConfig {
   resolveAgentPermissions?: (workingDirectory: string, agentId: string | null) => Promise<AgentToolPermissions>;
   /** Sidechat archived-parent lookup; defaults to the history manager. */
   sideChatArchive?: SideChatArchiveLookup;
+  /** Sidechat worker roster lookup; defaults to the worker node registry. */
+  sideChatWorkerNodeStatus?: (nodeId: string) => string | undefined;
 }
 
 export interface ChatSystemEventInput {

@@ -402,6 +402,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1140 | P2 | **OPEN, reproduced 2026-11-10.** A non-YOLO Claude session running on a worker cannot have its tool approvals answered. The card appears, but Allow once fails with "No deferred tool use pending" and the session stays at waiting_for_permission. Reproduced on a plain remote parent as well, so it is not sidechat-specific; it blocks any sidechat that asks for approval on a worker. [Detail](#lt-1140). | [Session sidechats live test, LT-SC-7](2026-10-02-session-sidechats_livetest.md#evidence-run--2026-11-10-queue-resume-on-queue2026-10-02-session-sidechats-220367) | [LT-SC-7](2026-10-02-session-sidechats_livetest.md#lt-sc-7--remote-workspace-routing) |
+| LT-1141 | P3 | **FIXED in the session-sidechats queue branch, verified live on windows-pc 2026-11-21 (round 2); lands with that branch.** Originally reproduced 2026-11-10: in the 5 to 30 seconds after a worker disconnects, a sidechat send returns varying wording ("recovering from interrupt", "Node not connected", "inconsistent state (no adapter). Please restart the instance") instead of the forced-worker-unavailable message. None runs locally and the settled state returns the expected message. [Detail](#lt-1141). | [Session sidechats live test, LT-SC-7](2026-10-02-session-sidechats_livetest.md#evidence-run--2026-11-10-queue-resume-on-queue2026-10-02-session-sidechats-220367) | [LT-SC-7](2026-10-02-session-sidechats_livetest.md#lt-sc-7--remote-workspace-routing) |
 | LT-1159 | P2 | **SOURCE FIX + REGRESSION 2026-11-13; rebuilt-app Windows re-check pending.** `browser.check_session` auto re-login on the Connected Places Catapult buyer portal never fills the form: after navigating to the login URL it reads the page's elements about 30 ms later, gets zero, and reports `unknown / markers_not_matched_on_signed_in_page` with 1 attempt and no fill, on a page that is plainly logged out (3 of 3 live tries on `windows-pc`; the Publica portal's identical form filled on its first try). The login step now waits for the recipe's password input before reading the form. | [LT-1159 detail](#lt-1159) | [Multi-portal Windows live checks](2026-10-27-browser-login-multi-portal-remediation_livetest.md#evidence-run--2026-11-13-plan-queue-livetest-worker) |
 | LT-1139 | P2 | **REPRODUCED LIVE TWICE 2026-11-14; NOT REPAIRED.** In a Claude session that is not on Auto-approve, allowing the `read_session` permission card makes the app restart the session to carry out the approved call, and the restart is declared failed: the session goes to `error` with "Native resume did not stabilize after deferred permission" and the approved call never runs. Allowing a Bash call in the same copy resumed cleanly three times in a row (under a second each). Owner: deferred-permission resume (`deferred-permission-handler.ts`, `instance-lifecycle.ts` `waitForResumeHealth`). | [LT-1139 detail](#lt-1139) | [Review follow-ups live check](2026-11-09-review-followups_plan_livetest.md#evidence-run--2026-11-14-round-2) |
 | LT-1040 | P2 | **FIXED ON MAIN; re-verify after landing.** Opening Settings (and any Control Center page) threw `Cannot read properties of undefined (reading 'data')` from `ControlSurfaceShellComponent.findActiveSurfaceId` because the shell read a live child route's snapshot before its outlet had activated. Main now walks the already-recognised `route.snapshot` tree (`src/renderer/app/shared/control-surface/control-surface-shell.component.ts:179-193`), with regressions in `control-surface-shell.component.spec.ts`. Same failure as LT-790 in the Local AI parity report. | [LT-1040 detail](#lt-1040) | host-process-tools-and-fence-switch livetest |
@@ -12570,6 +12572,48 @@ Sidechat policy, parent resolution and renderer parent references use the node w
 ### Acceptance
 
 On a connected disposable worker, a Windows-path parent's sidechat answers from the parent's Windows directory with a matching remote execution location. Then disconnect only that disposable worker and send again: the send returns the explicit forced-worker refusal and makes no local adapter spawn. The production worker must not be touched. Rerun on this branch after the fix is landed.
+
+<a id="lt-1140"></a>
+## LT-1140 — remote Claude tool approvals cannot be answered
+
+**Status:** OPEN, reproduced 2026-11-10 on branch `queue/2026-10-02-session-sidechats-220367` (main at 543c2344f). Not fixed in this run.
+Origin: session-sidechats live test, LT-SC-7 (remote workspace routing).
+
+### Observed behaviour
+
+With a disposable worker connected to an isolated dev app, a non-YOLO Claude parent forced onto that worker asks to run Bash. The request reaches the renderer (the card shows Allow this once). Answering it returns `INPUT_REQUIRED_RESPOND_FAILED: No deferred tool use pending for instance <id>` and the runtime stays at waiting_for_permission; the main log repeats "Illegal lifecycle transition blocked waiting_for_permission to processing" every 5 seconds. A sidechat on the same parent behaves identically, and so does the plain parent session with no sidechat involved (control: `printf REMOTE_CONTROL`). YOLO sessions on the worker run normally.
+
+### Root cause (traced, not fixed)
+
+The worker's Claude adapter emits `input_required` with `metadata.type: 'deferred_permission'` (`src/main/cli/adapters/claude-cli-adapter.ts:1772`), forwarded by `rpc-event-router.ts:615` to `remote-cli-adapter.ts:625`. `src/main/ipc/handlers/input-required-respond.ts:49` routes every `deferred_permission` reply to `resumeAfterDeferredPermission`, which asks the coordinator-side adapter for `getDeferredToolUse()` (`src/main/instance/lifecycle/deferred-permission-handler.ts`). A remote adapter has none, so the reply is refused. The remote adapter's own `sendRaw(response, permissionKey)` (`remote-cli-adapter.ts:404`) is the path that reaches the worker.
+
+### Required behaviour
+
+An approval for a runtime on a worker reaches that worker and the held tool call runs or is refused there.
+
+### Acceptance
+
+On a disposable worker, a non-YOLO Claude parent and a sidechat each ask for Bash, and Allow once runs the command (tool result present, runtime back to idle). Deny returns the refusal to the model. Add a regression test where the runtime's adapter is a remote adapter.
+
+<a id="lt-1141"></a>
+## LT-1141 — worker loss gives inconsistent sidechat send errors for about 30 seconds
+
+**Status:** FIXED in the session-sidechats queue branch (not yet on main), verified live on `windows-pc` on 2026-11-21. Reproduced twice on 2026-11-10 and again on the real Windows worker on 2026-11-21. Low severity: no local spawn happened.
+
+**Fix:** `SideChatService.preflight` now refuses a send when the sidechat's forced worker cannot take work, before the bound runtime is touched. It reuses the exact wording of `resolveExecutionLocation` (`Forced worker node "<id>" is unavailable (<status>)`). The production status lookup treats a closed worker socket as `disconnected`, because the roster keeps saying `connected` for about 30 seconds after the socket is gone. Acceptance run: [session sidechats live test, 2026-11-21 round 2](2026-10-02-session-sidechats_livetest.md#evidence-run--2026-11-21-round-2-verifier-finding-forced-worker-message).
+Origin: session-sidechats live test, LT-SC-7 (offline send).
+
+### Observed behaviour
+
+After stopping the disposable worker, the same sidechat's sends returned, in order: "Instance <id> is recovering from interrupt. Please wait for it to be ready." (runtime respawning, roster still connected), "Node not connected: <node>", "Instance <id> is in an inconsistent state (no adapter). Please restart the instance." (roster disconnected, runtime degraded), then from about 18 seconds on the expected `Forced worker node "<node>" is unavailable (not found)`. A sidechat user cannot restart the runtime, so two of these messages give no usable next step. Adapter-factory spawns during every offline send: zero; no local runtime was started.
+
+### Required behaviour
+
+While the sidechat's forced worker is lost or reconnecting, sends say the worker is unavailable (plain wording) rather than internal runtime states.
+
+### Acceptance
+
+Repeat the LT-SC-7 offline step, sending every 5 seconds from the moment the worker stops: every refusal names the unavailable worker; none mentions interrupts, adapters or restarting the instance.
 
 ## LT-997 — shared-tab native named keys have no default effect
 

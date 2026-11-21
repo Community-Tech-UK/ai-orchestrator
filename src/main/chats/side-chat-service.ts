@@ -27,6 +27,7 @@ import { estimateTokens } from '../../shared/utils/token-estimate';
 import type { ConversationLedgerService } from '../conversation-ledger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { InstanceManager } from '../instance/instance-manager';
+import { forcedWorkerError } from '../instance/lifecycle/execution-location-resolver';
 import { getLogger } from '../logging/logger';
 import { addAllowedRoot } from '../security/path-validator';
 import type { ChatStore } from './chat-store';
@@ -93,6 +94,8 @@ export interface SideChatServiceDeps {
   chat: SideChatChatPort;
   resolveAgentPermissions: (workingDirectory: string, agentId: string | null) => Promise<AgentToolPermissions>;
   archive?: SideChatArchiveLookup;
+  /** Roster status of a worker node; undefined when the node is not in the roster. */
+  workerNodeStatus: (nodeId: string) => string | undefined;
 }
 
 /**
@@ -503,6 +506,14 @@ export class SideChatService {
     const enforcement = providerCanEnforcePolicy(chat.provider ?? 'claude', authority.policy);
     if (!enforcement.ok) {
       return { ok: false, code: 'provider-unavailable', error: enforcement.capability, lastSnapshotAvailable };
+    }
+    // A sidechat bound to a worker never runs anywhere else. Refuse here, before
+    // the runtime is touched, so a lost worker always gives this one message
+    // instead of the bound runtime's internal transport and stopping errors.
+    const workerNodeId = authority.policy.workspaceNode;
+    const workerError = workerNodeId && forcedWorkerError(workerNodeId, this.deps.workerNodeStatus(workerNodeId));
+    if (workerError) {
+      return { ok: false, code: 'send-failed', error: workerError, lastSnapshotAvailable };
     }
     // Spawn-time restrictions cannot be edited in place, so a parent permission
     // change replaces the sidechat's runtime before this question is sent.
