@@ -9,6 +9,9 @@ describe('single composer hint', () => {
     [{ recovering: true }, 'Recovering session... Enter to send after interrupt, Shift+Enter for new line'],
     [{ compacting: true, busy: true }, 'Compacting the conversation… your message will send afterwards'],
     [{ busy: true }, 'Enter queues your message. Esc stops it without sending.'],
+    [{ busy: true, steerable: true }, 'Enter queues this to run after the current turn. Use Steer to redirect it now.'],
+    [{ starting: true, steerable: true }, 'Starting up... Enter to queue, Shift+Enter for new line'],
+    [{ compacting: true, busy: true, steerable: true }, 'Compacting the conversation… your message will send afterwards'],
     [{ condensed: true }, 'Condensed context will attach when you send.'],
     [{}, 'Enter sends. Shift+Enter adds a line. / opens commands.'],
   ])('chooses one line for %j', (state, expected) => { const text = composerHintFor(state); expect(text).toBe(expected); expect(text).not.toContain('\n'); });

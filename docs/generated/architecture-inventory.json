@@ -6416,7 +6416,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 16952
+      "lines": 17142
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7023,12 +7023,12 @@
       "lines": 1256
     },
     {
-      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
-      "lines": 1253
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1254
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1250
+      "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
+      "lines": 1253
     },
     {
       "path": "docs/fable_todo_completed.md",

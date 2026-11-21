@@ -402,6 +402,12 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1152 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The Steer explanation on a queued message was created as an SVG element with no layout box, so it never showed. The panel is now attached without the trigger's view container; visible at 1400 and 700 px. | [LT-1152 detail](#lt-1152) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
+| LT-1153 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The working-session hint now says Enter queues for after the current turn and Steer redirects now (only while Steer is offered), and wraps instead of being cut off; readable at 1400 and 700 px. | [LT-1153 detail](#lt-1153) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
+| LT-1020 | P3 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** Tab in the message box was swallowed by a default shortcut that had no handler; the shortcut is removed and Tab now moves to the next control. | [LT-1020 detail](#lt-1020) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
+| LT-1021 | P3 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** Visible prose on Hooks, Settings and the Summarize-children skill now says session; technical paths and a stored browser profile name stay. | [LT-1021 detail](#lt-1021) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
+| LT-1022 | P3 | **CLOSED 2026-11-19 BY DECISION: the dialog stays, the live check was reworded.** The verification dashboard's Delete session × opens the shared confirm dialog (Cancel / Delete session) instead of the inline "Confirm delete / Never mind" pair; it asks first, names the consequence and leaves the row alone on Cancel, which is what the check is for. Seen again on a native Windows copy. | [LT-1022 detail](#lt-1022) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
+| LT-1190 | P3 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-19; MERGED ONTO MAIN'S ESCAPE HANDLING 2026-11-21; rebuilt-app check pending.** On Settings, pressing Escape to dismiss a tooltip's reason (found on the Accounts page's protected Enabled checkbox) also closed the Settings page. Main's tooltip now stops that Escape from bubbling while a hint is open, which keeps Settings open; with no hint open Escape still leaves. | [LT-1190 detail](#lt-1190) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
 | LT-1140 | P2 | **OPEN, reproduced 2026-11-10.** A non-YOLO Claude session running on a worker cannot have its tool approvals answered. The card appears, but Allow once fails with "No deferred tool use pending" and the session stays at waiting_for_permission. Reproduced on a plain remote parent as well, so it is not sidechat-specific; it blocks any sidechat that asks for approval on a worker. [Detail](#lt-1140). | [Session sidechats live test, LT-SC-7](2026-10-02-session-sidechats_livetest.md#evidence-run--2026-11-10-queue-resume-on-queue2026-10-02-session-sidechats-220367) | [LT-SC-7](2026-10-02-session-sidechats_livetest.md#lt-sc-7--remote-workspace-routing) |
 | LT-1141 | P3 | **FIXED in the session-sidechats queue branch, verified live on windows-pc 2026-11-21 (round 2); lands with that branch.** Originally reproduced 2026-11-10: in the 5 to 30 seconds after a worker disconnects, a sidechat send returns varying wording ("recovering from interrupt", "Node not connected", "inconsistent state (no adapter). Please restart the instance") instead of the forced-worker-unavailable message. None runs locally and the settled state returns the expected message. [Detail](#lt-1141). | [Session sidechats live test, LT-SC-7](2026-10-02-session-sidechats_livetest.md#evidence-run--2026-11-10-queue-resume-on-queue2026-10-02-session-sidechats-220367) | [LT-SC-7](2026-10-02-session-sidechats_livetest.md#lt-sc-7--remote-workspace-routing) |
 | LT-1159 | P2 | **SOURCE FIX + REGRESSION 2026-11-13; rebuilt-app Windows re-check pending.** `browser.check_session` auto re-login on the Connected Places Catapult buyer portal never fills the form: after navigating to the login URL it reads the page's elements about 30 ms later, gets zero, and reports `unknown / markers_not_matched_on_signed_in_page` with 1 attempt and no fill, on a page that is plainly logged out (3 of 3 live tries on `windows-pc`; the Publica portal's identical form filled on its first try). The login step now waits for the recipe's password input before reading the form. | [LT-1159 detail](#lt-1159) | [Multi-portal Windows live checks](2026-10-27-browser-login-multi-portal-remediation_livetest.md#evidence-run--2026-11-13-plan-queue-livetest-worker) |
@@ -591,6 +597,190 @@ Source branch had no register entries left (its branch was removed); these rows 
 | ID | Priority | Status / observed defect | Evidence | Acceptance owner |
 | --- | --- | --- | --- | --- |
 | LT-1197 | P2 | **FIXED 2026-11-21 (098888229); LIVE-VERIFIED 2026-11-21 on `windows-pc`.** On `windows-pc` (a computer with sites under secret protection) Chrome's own HTTP sign-in prompt could not be answered: `request_credential_access` and `fill_http_auth` were refused (`target_unavailable` / `invalid_url`) because the extension cannot check the error page under the prompt, and the waiting challenge was never reported because the extension deleted it when Chrome marked that page loaded. | [LT-1197 detail](#lt-1197) | [HTTP prompt on a protected computer live checks](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest_completed.md) |
+
+## LT-1152
+
+### LT-1152 — the Steer explanation on a queued message never appears
+
+**Status: source fix verified in the dev app 11 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Dev app from the Phase F queue branch, a working session with three queued messages. On hover and on real Tab focus of
+a queued message's Steer button (`.queued-steer-btn`) `aria-describedby` points at the explanation and the overlay exists,
+but the overlay pane measures 0 by 0 and the tooltip element has opacity 0 with no layout box (`getClientRects()` is
+empty), for 1.5 s and longer. Screenshot `_scratch/lt/shots/12-layout-normal-1400-queued.png` shows the focused button with
+no explanation. Reproduced at 1400, 700 and 480 px wide. The same session's queued Edit and Cancel buttons and the typed
+Steer button show their explanations at the same positions in the same run.
+
+### Root cause
+
+`AioTooltipDirective.show()` attached the panel with `new ComponentPortal(AioTooltipPanelComponent, this.viewContainer)`.
+A component created through a view container takes its host element's namespace from the trigger's parent node
+(`ViewContainerRef._getHostElementNamespace`). The queued Steer button is the first node of an `@if` that follows the
+Edit icon button, so the `@if` container node recorded the SVG namespace and the panel host `<app-aio-tooltip-panel>`
+was built as an SVG element: it was in the DOM, `checkVisibility()` was false and it had no client rects. Edit, Cancel
+and the typed Steer button sit under HTML parents and were not affected. (Disabling flexible dimensions, tried first,
+was a wrong lead and was reverted.)
+
+### Fix
+
+`aio-tooltip.directive.ts` now uses `new ComponentPortal(AioTooltipPanelComponent, null, this.injector)`, as the title
+tooltip bridge already did. Regression: `aio-tooltip.directive.spec.ts` "builds the panel as an HTML element for a trigger
+that follows an icon button inside @if" fails on the old code (namespace `…/2000/svg`) and passes now. Dev-app check: queued
+Steer tooltip 320 by 49 px at opacity 1 beside the focused button at 1400, 700 and 480 px.
+
+### Required behaviour and acceptance
+
+The queued Steer explanation is visible on hover and on keyboard focus at every window width, fits inside the window and
+does not cover the next control. Acceptance: the Phase F live test "Queued steering" and "Layout" checks show a measured
+non-zero tooltip box next to the focused button at 1400, 700 and 480 px.
+
+## LT-1153
+
+### LT-1153 — the composer's Enter-versus-Steer hint is incomplete and disappears when narrow
+
+**Status: source fix verified in the dev app 11 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+For a working session the hint reads "Enter queues your message. Esc stops it without sending." (`composerHintFor`,
+`composer-hint.ts:13`). It never mentions Steer, although the Phase F plan (Step 7, item 1) and the live test expect it
+to say Enter queues for after the current turn and Steer redirects now. The hint element is `white-space: nowrap;
+overflow: hidden; text-overflow: ellipsis`: its box is 283 px wide with 312 px of text at 1400 px (cut off), and 0 px
+wide at 700 px and 480 px, so nothing shows.
+
+### Root cause
+
+The wording was never changed from the Phase 5 text, and the hint shares one line with the quota notice and the
+action buttons, which take all the room when the window is narrow.
+
+### Required behaviour and acceptance
+
+While a Steer button is offered the hint says that Enter queues for after the current turn and Steer sends next; the
+hint stays readable (wraps or moves to its own line) at 700 px and 480 px. Acceptance: Phase F live test "Typed steering"
+and "Layout" checks.
+
+### Fix
+
+`composer-hint.ts`: while a Steer button is offered (`canSteerActiveTurn()`), the hint reads "Enter queues this to run after
+the current turn. Use Steer to redirect it now."; other busy states keep the Esc wording. `input-panel.component.scss`: the
+footer and hint wrap instead of truncating (hint `flex: 1 1 12em`, no ellipsis). Dev app: hint 236 by 25 px, not clipped at
+1400 px; 212 by 38 px at 700 px (about 200% zoom). At 480 px the whole main pane is about 100 px wide because the sidebar keeps
+375 px, which is outside the 800 px minimum window width; not part of this fix.
+
+## LT-1020
+
+### LT-1020 — Tab in the message box toggles the agent instead of moving on
+
+**Status: source fix verified in the dev app 11 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+With the message box focused (empty or with text, no suggestion open), five real Tab presses left focus in the box.
+`KeybindingService.handleKeyDown` calls `preventDefault()` and `stopPropagation()` for Tab. The default binding is
+`toggle-agent` (`keybinding.types.ts:556`, key Tab, context input). Shift+Tab leaves the box normally.
+
+### Root cause
+
+A default shortcut on plain Tab inside a text field.
+
+### Required behaviour and acceptance
+
+A keyboard user can Tab forward out of the message box. Acceptance: Tab from the box moves to the next control, and the
+agent switch has another shortcut. This is outside Phase F; recorded because the Phase F screen-reader check asks that
+Escape restore normal navigation without trapping focus.
+
+### Fix
+
+No code handles `toggle-agent` (no registered action anywhere in `src/renderer` or `src/main`), so the default Tab binding
+only swallowed the key. The entry and its action name are removed from `keybinding.types.ts`; stored customisations for the
+old id are ignored because bindings are looked up by registered id. `keybinding.service.spec.ts` now probes with the
+sidebar shortcut. Dev app: Tab from the message box moves focus to the Add files button.
+
+## LT-1021
+
+### LT-1021 — "instance" still shows on screens that call conversations sessions
+
+**Status: source fix verified in the dev app 11 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Visible text on Hooks ("When an instance completes normally", "After a new instance starts successfully", "When an
+instance is terminated", "submitted to an instance", "chat or instance working directory", from
+`hook-event-reference.component.ts:34-74`), Skills ("child instances"), Settings ("New instances skip the approval
+prompts", "Starting folder for new instances", "when no instances are running") and Plugins (the
+`~/.orchestrator/plugins` path). No "AIO" or "Orchestrator" product name was found in visible text except a browser
+profile named "AIO Procurement" on the Browser page, which is stored data, not source copy.
+
+### Root cause
+
+Older copy that the Phase F wording sweep did not cover.
+
+### Required behaviour and acceptance
+
+Visible copy says session; technical paths may stay. Acceptance: the Phase F live test "Vocabulary" search finds no
+"instance" in visible prose.
+
+### Fix
+
+Hooks event list, the settings descriptions in `settings-metadata-core/-integrations/-runtime.ts`, the Advanced tool-schema
+description and the Summarize-children skill description now say session (and Harness instead of orchestrator).
+Left alone on purpose: the `~/.orchestrator/plugins` path and the stored browser profile name "AIO Procurement", which is
+data, not source copy. A re-scan of 21 screens and 8 Settings pages found only those two. The skill description comes from
+the built copy, so it shows after `build:main` and a restart.
+
+## LT-1022
+
+### LT-1022 — Delete session × on the verification dashboard uses a dialog, not the inline confirmation
+
+**Status: closed 19 November 2026 by decision. The shared dialog is kept (it is the app-wide confirmation pattern and meets the check's intent); the Phase F live test "Batch count and confirm" was reworded to match. Restoring the inline pair would be new work.**
+
+### Observed behaviour
+
+With a seeded completed verification session, clicking Delete session × (`verification-dashboard.component.html:316`,
+`deleteSession` in the `.ts`) opens the shared confirm dialog: "Are you sure you want to delete this verification
+session? This removes the session and its results." with Cancel and "Delete session". Cancel left the row in place. No
+inline "Confirm delete / Never mind" pair appears. The Phase F history records an inline two-step confirm; the later
+commit `9f7be3041` (Phase E) is the last to touch this file, and the current code calls `confirmService.confirm`.
+
+### Required behaviour and acceptance
+
+Either restore the inline pair or change the Phase F live test wording to the dialog. Acceptance: the live test
+"Batch count and confirm" matches the screen.
+
+## LT-1190
+
+### LT-1190 — Escape on a tooltip's reason also closes the Settings page
+
+**Status: source fix verified in the dev app on a native Windows desktop copy 19 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Settings → Accounts, keyboard focus on the Enabled checkbox of the only enabled account: the reason "At least one account must
+stay enabled" shows. Pressing Escape hides the reason and also leaves Settings (the route returns to `/`), so the control and its
+focus are gone. The Phase F check requires Escape to dismiss the reason without losing the control's focus.
+
+### Root cause
+
+`AioTooltipDirective` hid itself on `keydown.escape` and left no sign that it had. `SettingsComponent.onKeydown`
+(`settings.component.html:5`, `settings.component.ts:523`) closes the page on any Escape that no overlay of its own claimed.
+
+### Required behaviour and acceptance
+
+An Escape that dismisses a tooltip's reason does not also leave Settings; with no tooltip showing, Escape still leaves. Acceptance: Phase F live
+test "Disabled reasons reach the keyboard": with the reason open on the Accounts checkbox, Escape hides it, Settings stays open
+and focus stays on the checkbox.
+
+### Fix
+
+Merged 21 November 2026 onto the base branch's own Escape change (commit `c9a8542f5`): `aio-tooltip.directive.ts` `onEscape` calls
+`stopPropagation()` only while a hint is open, then hides it. Settings listens on an ancestor element
+(`settings.component.html:5`), so a hint-closing Escape never reaches it and Settings stays open; with no hint open the key
+goes on and Settings leaves as before. The earlier `defaultPrevented` marker and the matching check in `settings.component.ts`
+were removed as redundant. Covered by the base branch's spec "keeps Escape from reaching other handlers only while a hint is
+open". Earlier (19 November) the first fix was re-checked on a rebuilt native Windows copy: first Escape removed the reason with
+Settings open and focus on the checkbox, the second left Settings; that check needs repeating on the merged code after a rebuild.
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 

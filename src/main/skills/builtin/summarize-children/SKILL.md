@@ -1,7 +1,7 @@
 ---
 name: summarize-children
 trigger: /summarize-children
-description: Analyze and synthesize results from multiple child instances
+description: Analyze and synthesize results from multiple child sessions
 parameters:
   - name: children
     required: true

@@ -103,7 +103,7 @@ interface CommBridge {
                 class="input"
                 type="text"
                 [value]="sendFrom()"
-                placeholder="e.g. instance-abc"
+                placeholder="e.g. session-abc"
                 (input)="onSendFromInput($event)"
               />
             </label>
@@ -114,7 +114,7 @@ interface CommBridge {
                 class="input"
                 type="text"
                 [value]="sendTo()"
-                placeholder="e.g. instance-xyz"
+                placeholder="e.g. session-xyz"
                 (input)="onSendToInput($event)"
               />
             </label>
@@ -188,7 +188,7 @@ interface CommBridge {
                 class="input"
                 type="text"
                 [value]="bridgeId1()"
-                placeholder="e.g. instance-abc"
+                placeholder="e.g. session-abc"
                 (input)="onBridgeId1Input($event)"
               />
             </label>
@@ -199,7 +199,7 @@ interface CommBridge {
                 class="input"
                 type="text"
                 [value]="bridgeId2()"
-                placeholder="e.g. instance-xyz"
+                placeholder="e.g. session-xyz"
                 (input)="onBridgeId2Input($event)"
               />
             </label>

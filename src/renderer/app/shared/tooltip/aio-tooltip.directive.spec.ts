@@ -33,6 +33,26 @@ class HostComponent {
   describedBy: string | null = null;
 }
 
+/**
+ * A trigger that is the first node of an `@if` straight after an icon button inherited the SVG namespace, so its
+ * panel was created as an SVG element with no layout box: present in the DOM, never visible (queued Steer button).
+ */
+@Component({
+  standalone: true,
+  imports: [AioTooltipDirective],
+  template: `
+    <button type="button" aria-label="Edit" appTooltip="Edit"><svg width="13" height="13" viewBox="0 0 24 24"><path d="M12 20h9"></path></svg></button>
+    @if (open()) {
+      <button type="button" id="after-icon" appTooltip="Moves this message to the front of the queue">
+        <svg width="13" height="13" viewBox="0 0 24 24"><path d="M4 7h11"></path></svg><span>Steer</span>
+      </button>
+    }
+  `,
+})
+class AfterIconHostComponent {
+  readonly open = signal(true);
+}
+
 function tooltipEl(): HTMLElement | null {
   return document.querySelector('[role="tooltip"]');
 }
@@ -501,5 +521,22 @@ describe('AioTooltipDirective — templates and visible labels', () => {
     const source = readFileSync('src/renderer/app/shared/tooltip/aio-tooltip-panel.component.ts', 'utf8');
     expect(source).toContain('overflow-wrap: anywhere');
     expect(source).toMatch(/\.aio-tooltip--code\s*\{[^}]*max-width: 480px;[^}]*font-family: [^;]*monospace[^;]*;[^}]*white-space: pre-wrap;[^}]*text-align: left;/);
+  });
+});
+
+describe('AioTooltipDirective panel namespace', () => {
+  it('builds the panel as an HTML element for a trigger that follows an icon button inside @if', async () => {
+    vi.useFakeTimers();
+    await TestBed.configureTestingModule({ imports: [AfterIconHostComponent] }).compileComponents();
+    const host = TestBed.createComponent(AfterIconHostComponent);
+    host.detectChanges();
+    host.nativeElement.querySelector('#after-icon').dispatchEvent(new MouseEvent('mouseenter'));
+    vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+    const panel = document.querySelector('app-aio-tooltip-panel');
+    expect(tooltipEl()?.textContent).toContain('front of the queue');
+    expect(panel?.namespaceURI).toBe('http://www.w3.org/1999/xhtml');
+    host.destroy();
+    vi.useRealTimers();
+    expect(tooltipEl()).toBeNull();
   });
 });

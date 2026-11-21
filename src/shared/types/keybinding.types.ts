@@ -82,7 +82,6 @@ export type KeybindingAction =
   | 'clear-input'
   | 'copy-last-response'
   // Agent
-  | 'toggle-agent'
   | 'select-agent-build'
   | 'select-agent-plan'
   // Wave 2 — navigation, pickers, and recall
@@ -545,18 +544,6 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'composer.undo-edit',
     context: 'input',
     category: 'Composer',
-    customizable: true,
-  },
-
-  // Agent
-  {
-    id: 'toggle-agent',
-    name: 'Toggle Agent',
-    description: 'Switch between agent modes',
-    keys: { key: 'Tab', modifiers: [] },
-    action: 'toggle-agent',
-    context: 'input',
-    category: 'Agent',
     customizable: true,
   },
 ];

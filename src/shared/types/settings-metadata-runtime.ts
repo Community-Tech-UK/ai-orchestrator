@@ -37,7 +37,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'codexHelperAgentsChats',
     label: 'Codex helper agents in your chats',
-    description: 'Codex can start its own helper agents. Each one costs about as much as the main agent. Applies when a Codex thread starts or resumes.',
+    description: 'Codex can start its own helper agents. Each one costs about as much as the main agent. Applies when a Codex session starts or resumes.',
     type: 'select', category: 'advanced',
     options: [
       { value: 'economy', label: 'Cheaper: medium effort, at most 2 helpers at a time' },
@@ -49,7 +49,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'codexHelperAgentsHarnessWork',
     label: 'Codex helper agents in work Harness starts',
-    description: 'Covers loops, the plan queue, child sessions, scheduled jobs and reviews. Trial keeps related work on one comparison arm. Applies when a Codex thread starts or resumes.',
+    description: 'Covers loops, the plan queue, child sessions, scheduled jobs and reviews. Trial keeps related work on one comparison arm. Applies when a Codex session starts or resumes.',
     type: 'select', category: 'advanced',
     options: [
       { value: 'off', label: 'Off: Harness runs its own helpers' },
@@ -60,7 +60,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'codexContextTuning',
     label: 'Codex output trimming and earlier memory tidy-up',
-    description: 'Harness caps long command output at 6,000 tokens in chats and 4,000 in work it starts, then asks Codex to summarise between steps at 70% or 60% context use. Choose Codex\'s own behaviour and Harness stops setting either limit on each thread. Codex itself still starts with a 6,000-token output cap as a safety net, so this setting does not lift that one. Applies when a Codex thread starts or resumes.',
+    description: 'Harness caps long command output at 6,000 tokens in chats and 4,000 in work it starts, then asks Codex to summarise between steps at 70% or 60% context use. Choose Codex\'s own behaviour and Harness stops setting either limit on each session. Codex itself still starts with a 6,000-token output cap as a safety net, so this setting does not lift that one. Applies when a Codex session starts or resumes.',
     type: 'select', category: 'advanced',
     options: [
       { value: 'harness', label: 'Harness: trim output and tidy memory earlier' },

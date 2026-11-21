@@ -84,17 +84,21 @@ describe('KeybindingService input-context gate', () => {
     dispatch.dispatch.mockClear();
 
     button.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'Tab',
+      key: 'b',
+      ctrlKey: !service.isMac,
+      metaKey: service.isMac,
       bubbles: true,
       cancelable: true,
     }));
-    expect(dispatch.dispatch).toHaveBeenCalledWith('toggle-agent');
+    expect(dispatch.dispatch).toHaveBeenCalledWith('toggle-sidebar');
 
     dispatch.dispatch.mockClear();
     TestBed.resetTestingModule();
 
     const event = new KeyboardEvent('keydown', {
-      key: 'Tab',
+      key: 'b',
+      ctrlKey: !service.isMac,
+      metaKey: service.isMac,
       bubbles: true,
       cancelable: true,
     });

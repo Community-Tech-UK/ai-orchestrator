@@ -521,7 +521,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   min-height: 28px;
   padding: 0 4px;
   min-width: 0;
@@ -531,7 +532,8 @@
 .composer-actions-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   min-width: 0;
 }
 
@@ -892,24 +894,26 @@
 }
 
 /* Input Hints - Keyboard shortcuts */
+/* The hint wraps onto its own line instead of shrinking to nothing: it says when Enter sends and what Steer does. */
 .input-hints {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex: 1;
-  min-width: 0;
-  gap: 12px;
-  white-space: nowrap;
+  flex: 1 1 16em;
+  min-width: min(16em, 100%);
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 
 .hint {
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.02em;
-  line-height: 1;
+  line-height: 1.4;
   color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  flex: 1 1 12em;
+  min-width: min(12em, 100%);
 }
 
 /* Idle instructional hints: stay out of the way until the composer is focused */

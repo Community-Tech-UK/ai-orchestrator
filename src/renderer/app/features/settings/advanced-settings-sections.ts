@@ -139,7 +139,7 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   {
     id: 'tool-loading-heading',
     title: 'Tool loading',
-    description: 'Loads a small core set of browser/orchestrator tool schemas up front and the rest on demand, to cut per-session context cost. Leave on unless an agent needs the full tool list every time.',
+    description: 'Loads a small core set of browser and Harness tool schemas up front and the rest on demand, to cut per-session context cost. Leave on unless an agent needs the full tool list every time.',
     group: 'runtime',
     keys: [
       'browserMcpToolDeferral',

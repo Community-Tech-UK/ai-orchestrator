@@ -45,7 +45,6 @@ import {
   type OnDestroy,
   Renderer2,
   TemplateRef,
-  ViewContainerRef,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import {
@@ -133,7 +132,6 @@ export class AioTooltipDirective implements OnDestroy {
   private readonly overlay = inject(Overlay);
   private readonly positionBuilder = inject(OverlayPositionBuilder);
   private readonly host = inject(ElementRef<HTMLElement>);
-  private readonly viewContainer = inject(ViewContainerRef);
   private readonly renderer = inject(Renderer2);
   private readonly document = inject(DOCUMENT);
 
@@ -259,7 +257,10 @@ export class AioTooltipDirective implements OnDestroy {
 
     hideBridgeTooltip();
     const overlayRef = this.ensureOverlay();
-    const ref = overlayRef.attach(new ComponentPortal(AioTooltipPanelComponent, this.viewContainer));
+    // No ViewContainerRef on purpose: a component created through one takes its host element's namespace from the
+    // trigger's parent node, and a trigger that is the first node of an `@if` right after an icon button inherited
+    // the SVG namespace, so the panel was built as an SVG element with no layout box (invisible tooltip).
+    const ref = overlayRef.attach(new ComponentPortal(AioTooltipPanelComponent, null, this.injector));
     this.panelRef = ref;
     const template = this.reasonActive() ? null : this.appTooltipTpl();
     ref.setInput('template', template);
