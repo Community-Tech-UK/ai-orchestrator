@@ -111,3 +111,82 @@ describe('InstanceStateService unread completion persistence', () => {
     expect(first.isThreadUnread('thread-shared')).toBe(false);
   });
 });
+
+describe('InstanceStateService parent and child links', () => {
+  beforeEach(() => localStorage.clear());
+
+  const child = (id: string, parentId: string | null): Instance => ({ ...instance(id), parentId });
+
+  it('adds a child created after its parent was loaded to the parent child list', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('parent'));
+
+    service.addInstance(child('child-1', 'parent'));
+    service.addInstance(child('child-2', 'parent'));
+
+    expect(service.getInstance('parent')?.childrenIds).toEqual(['child-1', 'child-2']);
+  });
+
+  it('does not list a child twice when its created event is replayed', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('parent'));
+
+    service.addInstance(child('child-1', 'parent'));
+    service.addInstance(child('child-1', 'parent'));
+
+    expect(service.getInstance('parent')?.childrenIds).toEqual(['child-1']);
+  });
+
+  it('leaves a parent that already lists the child unchanged', () => {
+    const service = new InstanceStateService();
+    service.addInstance({ ...instance('parent'), childrenIds: ['child-1'] });
+
+    service.addInstance(child('child-1', 'parent'));
+
+    expect(service.getInstance('parent')?.childrenIds).toEqual(['child-1']);
+  });
+
+  it('ignores a child whose parent is not loaded and keeps root sessions untouched', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('other'));
+
+    service.addInstance(child('orphan', 'missing-parent'));
+    service.addInstance(instance('root'));
+
+    expect(service.getInstance('other')?.childrenIds).toEqual([]);
+    expect(service.getInstance('orphan')?.parentId).toBe('missing-parent');
+  });
+
+  it('only changes the named parent, not a sibling parent', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('parent-a'));
+    service.addInstance(instance('parent-b'));
+
+    service.addInstance(child('child-a', 'parent-a'));
+
+    expect(service.getInstance('parent-a')?.childrenIds).toEqual(['child-a']);
+    expect(service.getInstance('parent-b')?.childrenIds).toEqual([]);
+  });
+
+  it('drops a removed child from its parent child list and keeps the others', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('parent'));
+    service.addInstance(child('child-1', 'parent'));
+    service.addInstance(child('child-2', 'parent'));
+
+    service.removeInstance('child-1');
+
+    expect(service.getInstance('child-1')).toBeUndefined();
+    expect(service.getInstance('parent')?.childrenIds).toEqual(['child-2']);
+  });
+
+  it('removes a child whose parent is already gone without error', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('parent'));
+    service.addInstance(child('child-1', 'parent'));
+    service.removeInstance('parent');
+
+    expect(() => service.removeInstance('child-1')).not.toThrow();
+    expect(service.getInstance('child-1')).toBeUndefined();
+  });
+});

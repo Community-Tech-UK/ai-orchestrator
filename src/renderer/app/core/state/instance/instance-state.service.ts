@@ -203,6 +203,13 @@ export class InstanceStateService {
         hasUnreadCompletion:
           instance.hasUnreadCompletion || this.isThreadUnread(getInstanceThreadId(instance)),
       });
+      // A parent's child list otherwise only reflects what the main process sent
+      // when the parent was loaded, so a child spawned afterwards never reached
+      // the Agents chip, the orchestration HUD or the children toggle.
+      const parent = instance.parentId ? newMap.get(instance.parentId) : undefined;
+      if (parent && !parent.childrenIds.includes(instance.id)) {
+        newMap.set(parent.id, { ...parent, childrenIds: [...parent.childrenIds, instance.id] });
+      }
       return {
         ...current,
         instances: newMap,
@@ -224,6 +231,14 @@ export class InstanceStateService {
     this.repairedTranscripts.delete(instanceId);
     this.state.update((current) => {
       const newMap = new Map(current.instances);
+      const parentId = newMap.get(instanceId)?.parentId;
+      const parent = parentId ? newMap.get(parentId) : undefined;
+      if (parent && parent.childrenIds.includes(instanceId)) {
+        newMap.set(parent.id, {
+          ...parent,
+          childrenIds: parent.childrenIds.filter((childId) => childId !== instanceId),
+        });
+      }
       newMap.delete(instanceId);
       return {
         ...current,

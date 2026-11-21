@@ -215,6 +215,27 @@ via `Emulation.setDeviceMetricsOverride`), `/tmp/cdp-key.mjs` (real key events v
 `Input.dispatchKeyEvent`), `/tmp/cdp-mouse.mjs`. `Runtime.evaluate` alone cannot do narrow-layout or
 real-keyboard checks.
 
+#### Status strip chips: Agents, Review and the second opinion
+
+The strip above the message box (`session-status-dock.component.ts`) shows a chip only when it has content. No test hook
+exists or is needed; use the owned dev app's own sessions (its `--data /tmp/aio-lt-*` copy, never a production session).
+
+1. **Agents chip.** With the parent open, create the child from the renderer:
+   `window.electronAPI.createInstance({ workingDirectory, parentInstanceId: <parent id>, displayName: 'lt-child' })`.
+   The main process links it (`instance-lifecycle.ts`) and the renderer adds it to the parent's child list when
+   `instance:created` arrives (`InstanceStateService.addInstance`). Expect "Agents (1)" and a panel listing the child.
+   Before that renderer change the parent's list was only set when the parent loaded, so a child created later never
+   showed. If the chip is missing, read the parent's `childrenIds` from the store before blaming the create.
+2. **Review chip.** The Review workbench is not the second opinion. Open the parent and send a real Cmd/Ctrl+Shift+V key
+   event (`Input.dispatchKeyEvent`; `Runtime.evaluate` cannot do it). The chip shows while its panel is open and keeps a
+   "running" or issue-count badge once a review has started.
+3. **Second opinion.** `window.electronAPI.crossModelReviewRequest({ instanceId })` reviews the session's last answer,
+   so the session needs a completed assistant turn and at least one signed-in reviewer CLI on that computer (use
+   `--mac`; the PC has none, where "skipped" or "unavailable" is a real result, not a defect). It opens from the header
+   pill and is never a chip.
+4. **Clean up.** `terminateInstance` the child, then the parent, then `dev-app.js stop`; terminate only ids this check
+   created.
+
 **Reaching Angular services:** `window.ng.getComponent(document.querySelector('app-root'))` gives
 the root component; its injected fields (e.g. `ipcService`) are reachable from there. Note that
 `contextBridge` objects are frozen — to inject a failure you must patch the **Angular service**, not
