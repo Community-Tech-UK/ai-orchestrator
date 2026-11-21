@@ -15,6 +15,21 @@ describe('storage card store', () => {
     await store.review('activity-logs'); await store.run();
     expect(api.storageRunCleanup).toHaveBeenCalledExactlyOnceWith('activity-logs', 'fixture');
   });
+  it.each([true, false])('cancels a pending preview without stale success or error (success=%s)', async success => {
+    let release!: () => void;
+    api.storagePreviewCleanup.mockImplementationOnce(async () => { await new Promise<void>(resolve => { release = resolve; }); if (!success) throw new Error('Late error'); return { success: true, data: { previewId: 'late', target: 'activity-logs' } }; });
+    const store = TestBed.inject(StorageUsageStore); const pending = store.review('activity-logs');
+    expect(store.busy()).toBe(true); store.cancel(); release(); await pending;
+    expect(store.preview()).toBeNull(); expect(store.error()).toBeNull(); expect(store.busy()).toBe(false);
+    await store.review('activity-logs'); expect(store.preview()?.previewId).toBe('fixture');
+  });
+  it('does not cancel an active cleanup', async () => {
+    let release!: (response: unknown) => void;
+    api.storageRunCleanup.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const store = TestBed.inject(StorageUsageStore); await store.review('activity-logs'); const running = store.run();
+    store.cancel(); expect(store.preview()?.previewId).toBe('fixture'); expect(store.busy()).toBe(true);
+    release({ success: true }); await running; expect(store.preview()).toBeNull();
+  });
   it('resumes polling when a card reopens during a server cleanup', async () => {
     vi.useFakeTimers();
     api.storageGetUsage.mockResolvedValueOnce({ success: true, data: { ...usage, progress: { target: 'event-record', running: true, removed: 1, estimatedTotal: 2 } } } as never);

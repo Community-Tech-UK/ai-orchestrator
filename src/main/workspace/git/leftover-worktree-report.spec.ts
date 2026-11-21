@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildLeftoverWorktreeReport, type LeftoverReportDependencies } from './leftover-worktree-report';
@@ -44,6 +44,7 @@ describe('leftover work folder report', () => {
     const report = await buildLeftoverWorktreeReport(root, deps);
     expect(report.rows.find((r) => r.path === saved)).toMatchObject({ category: 'saved-work',
       patchCount: 1, fileCount: 1, ahead: 1, mergedIntoMain: false, removableByHarness: true });
+    expect(report.rows.find((r) => r.path === saved)?.sentence).toContain('1 saved change (1 file)');
     expect(report.rows.find((r) => r.path === merged)).toMatchObject({ category: 'nothing-to-save',
       patchCount: 0, mergedIntoMain: true, removableByHarness: true });
     expect(report.rows).toHaveLength(2);
@@ -100,5 +101,15 @@ describe('leftover work folder report', () => {
     git(['worktree', 'add', '--detach', external, 'main']);
     const report = await buildLeftoverWorktreeReport(root, deps);
     expect(report.rows.find((r) => r.path === external)).toMatchObject({ createdBy: 'other', branch: null, removableByHarness: false });
+  });
+  it('counts an .asar archive by its file size instead of opening it as a folder', async () => {
+    const archive = join(merged, 'node_modules', 'electron', 'dist', 'default_app.asar');
+    mkdirSync(join(archive, '..'), { recursive: true });
+    writeFileSync(archive, Buffer.alloc(5000, 1));
+    const report = await buildLeftoverWorktreeReport(root, deps);
+    expect(report.errors).toEqual([]);
+    const row = report.rows.find((r) => r.path === merged)!;
+    expect(row.sentence).not.toBe('Folder details are unavailable.');
+    expect(row.bytes).toBeGreaterThanOrEqual(5000);
   });
 });

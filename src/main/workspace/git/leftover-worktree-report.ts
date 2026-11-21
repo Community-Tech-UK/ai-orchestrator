@@ -138,7 +138,7 @@ export async function buildLeftoverWorktreeReport(
         category: inUse ? 'in-use' : patchCount ? 'saved-work' : 'nothing-to-save',
         removableByHarness: !reason, reason, dirtyCount, ahead, behind, patchCount, fileCount,
         mergedIntoMain, lastCommitAt, ageDays, bytes,
-        sentence: patchCount ? `Holds ${patchCount} saved change${patchCount === 1 ? '' : 's'} (${fileCount} files) that your main copy does not have.`
+        sentence: patchCount ? `Holds ${patchCount} saved change${patchCount === 1 ? '' : 's'} (${fileCount} ${fileCount === 1 ? 'file' : 'files'}) that your main copy does not have.`
           : 'Already in your main copy. Safe to remove once this folder is no longer in use.',
       });
     } catch (error) {

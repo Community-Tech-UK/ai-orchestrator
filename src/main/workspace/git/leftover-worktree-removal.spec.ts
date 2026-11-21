@@ -80,7 +80,7 @@ describe('ask-first leftover removal', () => {
   });
   it('requires explicit confirmation before discarding saved work', async () => {
     const preview = await service.previewLeftoverRemoval(request('discard-saved-work'));
-    expect(preview.consequence).toContain('1 files');
+    expect(preview.consequence).toContain('1 saved change, 1 file');
     await expect(service.runLeftoverRemoval({ ...request('discard-saved-work'), previewId: preview.previewId })).rejects.toThrow(/explicit/i);
     expect(existsSync(path)).toBe(true);
     const accepted = await service.previewLeftoverRemoval(request('discard-saved-work'));

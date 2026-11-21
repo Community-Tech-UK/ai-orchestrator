@@ -160,6 +160,10 @@ it.each([
     stop();
     child?.stdout.resume();
     await adapter.terminate(false);
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await closed;
+    }
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   }

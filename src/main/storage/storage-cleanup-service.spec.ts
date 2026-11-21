@@ -10,7 +10,7 @@ function fixture() {
     getLedgerStats: async () => stats,
     pruneEvents: vi.fn(async () => 0), rebuildLedger: vi.fn(async () => ({ bytesFreed: 10 })),
     listBackups: () => backups, removeBackup, isRlmMaintenanceRunning: () => false,
-    listRecords: async () => [], removeRecords: async () => 0,
+    listRecords: async () => [], removeRecords: async () => undefined,
     getAvailableDiskBytes: async () => 10 ** 12, now: () => now,
   };
   return { service: new StorageCleanupService(deps), deps, stats, backups, removeBackup, advance: () => { now += 600_000; } };
@@ -79,11 +79,22 @@ describe('ask-first disk cleanup', () => {
     const preview = await f.service.preview('session-records');
     expect(new Set(preview.items.map(item => item.name)).size).toBe(2);
   });
+  it.each(['session-records', 'activity-logs'] as const)('counts %s files consistently with the list and progress', async target => {
+    const f = fixture(); const files = [
+      { path: '/fixture/state.json', instanceId: 'fixture-session', bytes: 1, modifiedAt: 1, changedAt: 1, inode: 1 },
+      { path: '/fixture/metadata.json', instanceId: 'fixture-session', bytes: 1, modifiedAt: 1, changedAt: 1, inode: 2 },
+    ];
+    f.deps.listRecords = async () => files; f.deps.removeRecords = async (_target, files, onRemoved) => { files.forEach(() => onRemoved(1)); };
+    const preview = await f.service.preview(target);
+    expect(preview.estimatedCount).toBe(2); expect(preview.items).toHaveLength(2);
+    await f.service.run(target, preview.previewId);
+    expect(f.service.getProgress()).toMatchObject({ removed: 2, estimatedTotal: 2, running: false });
+  });
   it.each(['session-records', 'activity-logs'] as const)('rechecks %s candidates before deleting', async target => {
     const f = fixture();
     const item = { path: '/fixture/old.json', bytes: 7, modifiedAt: 1, changedAt: 1, inode: 1 };
     f.deps.listRecords = async () => [item];
-    f.deps.removeRecords = vi.fn(async () => 1);
+    f.deps.removeRecords = vi.fn(async () => undefined);
     const preview = await f.service.preview(target);
     item.bytes++;
     await expect(f.service.run(target, preview.previewId)).rejects.toThrow();

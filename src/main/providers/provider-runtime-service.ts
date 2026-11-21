@@ -21,6 +21,7 @@ import { appendContextManifestNote, recordAdapterGuidanceBlocks } from '../conte
 import { rememberAdapterAccountRoute } from './account-pool/adapter-account-routes';
 import { attachAccountTelemetryBridge } from './account-pool/account-telemetry-bridge';
 import { attachUsageOverageStopGuard } from '../instance/instance-usage-overage-wiring';
+import { attachQuotaAutoRefresh } from '../core/system/provider-quota/quota-auto-refresh';
 import {
   getCliSpawnWorkerGateway,
   type CliSpawnGatewayPort,
@@ -99,6 +100,13 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
       if (input.options.accountRoute && typeof (adapter as { on?: unknown }).on === 'function') {
         // Live sessions on a pool route feed their account's quota snapshot (spec §10).
         attachAccountTelemetryBridge(adapter as unknown as Parameters<typeof attachAccountTelemetryBridge>[0], input.options.accountRoute);
+      }
+      if (input.cliType === 'claude' && typeof adapter.on === 'function') {
+        // Ordinary sessions bypass BaseProvider's lifecycle refresh wiring.
+        const stopQuotaRefresh = attachQuotaAutoRefresh(adapter, 'claude', {
+          accountProfileId: input.options.accountRoute?.profileId,
+        });
+        adapter.once('exit', stopQuotaRefresh);
       }
       if (input.options.instanceId && typeof (adapter as { on?: unknown }).on === 'function') {
         // Stop a session whose provider is billing paid overage at a refused

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import {
@@ -73,8 +73,40 @@ describe('RLM migration startup', () => {
     createTables(db);
     createMigrationsTable(db);
   });
-
   afterEach(() => db.close());
+
+  it('surfaces the driver busy refusal without replacing it with a rollback error', () => {
+    const busy = new Error('fixture writer lock busy');
+    const fault = vi.spyOn(db, 'exec').mockImplementationOnce(() => { throw busy; });
+    expect(() => runMigrations(db)).toThrow(busy);
+    fault.mockRestore();
+    expect(getAppliedMigrations(db)).toHaveLength(0);
+    expect(() => runMigrations(db)).not.toThrow();
+  });
+
+  it('rereads applied migrations when a competing owner finishes before transaction entry', () => {
+    let competed = false;
+    const compete = () => {
+      if (!competed) { competed = true; runMigrations(db); }
+    };
+    // Exercise both transaction APIs so this test also reproduces the old
+    // pre-lock discovery: that implementation inserts migration 001 twice.
+    const competing = new Proxy(db, {
+      get(target, key) {
+        if (key === 'transaction') return (fn: () => void) => () => { compete(); target.transaction(fn)(); };
+        if (key === 'exec') return (sql: string) => { if (sql === 'BEGIN IMMEDIATE') compete(); target.exec(sql); };
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const applied = vi.fn();
+    const complete = vi.fn();
+    expect(() => runMigrations(competing, applied, complete)).not.toThrow();
+    expect(competed).toBe(true);
+    expect(getAppliedMigrations(db)).toHaveLength(MIGRATIONS.length);
+    expect(applied).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
 
   it('refreshes pending migrations after another process wins the startup lock', () => {
     const scratch = mkdtempSync(join(tmpdir(), 'rlm-startup-'));
@@ -118,6 +150,35 @@ describe('RLM migration startup', () => {
     db.prepare('UPDATE _migrations SET checksum = ? WHERE name = ?')
       .run(computeMigrationChecksum(first), first.name);
     expect(() => runMigrations(db)).not.toThrow();
+  });
+
+  it('surfaces genuine SQL errors, rolls back all pending changes and allows retry', () => {
+    const exec = db.exec.bind(db);
+    const fault = vi.spyOn(db, 'exec').mockImplementation(sql => {
+      if (sql === MIGRATIONS[1].up) throw new Error('fixture migration failure');
+      exec(sql);
+    });
+    expect(() => runMigrations(db)).toThrow('fixture migration failure');
+    expect(getAppliedMigrations(db)).toHaveLength(0);
+    fault.mockRestore();
+    expect(() => runMigrations(db)).not.toThrow();
+    expect(getAppliedMigrations(db)).toHaveLength(MIGRATIONS.length);
+  });
+
+  it('preserves the migration error when SQLite already rolled back the transaction', () => {
+    const exec = db.exec.bind(db);
+    const fault = vi.spyOn(db, 'exec').mockImplementation(sql => {
+      if (sql === MIGRATIONS[1].up) {
+        exec('ROLLBACK');
+        throw new Error('fixture original migration failure');
+      }
+      exec(sql);
+    });
+    expect(() => runMigrations(db)).toThrow('fixture original migration failure');
+    expect(getAppliedMigrations(db)).toHaveLength(0);
+    fault.mockRestore();
+    expect(() => runMigrations(db)).not.toThrow();
+    expect(getAppliedMigrations(db)).toHaveLength(MIGRATIONS.length);
   });
 
   it('preserves migration errors when SQLite has already rolled back a full database', () => {

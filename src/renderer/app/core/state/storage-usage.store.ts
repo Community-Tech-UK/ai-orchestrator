@@ -17,6 +17,8 @@ export class StorageUsageStore implements OnDestroy {
   readonly error = this._error.asReadonly();
   private poll: ReturnType<typeof setInterval> | null = null;
   private refreshing = false;
+  private previewEpoch = 0;
+  private running = false;
 
   async refresh(force = false): Promise<void> {
     const api = this.ipc.getApi();
@@ -36,29 +38,33 @@ export class StorageUsageStore implements OnDestroy {
   async review(target: StorageCleanupTarget): Promise<void> {
     const api = this.ipc.getApi();
     if (!api?.storagePreviewCleanup || this.busy()) return;
+    const epoch = ++this.previewEpoch;
     this._busy.set(true); this._error.set(null); this._preview.set(null);
     try {
       const response = await api.storagePreviewCleanup(target);
       if (!response.success || !response.data) throw new Error(response.error?.message ?? 'Unable to preview this clean-up.');
-      this._preview.set(response.data as StorageCleanupPreview);
-    } catch (error) { this._error.set(error instanceof Error ? error.message : String(error)); }
+      if (epoch === this.previewEpoch) this._preview.set(response.data as StorageCleanupPreview);
+    } catch (error) { if (epoch === this.previewEpoch) this._error.set(error instanceof Error ? error.message : String(error)); }
     finally { this._busy.set(false); }
   }
-  cancel(): void { if (!this.busy()) this._preview.set(null); }
+  cancel(): void {
+    if (this.running || this._usage()?.progress?.running) return;
+    this.previewEpoch++; this._preview.set(null);
+  }
   async run(): Promise<void> {
     const api = this.ipc.getApi();
     const preview = this.preview();
     if (!api?.storageRunCleanup || !preview || this.busy()) return;
-    this._busy.set(true); this._error.set(null);
+    this.running = true; this._busy.set(true); this._error.set(null);
     this.startPolling();
     try {
       const response = await api.storageRunCleanup(preview.target, preview.previewId);
       if (!response.success) throw new Error(response.error?.message ?? 'The clean-up failed.');
       this._preview.set(null);
     } catch (error) { this._error.set(error instanceof Error ? error.message : String(error)); this._preview.set(null); }
-    finally { this.stopPolling(); this._busy.set(false); await this.refresh(true); }
+    finally { this.running = false; this.stopPolling(); this._busy.set(false); await this.refresh(true); }
   }
   private startPolling(): void { if (this.poll === null) this.poll = setInterval(() => { void this.refresh(); }, 2000); }
   stopPolling(): void { if (this.poll !== null) clearInterval(this.poll); this.poll = null; }
-  ngOnDestroy(): void { this.stopPolling(); }
+  ngOnDestroy(): void { this.stopPolling(); this.cancel(); }
 }

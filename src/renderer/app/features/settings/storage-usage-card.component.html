@@ -23,23 +23,25 @@
         @if (row.diskReclaimableBytes) { <p>{{ bytes(row.diskReclaimableBytes) }} can then be handed back to the disk.</p> }
       </div>
       @if (row.target) {
-        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="row.reclaimableBytes === 0 ? tooltipCopy.noOldFiles : null" (click)="store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
-          @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="store.review('event-record-shrink')">Shrink now (frees about {{ bytes(row.diskReclaimableBytes ?? 0) }})</button> }
+        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="row.reclaimableBytes === 0 ? tooltipCopy.noOldFiles : null" (click)="rememberReviewControl($event); store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
+          @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="rememberReviewControl($event); store.review('event-record-shrink')">Shrink now (frees about {{ bytes(row.diskReclaimableBytes ?? 0) }})</button> }
         </div>
       }
       </article>
     }
     @if (usage.progress; as progress) {
-      @if (progress.running) { <p role="status">Removed {{ progress.removed.toLocaleString() }} of about {{ progress.estimatedTotal.toLocaleString() }} entries. {{ progress.target === 'event-record-shrink' ? 'Rebuilding the conversation file…' : 'Clean-up is running…' }}</p> }
+      @if (progress.running) { <p role="status">@if (progress.target === 'event-record-shrink') { Rebuilding the conversation file… } @else { Removed {{ progress.removed.toLocaleString() }} of about {{ countLabel(progress.target, progress.estimatedTotal) }}. Clean-up is running… }</p> }
+      @else if (progress.target !== 'event-record-shrink') { <p role="status">Last clean-up removed {{ countLabel(progress.target, progress.removed) }}.</p> }
     }
   }
 </section>
 @if (store.preview(); as preview) {
-  <div class="dialog-overlay" (click)="store.cancel()" role="presentation">
-    <section #dialog class="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="disk-cleanup-heading" aria-describedby="disk-cleanup-consequence"
+  <div class="dialog-overlay" role="presentation" (pointerdown)="onBackdropPointerDown($event)" (pointerup)="onBackdropPointerUp($event)"
+    (click)="onBackdropClick($event)">
+    <section #dialog class="cleanup-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="disk-cleanup-heading" aria-describedby="disk-cleanup-consequence"
       (click)="$event.stopPropagation()" (keydown.escape)="$event.stopPropagation(); store.cancel()">
       <h3 id="disk-cleanup-heading">{{ heading(preview.target) }}</h3>
-      <p>About {{ preview.estimatedCount.toLocaleString() }} {{ preview.target === 'event-record' ? 'entries' : 'items' }} · {{ bytes(preview.bytes) }}.</p>
+      <p>@if (preview.target === 'event-record-shrink') { Frees about } @else { About {{ countLabel(preview.target, preview.estimatedCount) }} · }{{ bytes(preview.bytes) }}.</p>
       @if (preview.oldestAt !== null) { <p>From {{ date(preview.oldestAt) }} to {{ date(preview.newestAt) }}.</p> }
       <p id="disk-cleanup-consequence">{{ preview.consequence }}</p>
       @if (preview.keptBackup; as backup) { <p>Your newest backup stays: {{ date(backup.createdAt) }}, {{ bytes(backup.bytes) }}.</p> }
@@ -48,7 +50,7 @@
         <p>Data in use: {{ bytes(preview.liveBytes ?? 0) }}. Free disk space needed for a moment: {{ bytes(preview.requiredDiskBytes ?? 0) }}. Free now: {{ bytes(preview.availableDiskBytes ?? 0) }}.</p>
       }
       @if (preview.target !== 'event-record' && preview.items.length) {
-        <details><summary>Exact files to remove ({{ preview.items.length }})</summary><ul>
+        <details><summary>{{ preview.target === 'rlm-backups' ? 'Backup copies to remove' : 'Exact files to remove' }} ({{ preview.items.length }})</summary><ul>
           @for (item of preview.items; track $index) { <li>{{ item.name }} · {{ date(item.createdAt) }} · {{ bytes(item.bytes) }}</li> }
         </ul></details>
       }

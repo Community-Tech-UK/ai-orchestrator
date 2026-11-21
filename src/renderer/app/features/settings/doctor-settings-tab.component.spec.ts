@@ -11,12 +11,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { signal } from '@angular/core';
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ActivatedRoute, Router } from '@angular/router';
 import { of } from 'rxjs';
 import { DoctorSettingsTabComponent } from './doctor-settings-tab.component';
+import { LeftoverWorktreesCardComponent } from './leftover-worktrees-card.component';
 import { DoctorStore } from '../../core/state/doctor.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
@@ -28,6 +30,9 @@ const styles = readFileSync(
 );
 
 await resolveComponentResources((url) => {
+  if (url.endsWith('storage-usage-card.component.html')) {
+    return Promise.resolve(readFileSync(resolve(specDirectory, 'storage-usage-card.component.html'), 'utf8'));
+  }
   if (url.endsWith('doctor-settings-tab.component.scss')) {
     return Promise.resolve(styles);
   }
@@ -63,7 +68,7 @@ describe('DoctorSettingsTabComponent sign-in', () => {
       imports: [DoctorSettingsTabComponent],
       providers: [
         { provide: DoctorStore, useValue: store },
-        { provide: SettingsStore, useValue: { get: () => '', settings: signal({}), metadata: [] } },
+        { provide: SettingsStore, useValue: { get: (key: string) => key === 'defaultWorkingDirectory' ? '/repo' : '', settings: signal({}), error: signal(null).asReadonly(), metadata: [] } },
         { provide: ElectronIpcService, useValue: { getApi } },
         { provide: ActivatedRoute, useValue: { queryParamMap: of({ get: () => null }) } },
         { provide: Router, useValue: { navigate: vi.fn() } },
@@ -74,9 +79,11 @@ describe('DoctorSettingsTabComponent sign-in', () => {
   it('mounts both housekeeping cards in Doctor', () => {
     const fixture = TestBed.createComponent(DoctorSettingsTabComponent);
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('app-storage-usage-card')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('app-storage-usage-card')).toHaveLength(1);
     // One card only: a second copy ran its own load with no working folder and opened a second dialog.
     expect(fixture.nativeElement.querySelectorAll('app-leftover-worktrees-card')).toHaveLength(1);
+    const folders = fixture.debugElement.query(By.directive(LeftoverWorktreesCardComponent)).componentInstance as LeftoverWorktreesCardComponent;
+    expect(folders.workingDirectory()).toBe('/repo');
   });
 
   it('only offers one-click sign-in for auth repair actions', () => {
@@ -195,7 +202,7 @@ describe('DoctorSettingsTabComponent startup section', () => {
             setActiveSection: vi.fn(),
           },
         },
-        { provide: SettingsStore, useValue: { get: () => '', settings: signal({}), metadata: [] } },
+        { provide: SettingsStore, useValue: { get: () => '', settings: signal({}), error: signal(null).asReadonly(), metadata: [] } },
         { provide: ElectronIpcService, useValue: { getApi: vi.fn(() => ({})) } },
         { provide: ActivatedRoute, useValue: { queryParamMap: of({ get: () => null }) } },
         { provide: Router, useValue: { navigate } },

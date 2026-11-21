@@ -15,7 +15,7 @@ export interface StorageCleanupDependencies {
   removeBackup(name: string): { deleted: number; bytesFreed: number; failed: number };
   isRlmMaintenanceRunning(): boolean;
   listRecords(target: 'session-records' | 'activity-logs', now: number): Promise<StorageFile[]>;
-  removeRecords(target: 'session-records' | 'activity-logs', files: StorageFile[], now: number): Promise<number>;
+  removeRecords(target: 'session-records' | 'activity-logs', files: StorageFile[], onRemoved: (count: number) => void): Promise<void>;
   getAvailableDiskBytes(): Promise<number>;
   now?: () => number;
 }
@@ -42,7 +42,7 @@ export class StorageCleanupService {
     const snapshot = await this.snapshot(target, cutoff);
     const bytes = target === 'event-record-shrink' ? snapshot.stats!.freeBytes : snapshot.items.reduce((sum, item) => sum + item.bytes, 0);
     const estimatedCount = target === 'event-record' ? snapshot.stats!.providerEvents.estimatedRows
-      : snapshot.files ? new Set(snapshot.files.map(file => file.instanceId ?? file.path)).size : snapshot.items.length;
+      : snapshot.items.length;
     const dates = snapshot.items.map(item => item.createdAt);
     const consequence = {
       'event-record': 'This removes the detailed debug record of AI messages. Harness does not use it. Developer scripts that replay captured messages will find nothing until you switch the record on again. This cannot be undone. The conversation file stays the same size until you also choose Shrink the file.',
@@ -69,18 +69,19 @@ export class StorageCleanupService {
     if (this.progress?.running) throw new Error('Harness is busy with another clean-up.');
     const preview = this.previews.get(previewId);
     if (!preview || preview.target !== target) throw new Error('Review this clean-up first.');
-    this.progress = { target, removed: 0, estimatedTotal: 0, running: true };
+    const progress = { target, removed: 0, estimatedTotal: 0, running: true };
+    this.progress = progress;
     try {
       const snapshot = await this.snapshot(target, preview.cutoff);
       this.tickets.consumeTicket(previewId, { target, itemsHash: hash(snapshot.binding) });
       this.previews.delete(previewId);
-      this.progress.estimatedTotal = target === 'event-record' ? snapshot.stats!.providerEvents.estimatedRows : snapshot.items.length;
+      progress.estimatedTotal = target === 'event-record' ? snapshot.stats!.providerEvents.estimatedRows : snapshot.items.length;
       let bytesFreed = 0;
       if (target === 'event-record') {
         let removed: number;
         do {
           removed = await this.deps.pruneEvents(preview.cutoff, 20_000);
-          this.progress.removed += removed;
+          progress.removed += removed;
           await yieldToMain();
         } while (removed > 0);
       } else if (target === 'event-record-shrink') {
@@ -91,16 +92,16 @@ export class StorageCleanupService {
         for (const item of snapshot.items) {
           const result = this.deps.removeBackup(item.name);
           if (result.failed) throw new Error('A backup could not be removed. Check the backup paths before trying again.');
-          this.progress.removed += result.deleted;
+          progress.removed += result.deleted;
           bytesFreed += result.bytesFreed;
         }
       } else {
-        this.progress.removed = await this.deps.removeRecords(target, snapshot.files!, preview.cutoff);
+        await this.deps.removeRecords(target, snapshot.files!, removed => { progress.removed += removed; });
         bytesFreed = snapshot.items.reduce((sum, item) => sum + item.bytes, 0);
       }
-      logger.info('Harness disk clean-up finished', { target, items: this.progress.removed, bytes: bytesFreed });
-      return { target, removed: this.progress.removed, bytesFreed };
-    } finally { this.progress.running = false; }
+      logger.info('Harness disk clean-up finished', { target, items: progress.removed, bytes: bytesFreed });
+      return { target, removed: progress.removed, bytesFreed };
+    } finally { progress.running = false; }
   }
 
   private async snapshot(target: StorageCleanupTarget, cutoff: number): Promise<CandidateSnapshot> {

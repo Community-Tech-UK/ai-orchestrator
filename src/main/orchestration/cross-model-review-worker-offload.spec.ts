@@ -51,7 +51,8 @@ const state = vi.hoisted(() => {
     JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: verdict }], usage: { input_tokens: 1, output_tokens: 1 } } }),
     JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: verdict, total_cost_usd: 0.01, usage: { input_tokens: 1, output_tokens: 1 } }),
   ].join('\n') + '\n';
-  return { runtime: null as ProviderRuntimeService | null, spawns: [] as string[][], frames };
+  return { runtime: null as ProviderRuntimeService | null, spawns: [] as string[][], frames,
+    quotaRefresh: vi.fn(async () => null) };
 });
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 vi.mock('../providers/provider-runtime-service', async importOriginal => ({
@@ -102,13 +103,16 @@ vi.mock('../core/config/settings-manager', () => ({
   }),
 }));
 vi.mock('../core/circuit-breaker', () => ({ getCircuitBreakerRegistry: () => ({ getBreaker: () => ({ execute: (run: () => unknown) => run() }) }) }));
-vi.mock('../core/system/provider-quota-service', () => ({ getProviderQuotaService: () => ({ getSnapshot: () => null }) }));
+vi.mock('../core/system/provider-quota-service', () => ({ getProviderQuotaService: () => ({
+  getSnapshot: () => null, refresh: state.quotaRefresh,
+}) }));
 
 describe('actual Claude cross-model reviewer dispatch caps and routing', () => {
   afterEach(() => {
     CrossModelReviewService._resetForTesting();
     state.runtime = null;
     state.spawns = [];
+    state.quotaRefresh.mockClear();
     vi.unstubAllEnvs();
   });
 
@@ -142,6 +146,7 @@ describe('actual Claude cross-model reviewer dispatch caps and routing', () => {
     };
     const result = await service.executeOneReview(request, 'claude', 30, new AbortController().signal);
     expect(result).toMatchObject({ overallVerdict: 'APPROVE' });
+    expect(state.quotaRefresh).toHaveBeenCalledExactlyOnceWith('claude', null);
     expect(create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       cliType: 'claude', options: expect.objectContaining({ maxTurns: 8, maxBudgetUsd: 1 }),
     }));

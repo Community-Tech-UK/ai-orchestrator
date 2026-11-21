@@ -469,7 +469,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1171 | P3 | **FIXED + VERIFIED LIVE 2026-11-16** (source fix 2026-11-11). Reproduced live 2026-11-10. The clock chip on an automation history row shows its hint on hover but cannot be reached with Tab (a role=img span with no tab stop), although the plan's round-2 fix says it was made keyboard reachable. | [LT-1171 detail](#lt-1021) | [Phase 4b live checks](2026-10-10-oct-phase4b-tooltips-migration_livetest.md#evidence-run--2026-11-10-dev-app-on-this-mac-with-forced-state) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-1099 | P2 | **FIXED + LIVE RECHECKED 2026-11-12.** On the legacy `permission_denial` path (a Claude session without the permission hook), an explicit Harness deny rule was never matched: the request was judged by the card's shortened label (`bash:command (13 chars)`, or `<folder>/from <path>` for a read), so the card still offered "Always allow (adds a rule to ~/.claude/settings.json and restarts)". The flow now judges the real command (as `bash_execute`, like the hooked path) or the exact path, and a denied request no longer stays pending. | [LT-1099 detail](#lt-1099) | [Agent runtime permission remediation, 2026-11-12 run](2026-10-27-agent-runtime-permission-remediation_livetest.md#evidence-run--2026-11-12-queue-worker) |
-| LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
+| LT-710 | P1 | **Implemented; independent verification pending.** Implemented in the housekeeping worktree; deterministic competing-owner reproduction now passes, two native owners both observe exactly 72 migration rows, and an empty-profile app reaches Doctor. Full gates and independent review remain pending. | [LT-710 detail](#lt-710) | [October housekeeping evidence](2026-10-10-oct-housekeeping_livetest.md#evidence-run--2026-10-27); [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
 | LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
 | LT-723 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-04; installed provisioning passed 2026-11-05; shared receipts and saving passed 2026-11-06.** Preparing a shared Plan Queue check parks the leader when a scripts-only Node project triggers unnecessary `npm ci` with the packaged app's stripped PATH. Dependency setup must be required by the checked-out project, use the discovered CLI environment, and choose `ci` only for an npm lockfile/shrinkwrap. | [LT-723 detail](#lt-723) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-04-balanced-rerun-failure); [verified source repair](2026-11-04-plan-queue-check-copy-provisioning_plan_completed.md); [installed evidence](2026-11-04-plan-queue-check-copy-provisioning_livetest_completed.md#evidence--2026-11-05-real-shared-check-and-later-member-recheck) |
@@ -481,6 +481,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-729 | P2 | **CONFIRMED FIXED LIVE 2026-11-12 on the rebuilt packaged app.** After the rebuild, all five opened workspaces hold 0 files git ignores; `mytrademail` went from 454 of 2,069 indexed paths ignored to 0 (1,619 left) on its first warm-up. Earlier source check: on a copy of the live index one reconcile removed every ignored file (0 left in this repo, communitytech and 12steps). A stale cancel flag that blocked the reconcile is also fixed. Original report: The code index ignores nested `.gitignore` files and `.git/info/exclude`, reading only the workspace root's `.gitignore`, so build output and other files git ignores are indexed and can be added as code context. Measured on the live index: 22% of this repo's chunks, 94% of `~/work/communitytech`, 10–11% of three other projects. | [LT-729 detail](#lt-729) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
 | LT-730 | P2 | **SOURCE FIX VERIFIED 2026-11-07; a day of live use pending.** `skill-match` raised to 0.68 after scoring 1,549 real messages: no wrong skill on any short message, 10 of 34 test prompts still matched, and the dashboard test prompt no longer adds a skill. Original report: Both built-in skills added by meaning on ordinary messages were wrong: `docs-sweep` (0.629) on `fix all those issues then please`, `android-test` (0.639) on a pasted pairing code with a request for a prompt. The `skill-match` floor for the real model is 0.62; the one correct live match scored 0.670. | [LT-730 detail](#lt-730) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 6](2026-11-06-search-and-memory-repair_plan_livetest.md#6-skill-matching-fires-on-meaning-and-not-too-often) |
 | LT-731 | P2 | **SOURCE FIX VERIFIED 2026-11-07 in a release-equivalent container; first GitHub release run pending.** The workflow now runs `xvfb-run -a node scripts/packaged-startup-smoke.js`, which passed as root and non-root. Original report: The Linux release job's startup smoke can never pass: with no `DISPLAY` it runs `xvfb-run -a harness`, the app relaunches itself with its heap flag and the first process exits 0, so `xvfb-run` closes the display and the real app dies before it is ready. With a display kept up for the whole run, the same script passes. | [LT-731 detail](#lt-731) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
+| LT-993 | P2 | **Implemented; independent verification pending.** Implemented in the housekeeping worktree; real Escape dismisses the cleanup preview while keeping Settings open. Cancel and outside click preserve files. Full gates and independent review remain pending. | [LT-993 detail](#lt-993) | [October housekeeping Step 4](2026-10-10-oct-housekeeping_livetest.md#evidence-run--2026-10-27) |
+| LT-994 | P2 | **Implemented; independent verification pending.** Implemented in the housekeeping worktree; composed Doctor renders exactly one work-folder card, retaining Doctor's working-directory input. Full gates and independent review remain pending. | [LT-994 detail](#lt-994) | [October housekeeping Step 6](2026-10-10-oct-housekeeping_livetest.md#evidence-run--2026-10-27) |
+| LT-995 | P3 | **Implemented; independent verification pending.** Implemented in the housekeeping worktree; singular/plural item, entry, saved-change and file counts are corrected. Full gates and independent review remain pending. | [LT-995 detail](#lt-995) | [October housekeeping Step 4](2026-10-10-oct-housekeeping_livetest.md#evidence-run--2026-10-27) |
+| LT-996 | P2 | **Lifecycle and live header suppression verified in-loop, 2026-10-27; independent verification pending.** The isolated actual account route receives vendor utilization and a header snapshot. A second completion outside debounce starts no endpoint request. Final full-suite and fresh independent gate results remain required. | [LT-996 detail](#lt-996) | [Housekeeping round 2](2026-10-10-oct-housekeeping_livetest.md#verification-round-2--2026-10-27) |
 
 | LT-1091 | P2 | **OPEN; cleared on its own 2026-11-12 15:23, cause not established, no fix.** The ct-test-mac worker sat in `waiting_for_idle` for about 63 hours (9 Nov 00:21 to 12 Nov 15:23), up to three updates behind, with zero instances, no child processes, no browser connection and no coordinator-logged work for 10+ hours, while windows-pc applied the same commits on time. It has updated promptly four times since. The updater still logs nothing about what it waits for, so a repeat could not be diagnosed. | [LT-1091 detail](#lt-1091) | [Worker auto-update check 4](2026-10-14-worker-auto-update_livetest.md) |
 | LT-1006 | P2 | **REPAIRS WIRED 2026-10-27; clean scoring still OPEN.** Fresh queue dependencies expose Vitest 4 to archived tasks whose quiet runner requires the Vitest 3 export map. Both broken and fixed task commands crash before tests. Temporary historical dependencies remove that crash but reveal LT-1002. Renumbered from this campaign's conflicting LT-709 label. | [LT-1000 detail](#lt-1006) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
@@ -12034,12 +12038,58 @@ was also stopped and verified absent. Restart recovery is not a database fix; LT
 
 ## LT-710 — fresh-profile app startup can collide with the context worker's migrations
 
-Additional reproduction, 2026-10-27 worker auto-update campaign. This is the same defect already
-recorded by the saved-login/automation campaigns in the root checkout's active remediation
-follow-up and by the housekeeping worker. Preserve that ownership and its newer implementation
-status when integrating; this branch contains no database fix.
+**Status: implemented; independent verification pending.** Implemented in the housekeeping worktree; deterministic competing-owner reproduction now passes, two native owners both observe exactly 72 migration rows, and an empty-profile app reaches Doctor. Full gates and independent review remain pending.
+Numbering is shared with the root checkout's active remediation follow-up, which already reserves
+LT-710 for the same saved-login/automation startup failure. This is additional evidence for that
+item, not a separately numbered defect.
 
 ### Observed behaviour
+
+The housekeeping worker built both app processes, then started the compiled app on its assigned
+empty isolated profile. At `2026-10-27T08:58:18.805Z`, initialization of `Work controls` failed:
+`Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name`.
+The context worker reported its initial RLM residency summary immediately before that failure.
+A read-only query after exit found 72 committed migration records. The main process exited 1
+before a renderer was created. Reusing this worker-owned, now-migrated profile subsequently
+reached the real preload, renderer and provider sessions. No real profile was migrated or cleared.
+
+Retained startup excerpt and receipts: `evidence/2026-10-27-oct-housekeeping/`.
+Owning per-check report: [October housekeeping live checks](2026-10-10-oct-housekeeping_livetest.md#evidence-run--2026-10-27).
+
+### Root cause investigation
+
+The original implementation read applied names before opening its write transaction. A
+deterministic competing owner that finishes at transaction entry reproduces the duplicate
+migration-001 failure on that implementation. The fix reserves the SQLite writer using
+`BEGIN IMMEDIATE` before discovery and checksum validation (`rlm-schema.ts:290`), then commits
+all pending migrations together or rolls back. The deterministic case, checksum rejection and
+SQL-failure rollback/retry pass in `rlm-schema.spec.ts`; two native database owners both finish
+with 72 unique migrations and integrity `ok`. An empty-profile app reaches Doctor with the
+normal context worker enabled, and subsequent launches succeed. Round-two evidence is under
+`evidence/2026-10-27-oct-housekeeping-round2/`. The exact scheduler interleaving from the original
+08:58 failure was not captured; this does not claim otherwise. Independent review is pending.
+Chromium sandbox initialization failed separately; this change makes no sandbox-readiness claim.
+
+### Required behaviour
+
+Two normal database owners starting on a fresh profile must safely apply each migration once.
+Checksums and genuine migration SQL failures must still be checked and surfaced. App startup must
+reach the renderer without requiring a retry against a partly initialized profile.
+
+### Acceptance
+
+- Capture a deterministic two-owner regression around migration discovery and transaction entry.
+- Re-run first startup on an empty profile with the normal context worker enabled, and restart it.
+- Verify checksum mismatches and genuine SQL failures still fail honestly.
+- Run the focused persistence tests, normal project gates and an independent review.
+- Keep the October live checks open wherever their own acceptance remains unverified.
+
+
+#### Additional reproduction, 2026-10-27 worker auto-update campaign
+
+The same startup defect recurred in the worker auto-update campaign. The fix recorded above is the change that addresses it; this block keeps the reproduction facts.
+
+#### Observed behaviour (2026-10-27 reproduction)
 
 The freshly built app, using only `/tmp/aio-lt-queue-d4bee785`, failed at `Work controls` at
 `2026-10-27T14:19:24.056Z` with `Failed to apply migration "001_add_optimized_indices": UNIQUE
@@ -12048,7 +12098,7 @@ launch using the same worker-owned profile reached the real renderer and preload
 `2026-10-27T14:21:56.707Z`; focus emulation was enabled and two animation frames completed.
 Receipts: `evidence/2026-10-27-worker-auto-update/startup-migration.txt` and `dev-result.json`.
 
-### Root cause investigation
+#### Root cause investigation (2026-10-27 reproduction)
 
 The executing stack enters `initializeGlobalPauseRuntime` (`global-pause-bootstrap.ts:22`),
 then `RLMDatabase.initializeDatabase` (`rlm-database.ts:148`) and `runMigrations`
@@ -12058,20 +12108,241 @@ then `RLMDatabase.initializeDatabase` (`rlm-database.ts:148`) and `runMigrations
 observed duplicate row. This run did not capture the exact interleaving or independently verify
 the housekeeping worker's fix.
 
+<a id="lt-993"></a>
+
+## LT-993 — storage-preview Escape also closes Settings
+
+**Status: implemented; independent verification pending.** Implemented in the housekeeping worktree; real Escape dismisses the cleanup preview while keeping Settings open. Cancel and outside click preserve files. Full gates and independent review remain pending.
+
+### Observed behaviour
+
+In the compiled app's automated hidden-window campaign, open Settings > Doctor, review the
+learning-database backups and press the real Escape key. The preview closes and the app moves
+from `http://localhost:4578/settings#doctor` to `http://localhost:4578/`; the storage card is
+unmounted. Cancel and an outside click close only the preview. This reproduced with synthetic
+backups and with the real July backup metadata supplied through a read-only dependency override.
+The real backup file listing remained unchanged. Focus emulation was enabled and rAF observed.
+Dated evidence and setup limitations are in the owning housekeeping live test and its UI receipt.
+
+### Root cause
+
+`storage-usage-card.component.html:37` handles `keydown.escape` with `store.cancel()` without
+stopping event propagation. The event bubbles to Settings' `(keydown)` listener
+(`settings.component.html:5`), whose `onKeydown` falls through to `goBack()` when no Help drawer
+or compact navigation is open (`settings.component.ts:584-598`). This executing call path explains
+both the closed modal and the observed navigation. No destructive action ran.
+
 ### Required behaviour
 
-Concurrent normal database owners must apply every migration once on first startup and reach
-the renderer. Checksum mismatches and genuine migration SQL errors must remain visible.
+Escape dismisses the deepest open cleanup dialog, keeps Settings > Doctor open and restores
+focus to the review control. It must not also trigger Settings' Back action.
 
-### Acceptance and implementation status
+### Acceptance
 
-The existing LT-710 owner must verify a deterministic two-owner regression, checksum rejection,
-SQL rollback/retry, native concurrent owners and fresh-profile app startup, then complete the
-normal gates and independent review. No new human authority is needed for that isolated work.
-The matching status is already recorded under LT-710 in the root-owned active
-`2026-07-19-livetest-failure-remediation-followup_plan.md`; the historical `_completed` July plan
-is left unchanged. This campaign adds reproduction evidence only and does not duplicate the fix.
+Exercise Cancel, Escape and outside dismissal through the mounted Settings route using real
+keyboard input, with focus emulation first. Each closes only the dialog and leaves files unchanged;
+Escape on Settings without a dialog must retain its intended Back behavior. Run normal gates
+and the independent review before claiming a fix.
 
+<a id="lt-994"></a>
+
+## LT-994 — Doctor mounts the leftover-work-folder card twice
+
+**Status: implemented; independent verification pending.** Implemented in the housekeeping worktree; composed Doctor renders exactly one work-folder card, retaining Doctor's working-directory input. Full gates and independent review remain pending.
+
+### Observed behaviour
+
+The real compiled Doctor route contains two `app-leftover-worktrees-card` elements and two
+“Leftover work folders” headings. The UI receipt retains both rendered texts. The duplication was
+observed both while their shared report loaded and on the settled view; no folder was removed.
+
+### Root cause
+
+`doctor-settings-tab.component.ts:56-57` mounts both `app-storage-usage-card` and a direct
+`app-leftover-worktrees-card`. The storage card itself mounts another leftover-worktree card at
+`storage-usage-card.component.html:33`. Both render the root-provided `LeftoverWorktreesStore`.
+Thus the route renders the same inventory and controls twice; finding just one selector in a
+component-level test misses this composition.
+
+### Required behaviour
+
+Doctor renders one leftover-work-folder card, with the intended working-directory input, one
+inventory and one review dialog. Preserve safe preview/cancellation and the existing ownership
+and process guards.
+
+### Acceptance
+
+On the composed Settings > Doctor route assert exactly one card and heading, then load the
+real inventory and Review/Cancel an eligible row without changing branches or folders. Also verify
+other storage-card callers do not lose an intentionally exposed feature. Run normal gates and an
+independent review before claiming a fix.
+
+<a id="lt-995"></a>
+
+## LT-995 — storage-preview counts do not use singular wording
+
+**Status: implemented; independent verification pending.** Implemented in the housekeeping worktree; singular/plural item, entry, saved-change and file counts are corrected. Full gates and independent review remain pending.
+
+### Observed behaviour
+
+The one-backup dialog displays “About 1 items”. Its dates, newest-backup protection and byte
+figures are correct. The owning plan expressly requires proper singular/plural formatting.
+The exact dialog text is retained in the UI receipt; no backup deletion was attempted.
+
+### Root cause
+
+`storage-usage-card.component.html:39` selects only `entries` or `items` from the target and
+never selects the singular form when `estimatedCount` is one.
+
+### Required behaviour and acceptance
+
+The same live work-folder preview also displayed “1 saved changes”; its count template at
+`leftover-worktrees-card.component.html:53` likewise hardcodes the plural. This is retained
+as the same count-wording finding, not another numbered issue.
+
+Use “1 item” or “1 entry” for a single result; use the plural for zero or multiple results. The work-folder preview must similarly use “1 saved change”.
+Verify the rendered backup and event-record previews, without weakening the count/size or
+cancellation assertions. Run the applicable gates and independent review before claiming a fix.
+
+<a id="lt-996"></a>
+
+## LT-996 — ordinary Claude sessions bypass lifecycle quota refresh
+
+**Status: lifecycle wiring and actual fresh-header suppression verified in-loop, 27 October 2026; final full-suite and independent verification remain pending. Original reproduction follows.**
+
+### Observed behaviour
+
+A rebuilt isolated app authenticated a non-legacy account through its normal binding check,
+routed an ordinary Claude session to it, and completed exact assistant replies at
+09:59:56 UTC and 10:01:07 UTC. The second input was sent 65,002 ms after the first completion,
+therefore outside the 60-second debounce and inside ten minutes. The per-account snapshot
+remained `admin-api` after both replies. Instrumented real refresh/fetch entry points recorded
+startup/periodic requests (200 and 429 responses), but no refresh originating from
+`quota-auto-refresh` and no adapter ingestion. No fake header snapshot was injected.
+`evidence/2026-10-27-oct-housekeeping-round2/routed-quota-receipt.json` retains the observations
+and explicitly records failed quota acceptance rather than treating collector success as a pass.
+
+### Root cause and limits
+
+The instance path resolves the account and calls `ProviderRuntimeService.createAdapter`
+(`instance-lifecycle.ts:861`). That method attaches account telemetry and overage guards,
+but does not attach `attachQuotaAutoRefresh`. The only production attachment is
+`BaseProvider.bindAdapterRuntimeEvents` (`provider-interface.ts:185`), used by the provider
+wrappers rather than ordinary instance creation. Thus the tested ordinary session never enters
+the freshness policy on completion. This proves the missing lifecycle hook; it does not prove
+why the vendor CLI supplied no usable header telemetry. A header label must never be invented
+from an endpoint or from an allowed event without utilization.
+
+### Required behaviour
+
+Ordinary sessions must participate in the same quota policy, keyed to their actual account.
+Fresh real header readings suppress post-turn probes for ten minutes; without usable telemetry,
+the ordinary debounced endpoint path still works. Do not refresh the legacy account for a
+non-legacy session, double-attach wrapper hooks, or lose teardown on adapter replacement.
+
+### Acceptance
+
+- Cover ordinary runtime construction with real lifecycle events, per-account identity,
+  header freshness, absent-route refresh and teardown/replacement behavior.
+- Run two real turns separated by more than 60 seconds. Attribute every refresh to its origin.
+- Obtain actual usable vendor telemetry before claiming the `header` live requirement passes.
+- Run normal gates and independent review. This is agent-owned technical work, not a James
+  credential-lookup or approval request.
+
+### Housekeeping review outcome and current evidence — 27 October 2026
+
+LT-710/993/994/995 are implemented in the assigned queue checkout; coordinator verification
+and campaign closure remain pending. No plan or live-test document is closed or renamed.
+See the owning [housekeeping live-test report](2026-10-10-oct-housekeeping_livetest.md) for
+the complete dated observations and receipts; historical failures there were not erased.
+
+- LT-710: lock before pending-migration discovery/checksum checks, atomic rollback/retry,
+  and original error preserved if rollback has already occurred. Native parallel owners each
+  observe 72 unique records with integrity ok; this does not claim both applied them or a
+  measured wait. Busy refusal/retry is explicitly tested and accepted fail-visible behavior
+  (production timeout 5,000 ms). The older createTables column-bootstrap race is unreproduced,
+  outside this lock's stated scope, and not claimed fixed.
+- LT-993: Escape remains inside Settings; opener retention covers asynchronous loading and
+  action replacement/failure. DOM focus runs after rendering, destruction only deactivates
+  traps, and an initial request failure preserves a later deliberate focus elsewhere.
+  A fourth fresh review found Angular's false template return canceled all descendant pointer
+  presses in the drag guard. Three new tests and a real old-bundle mouse probe reproduced it.
+  Void pointer/click handlers now cancel only backdrop presses; text/select defaults survive,
+  and the unreachable overlay Escape handler is removed. A native-popup keyboard selection
+  attempt in the hidden host timed out and remains unverified; it is not relabeled a pass.
+- LT-994: one Doctor work-folder mount retains its working-directory binding.
+- LT-995: singular forms cover preview, backend consequence/report, row labels and progress;
+  shrinking has no removed-entry counter. The formerly pinned bad grammar expectation was
+  strengthened only after native before/after reproduction; safety assertions remain intact.
+
+The first four independent reviews returned FAIL and led to the corrections above.
+All ten latest v7 source/type/lint/build/IPC/focused commands exit zero; seven files pass
+76 tests. `pointer-runtime-v7.json` proves real mouse defaults/focus and both late-focus
+cases; `review-runtime-v7.json` proves Cancel, Escape, action replacement/failure, text drag,
+backdrop, count wording and the scoped presentation-role axe rule, with removal forbidden.
+Work-folder preview responses are explicitly seeded for these edge cases; real inventory and
+Review/Cancel/Escape evidence predates the final focus refinements and is historical.
+The final fresh re-review is retained separately in the same evidence folder.
+
+The whole campaign remains OPEN, with five live-check groups unmet and LT-996 technical
+remediation outstanding. Full suite exited 1, also overlapped owned work and missed its initial
+load preflight; it cannot certify a final clean gate. Shared manifest/lock drift and changing
+native-finality failures remain disclosed, with no clean baseline assigning their cause.
+No test weakening, install, guard bypass, real cleanup or new project branch/worktree occurred.
+Only the coordinator may close/integrate this work. Final cleanup/seal live in the owning report.
+
+
+### Fifth-review corrections — 27 October 2026
+
+LT-993 now also covers the reproduced selected-action mismatch, reverse backdrop drag and
+a pending storage preview reappearing after Doctor closes. Each option binds selected state;
+backdrop dismissal requires both pointerdown and pointerup; storage review epochs discard
+canceled late success/error while active cleanup remains protected. Native before/after
+selection/drag receipts and real route-destruction evidence are in the owner report.
+LT-995 hides the meaningless rebuild count and counts session/log files consistently with
+the exact list and progress (including multiple files for one session). No deletion or
+retention guard changed. All ten v8 gates pass; nine focused files, 100 tests. The fifth fresh
+review was FAIL and led to these corrections. Another fresh review and coordinator
+verification remain pending; full-suite and campaign gaps are unchanged.
+
+
+### LT-995 partial-progress correction — 27 October 2026
+
+The sixth fresh review found that record/log progress stayed zero until the whole batch
+returned, losing completed counts on partial failure. Two real-filesystem regressions
+reproduced this through the production runtime factory in same/different session groups.
+The private dependency now requires a progress callback; the runtime records each successful
+checked unlink without changing mutex, History, protected-ID, root or metadata guards.
+Partial counts and lock release are verified even when the next file changes and is kept.
+File units and “Frees about” wording are verified in the live renderer. All ten v9 gates
+pass, ten focused files/106 tests. No whole-task or full-suite PASS is claimed; see the
+owner report for fresh review, current pointer evidence and cleanup.
+
+
+### Latest LT-995 display and verification corrections — 27 October 2026
+
+The seventh fresh review's stopped-count finding is implemented: the card displays the
+confirmed removed count after a stopped non-rebuild cleanup, including partial failure.
+Backup groups are named backup copies, and destruction explicitly tests cancel/poll-stop.
+Two new regressions failed first, then passed after the changes. All ten v10 source gates
+exit zero (ten focused files/108 tests), and all 64 migration-caller specs pass (603 tests).
+The spec-typecheck age error in the v9 brief is corrected by the v10 rerun. Full-suite and
+whole-campaign gates remain open; latest live proof and the next independent code verdict
+are recorded only in the owner report. No completed document or coordinator-owned branch
+lifecycle was changed.
+
+
+### LT-996 real-header acceptance — 27 October 2026, 16:20 UTC
+
+The previously unrun default-login-as-isolated-pool experiment now passed against the rebuilt
+dev app. Actual route `lt-personal-scratch` received real `seven_day` utilization 0.79 and
+header ingestion. Both exact replies completed on that account. Second input was 65,003 ms
+after first completion; second completion kept the header snapshot with zero lifecycle
+refreshes or endpoint starts. Origin/profile context followed the actual fetch calls; no
+telemetry, probe result or clock was substituted. `evidence/2026-10-27-oct-housekeeping-round3/
+quota-personal-live.json` is the explicit acceptance receipt; the owning live-test document
+records setup, limits, prior no-route evidence and shutdown. This closes the missing real
+header observation, not the independent/full-suite gate. The campaign remains open.
 <a id="lt-709"></a>
 
 ## LT-709 — installed runtime provider packages fail before registration in the compiled app

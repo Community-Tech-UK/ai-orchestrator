@@ -80,7 +80,7 @@ export class LeftoverWorktreeRemoval {
       : input.action === 'remove-folder'
       ? `Remove ${row.path}. The saved work stays on its branch (${row.branch}); the folder can be recreated from that branch. Files not saved in Git, including ignored files, are removed and cannot be brought back.`
       : input.action === 'discard-saved-work'
-        ? `Remove ${row.path} and its branch (${row.branch}). The saved work (${row.patchCount} saved changes, ${row.fileCount} files) is deleted and cannot be brought back. Your main copy and all other branches stay unchanged.`
+        ? `Remove ${row.path} and its branch (${row.branch}). The saved work (${row.patchCount} saved ${row.patchCount === 1 ? 'change' : 'changes'}, ${row.fileCount} ${row.fileCount === 1 ? 'file' : 'files'}) is deleted and cannot be brought back. Your main copy and all other branches stay unchanged.`
         : `Remove ${row.path} and its branch (${row.branch}). The saved work is already in your main copy and stays there. Files not saved in Git, including ignored files, cannot be brought back. All other branches stay unchanged.`;
     const state = binding(row, input.action);
     if (input.action === 'archive-and-remove') state.itemsHash += await worktreeFingerprint(row.path);

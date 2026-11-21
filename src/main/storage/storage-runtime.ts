@@ -35,10 +35,10 @@ export function createStorageRuntime(getLiveIds: () => ReadonlySet<string>) {
       return target === 'session-records' ? listSessionStateCandidates(stateDir, metadataDir, protectedIds(), now, history.getEntries())
         : listSessionActivityLogCandidates(projectsRoot, protectedIds(), now);
     },
-    removeRecords: async (target, files) => {
+    removeRecords: async (target, files, onRemoved) => {
       const continuity = getSessionContinuityManager();
       const { stateDir, metadataDir } = continuity.getRetentionContext();
-      let removed = 0;
+      const allowedRoots = target === 'session-records' ? [stateDir, metadataDir] : [projectsRoot];
       const groups = new Map<string, typeof files>();
       for (const file of files) {
         const id = file.instanceId!;
@@ -52,11 +52,10 @@ export function createStorageRuntime(getLiveIds: () => ReadonlySet<string>) {
             const sidecar = group.find(file => path.dirname(file.path) === metadataDir);
             if (!stateFile || !await sessionStateIsAbsentFromHistory(stateFile, sidecar, sessionStateHistoryIds(getHistoryManager().getEntries()))) throw new Error('A session is now in history. Review again.');
           }
-          removed += await removeStorageFiles(group, target === 'session-records' ? [stateDir, metadataDir] : [projectsRoot], protectedIds);
+          for (const file of group) onRemoved(await removeStorageFiles([file], allowedRoots, protectedIds));
           if (target === 'session-records') continuity.forgetRetainedSession(id);
         } finally { release(); }
       }
-      return removed;
     },
   };
   const cleanup = new StorageCleanupService(deps);
