@@ -47,7 +47,6 @@ interface BrowserExtensionBackgroundHarness {
     details: Record<string, unknown>,
     asyncCallback?: (response: unknown) => void,
   ) => unknown;
-  httpAuthChallengeForTab: (tabId: number) => Record<string, unknown> | undefined;
   httpAuthChallenges: Map<number, Record<string, unknown>>;
   httpAuthStages: Map<number, Record<string, unknown>>;
   recordHttpAuthChallenge: (details: Record<string, unknown>) => void;
@@ -120,6 +119,10 @@ interface BrowserExtensionChromeHarness {
       removeListener: ReturnType<typeof vi.fn>;
       emit: (details: unknown, respond: (response: unknown) => void) => void;
     };
+  };
+  webNavigation: {
+    getAllFrames: Mock<(input: { tabId: number }) => Promise<Record<string, unknown>[] | null>>;
+    onBeforeNavigate: { emit: (details: Record<string, unknown>) => void };
   };
   tabs: {
     create: ReturnType<typeof vi.fn>;
@@ -344,6 +347,11 @@ describe('browser extension assets', () => {
     // origin, at both top-level reads around the frame probe. 0.2.55 to 0.2.57
     // were built without it, so portal-bound fills need this version or newer.
     '0.2.58': 'dfa9eb61de05',
+    // Chrome's own HTTP prompt: the waiting challenge is confirmed against the
+    // tab's live frames instead of being dropped when Chrome marks the prompt's
+    // error page loaded, and http_auth_challenge reports its origin on a tab
+    // the protected-site check cannot read (LT-1197).
+    '0.2.59': 'f078b7964bd2',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -5561,31 +5569,90 @@ describe('browser extension assets', () => {
       );
     }
 
-    it('reports a challenge waiting on a tab instead of a silent success (step-0 reproduction)', async () => {
-      const harness = loadBackgroundHarnessForTest();
-      await flushPromises();
-      // Chrome is holding the tab on its Basic Auth dialog while navigate runs:
-      // today's build reports a normal payload and nothing about the prompt.
+    const PROMPT_URL = 'https://example.test/protected';
+
+    /**
+     * Chrome's real state while its prompt waits (measured on Chrome 158, 21 Nov
+     * 2026): it commits a blank error page at the challenged URL, the tab reads
+     * as loaded, and no script can run in it. A prerendered page Chrome keeps
+     * in the tab is listed too but is not on screen.
+     */
+    function holdTabOnPrompt(harness: BrowserExtensionBackgroundHarness, tabId: number, url = PROMPT_URL): void {
+      const tab = harness.tabState(tabId)!;
+      tab.url = url;
+      tab.status = 'complete';
+      harness.chrome.webNavigation.getAllFrames.mockImplementation(async (input: { tabId: number }) => (
+        input.tabId === tabId
+          ? [
+              { frameId: 0, parentFrameId: -1, url, errorOccurred: true, documentLifecycle: 'active' },
+              { frameId: 9, parentFrameId: -1, url: 'https://search.test/warmup', errorOccurred: false, documentLifecycle: 'prerender' },
+            ]
+          : null
+      ));
+    }
+
+    /** The prompt was answered or cancelled: the tab shows a real page again. */
+    function showRealPage(harness: BrowserExtensionBackgroundHarness, tabId: number, url = PROMPT_URL): void {
+      harness.chrome.webNavigation.getAllFrames.mockImplementation(async (input: { tabId: number }) => (
+        input.tabId === tabId
+          ? [{ frameId: 0, parentFrameId: -1, url, errorOccurred: false, documentLifecycle: 'active' }]
+          : null
+      ));
+    }
+
+    /** Navigate tab 42 into a challenge Chrome leaves to its own prompt. */
+    async function navigateIntoPrompt(
+      harness: BrowserExtensionBackgroundHarness,
+      url = PROMPT_URL,
+    ): Promise<Record<string, unknown> | undefined> {
       harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
         if (update?.url) {
           emitAuthChallenge(harness, {
             tabId,
-            url: 'https://example.test/protected',
+            url,
             scheme: 'Basic',
             realm: 'Members',
             requestId: 'auth-req-1',
-            challenger: { host: 'example.test', port: 443 },
+            challenger: { host: new URL(url).hostname, port: 443 },
           });
+          holdTabOnPrompt(harness, tabId, url);
+          // Chrome marks the prompt's error page loaded straight away.
+          harness.chrome.tabs.onUpdated.emit(tabId, { status: 'complete' }, harness.tabState(tabId));
         }
         return harness.tabState(tabId);
       });
-
-      const message = await dispatchExtensionCommand(harness, {
-        id: 'navigate-into-challenge',
+      return dispatchExtensionCommand(harness, {
+        id: 'navigate-into-prompt',
         command: 'navigate',
         target: { tabId: 42 },
-        payload: { url: 'https://example.test/protected' },
+        payload: { url },
       });
+    }
+
+    /** A computer with a protected site, where no script can run on the prompt page. */
+    function loadProtectedComputerHarness(): BrowserExtensionBackgroundHarness {
+      const harness = loadBackgroundHarnessForTest({
+        initialLocalStorage: {
+          browserGatewaySecretTaints: { version: 2, origins: ['https://vault.test'], tabs: {} },
+        },
+      });
+      harness.chrome.scripting.executeScript.mockImplementation(
+        async (params: { target?: { tabId?: number } }) => {
+          if (params.target?.tabId === 42 && harness.tabState(42)?.url === PROMPT_URL) {
+            throw new Error('Frame with ID 0 is showing error page');
+          }
+          return [{ result: { origin: 'https://example.test', title: 'Example', text: 'Example page' } }];
+        },
+      );
+      return harness;
+    }
+
+    it('reports a challenge waiting on a tab instead of a silent success (step-0 reproduction)', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      // Chrome is holding the tab on its Basic Auth dialog while navigate runs:
+      // the payload must say so instead of reporting a normal page.
+      const message = await navigateIntoPrompt(harness);
 
       expect(message?.['ok']).toBe(true);
       expect(message?.['result']).toMatchObject({
@@ -5597,35 +5664,133 @@ describe('browser extension assets', () => {
       });
     });
 
-    it('drops the waiting-challenge report once the load completes', async () => {
+    it('keeps the challenge although Chrome marks the prompt page loaded', async () => {
       const harness = loadBackgroundHarnessForTest();
       await flushPromises();
-      harness.chrome.tabs.update.mockImplementation(async (tabId: number, update?: { url?: string }) => {
-        if (update?.url) {
-          emitAuthChallenge(harness, {
-            tabId,
-            url: 'https://example.test/protected',
-            scheme: 'Basic',
-            requestId: 'auth-req-1',
-            challenger: { host: 'example.test', port: 443 },
-          });
-        }
-        return harness.tabState(tabId);
+      await navigateIntoPrompt(harness);
+
+      expect(harness.httpAuthChallenges.get(42)).toMatchObject({ origin: 'https://example.test' });
+      const payload = await harness.buildTabPayload(harness.tabState(42), { includeText: true });
+      expect(payload['httpAuthChallenge']).toMatchObject({ origin: 'https://example.test', realm: 'Members' });
+    });
+
+    it('stops reporting the challenge once a real page replaces the prompt', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await navigateIntoPrompt(harness);
+
+      // The user answered or cancelled Chrome's dialog.
+      showRealPage(harness, 42);
+      const payload = await harness.buildTabPayload(harness.tabState(42), { includeText: true });
+      expect(payload).not.toHaveProperty('httpAuthChallenge');
+
+      // A frame list Chrome will not give is not proof of a waiting prompt.
+      harness.chrome.webNavigation.getAllFrames.mockRejectedValue(new Error('No tab with id: 42.'));
+      const unknown = await harness.buildTabPayload(harness.tabState(42), { includeText: true });
+      expect(unknown).not.toHaveProperty('httpAuthChallenge');
+    });
+
+    it('drops the challenge when a later top-level navigation starts, and only then', async () => {
+      const harness = loadBackgroundHarnessForTest();
+      await flushPromises();
+      await navigateIntoPrompt(harness);
+      const at = harness.httpAuthChallenges.get(42)!['at'] as number;
+      // Chrome's own clock (the challenge's timeStamp), the one navigations are compared with.
+      expect(at).toBe(1_000_000);
+
+      // The navigation that met the challenge started before it; a frame's own
+      // navigation does not replace the page.
+      harness.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 42, frameId: 0, timeStamp: at - 250 });
+      harness.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 42, frameId: 3, timeStamp: at + 10 });
+      harness.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 43, frameId: 0, timeStamp: at + 10 });
+      expect(harness.httpAuthChallenges.get(42)).toBeDefined();
+
+      harness.chrome.webNavigation.onBeforeNavigate.emit({ tabId: 42, frameId: 0, timeStamp: at + 10 });
+      expect(harness.httpAuthChallenges.get(42)).toBeUndefined();
+    });
+
+    it('gives the prompt\'s origin on a computer whose protected-site check cannot run there, and still refuses page reads', async () => {
+      const harness = loadProtectedComputerHarness();
+      await flushPromises();
+      const navigated = await navigateIntoPrompt(harness);
+      // A tab that cannot be checked returns no page payload at all, as before.
+      expect(navigated?.['result']).toEqual({
+        completed: true,
+        observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
       });
-      await dispatchExtensionCommand(harness, {
-        id: 'navigate-record-challenge',
-        command: 'navigate',
+      // Its report keeps the address hidden and the page unread, and now says
+      // a prompt is waiting.
+      expect(await harness.buildTabPayload(harness.tabState(42), { includeText: true })).toMatchObject({
+        url: 'https://redacted.invalid/',
+        text: '',
+        inspectionState: 'inspection_unavailable',
+        httpAuthChallenge: { origin: 'https://example.test' },
+      });
+
+      const challenge = await dispatchExtensionCommand(harness, {
+        id: 'prompt-origin',
+        command: 'http_auth_challenge',
         target: { tabId: 42 },
-        payload: { url: 'https://example.test/protected' },
       });
-      expect(harness.httpAuthChallengeForTab(42)).toMatchObject({
-        origin: 'https://example.test',
+      expect(challenge).toMatchObject({ ok: true, result: { origin: 'https://example.test' } });
+      expect(Object.keys(challenge?.['result'] as object)).toEqual(['origin']);
+
+      for (const command of ['snapshot', 'evaluate', 'screenshot', 'query_elements']) {
+        const read = await dispatchExtensionCommand(harness, {
+          id: `read-${command}`,
+          command,
+          target: { tabId: 42 },
+          payload: command === 'evaluate' ? { expression: 'document.title' } : {},
+        });
+        expect(read?.['ok']).toBe(false);
+        expect(String(read?.['error'])).toMatch(/^browser_secret_inspection_unavailable/);
+      }
+    });
+
+    it('refuses the prompt\'s origin for a tab already under secret protection', async () => {
+      const harness = loadProtectedComputerHarness();
+      await flushPromises();
+      await navigateIntoPrompt(harness);
+      await harness.markSecretTaint(42, 'https://vault.test');
+
+      const challenge = await dispatchExtensionCommand(harness, {
+        id: 'prompt-origin-protected',
+        command: 'http_auth_challenge',
+        target: { tabId: 42 },
       });
+      expect(challenge).toMatchObject({ ok: false, error: 'browser_secret_observation_blocked_for_tainted_origin' });
+    });
 
-      // The user answered (or cancelled) Chrome's dialog and the load finished.
-      harness.chrome.tabs.onUpdated.emit(42, { status: 'complete' }, harness.tabState(42));
+    it('reports nothing about a prompt on a tab under protection, whatever site it names', async () => {
+      const harness = loadProtectedComputerHarness();
+      await flushPromises();
+      await harness.markSecretTaint(42, 'https://vault.test');
+      // A page holding the typed value sends the tab to a host named after it.
+      await navigateIntoPrompt(harness, 'https://test-only-mirrored-value.evil.test/');
 
-      expect(harness.httpAuthChallengeForTab(42)).toBeUndefined();
+      const payload = await harness.buildTabPayload(harness.tabState(42), { includeText: true });
+      expect(payload).not.toHaveProperty('httpAuthChallenge');
+      expect(JSON.stringify(payload)).not.toContain('mirrored-value');
+    });
+
+    it('refuses the prompt\'s origin when no prompt is confirmed', async () => {
+      const harness = loadProtectedComputerHarness();
+      await flushPromises();
+      const none = await dispatchExtensionCommand(harness, {
+        id: 'prompt-origin-none',
+        command: 'http_auth_challenge',
+        target: { tabId: 42 },
+      });
+      expect(none).toMatchObject({ ok: false, error: 'http_auth_no_pending_challenge' });
+
+      await navigateIntoPrompt(harness);
+      showRealPage(harness, 42);
+      const answered = await dispatchExtensionCommand(harness, {
+        id: 'prompt-origin-answered',
+        command: 'http_auth_challenge',
+        target: { tabId: 42 },
+      });
+      expect(answered).toMatchObject({ ok: false, error: 'http_auth_no_pending_challenge' });
     });
 
     it('never records a challenge on a tab the gateway does not control or share', async () => {
@@ -5643,7 +5808,7 @@ describe('browser extension assets', () => {
       // No stage anywhere: Chrome shows its own dialog (take no action).
       expect(responded).toBe(true);
       expect(response).toEqual({});
-      expect(harness.httpAuthChallengeForTab(999)).toBeUndefined();
+      expect(harness.httpAuthChallenges.get(999)).toBeUndefined();
     });
 
     it('answers the exact-origin Basic challenge of the staged tab from the staged credential', async () => {
@@ -6313,6 +6478,16 @@ function loadBackgroundHarnessForTest(options: {
       webRequest: {
         onAuthRequired: authRequiredEvent,
       },
+      webNavigation: {
+        // A tab shows its own loaded page unless a test says otherwise.
+        getAllFrames: vi.fn(async ({ tabId }: { tabId: number }) => {
+          const tab = tabsById.get(tabId);
+          return tab
+            ? [{ frameId: 0, parentFrameId: -1, url: tab.url, errorOccurred: false, documentLifecycle: 'active' }]
+            : null;
+        }),
+        onBeforeNavigate: createChromeEvent<[Record<string, unknown>]>(),
+      },
       storage: {
         local: {
           get: vi.fn(async (keys: string | string[] | Record<string, unknown>) => {
@@ -6466,7 +6641,7 @@ function loadBackgroundHarnessForTest(options: {
     }) | undefined,
   };
   runInNewContext(
-    `${readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8')}\n${readFileSync('resources/browser-extension/browser-session-claims.js', 'utf8')}\n${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
+    `${readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8')}\n${readFileSync('resources/browser-extension/browser-session-claims.js', 'utf8')}\n${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

@@ -3,7 +3,9 @@ import type { BrowserExtensionContactStateReader } from './browser-extension-con
 import {
   confirmBrowserExtensionCredentialWrite,
   isExactSecureCredentialWriteCompletion,
+  readHttpAuthChallengeOrigin,
   readHttpAuthCompletion,
+  supportsBrowserExtensionHttpAuthChallenge,
   supportsSecureBrowserExtensionCredentialFill,
   supportsBrowserExtensionOneTimeCodeProbe,
   supportsSecureBrowserExtensionHttpAuth,
@@ -126,6 +128,32 @@ describe('browser extension credential compatibility', () => {
       .toThrow('shared_tab_secure_credential_write_not_confirmed');
     expect(() => confirmBrowserExtensionCredentialWrite({ ...exact, valueApplied: true }, 'public'))
       .toThrow('shared_tab_public_credential_write_not_confirmed');
+  });
+
+  describe('waiting HTTP prompt origin (http_auth_challenge)', () => {
+    it('asks only a fresh 0.2.59 or newer runtime, which knows the command', () => {
+      expect(supportsBrowserExtensionHttpAuthChallenge(contactState('0.2.59'), 'local')).toBe(true);
+      expect(supportsBrowserExtensionHttpAuthChallenge(contactState('0.3.0'), 'local')).toBe(true);
+      expect(supportsBrowserExtensionHttpAuthChallenge(contactState('0.2.58'), 'local')).toBe(false);
+      expect(supportsBrowserExtensionHttpAuthChallenge(contactState(undefined), 'local')).toBe(false);
+      expect(supportsBrowserExtensionHttpAuthChallenge(contactState('0.2.59', false), 'local')).toBe(false);
+    });
+
+    it('accepts only a lone canonical http(s) origin', () => {
+      expect(readHttpAuthChallengeOrigin({ origin: 'https://dev.example' })).toBe('https://dev.example');
+      expect(readHttpAuthChallengeOrigin({ origin: 'http://127.0.0.1:8080' })).toBe('http://127.0.0.1:8080');
+      for (const value of [
+        { origin: 'https://dev.example/' },
+        { origin: 'https://dev.example/path?q=1' },
+        { origin: 'chrome-error://chromewebdata' },
+        { origin: 'https://dev.example', text: 'page text' },
+        { completed: true, observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin' },
+        null,
+        'https://dev.example',
+      ]) {
+        expect(() => readHttpAuthChallengeOrigin(value)).toThrow('http_auth_challenge_unavailable');
+      }
+    });
   });
 
   describe('sign-in code box probe (probe_one_time_code)', () => {

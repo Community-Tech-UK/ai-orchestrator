@@ -89,10 +89,24 @@ export async function fillHttpAuthOperation(
     );
   }
 
+  // Where is the tab? Its live page read normally says. On a computer where a
+  // site is under secret protection, the extension cannot check the error page
+  // Chrome shows under its prompt, so it refuses that read; the origin of the
+  // waiting prompt then comes from Chrome's own request record instead ('' when
+  // none is confirmed, or the tab is itself under protection).
+  const promptOrigin = async (): Promise<string> => {
+    try {
+      return await deps.readHttpAuthChallengeOrigin?.(request.profileId, request.targetId) ?? '';
+    } catch {
+      return '';
+    }
+  };
+
   // Which URL are we signing into? Default: the tab's own current URL (the
-  // request that is sitting unanswered). When the tab shows Chrome's error or
-  // a blank page there is no usable default and the caller must pass `url` —
-  // that is the one case the plan allows a url beyond the page origin.
+  // request that is sitting unanswered), or the prompt's site when only that
+  // is known. When the tab shows Chrome's error or a blank page there is no
+  // usable default and the caller must pass `url` — that is the one case the
+  // plan allows a url beyond the page origin.
   let effectiveUrl: string;
   let pageOrigin: string;
   if (request.url) {
@@ -100,7 +114,10 @@ export async function fillHttpAuthOperation(
     try {
       pageOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
     } catch {
-      return deny('target_unavailable', `${toolName} could not resolve the live page origin`);
+      pageOrigin = await promptOrigin();
+      if (!pageOrigin) {
+        return deny('target_unavailable', `${toolName} could not resolve the live page origin`);
+      }
     }
     if (!pageOrigin) {
       // Chrome error / blank page: fall through to the authorization gate,
@@ -114,7 +131,11 @@ export async function fillHttpAuthOperation(
     } catch {
       liveUrl = '';
     }
-    const parsedLive = parseHttpUrl(liveUrl);
+    let parsedLive = parseHttpUrl(liveUrl);
+    if (!parsedLive) {
+      const origin = await promptOrigin();
+      parsedLive = origin ? parseHttpUrl(`${origin}/`) : null;
+    }
     if (!parsedLive) {
       return deny(
         'invalid_url',
@@ -218,10 +239,13 @@ export async function fillHttpAuthOperation(
     try {
       liveOrigin = await deps.refreshTargetOrigin(request.profileId, request.targetId);
     } catch {
-      return deny(
-        'target_unavailable',
-        `${toolName} could not re-confirm the live page origin before answering`,
-      );
+      liveOrigin = await promptOrigin();
+      if (!liveOrigin) {
+        return deny(
+          'target_unavailable',
+          `${toolName} could not re-confirm the live page origin before answering`,
+        );
+      }
     }
     if (liveOrigin && liveOrigin !== urlOrigin) {
       return deny(

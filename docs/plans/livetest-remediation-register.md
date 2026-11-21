@@ -580,6 +580,12 @@ Source branch had no register entries left (its branch was removed); these rows 
 | --- | --- | --- | --- | --- |
 | LT-1185 | P2 | **REPRODUCED LIVE 2026-11-16; FIX BUILT, AWAITING LIVE RECHECK.** After a Harness restart the Sort out (Set aside) session came back through History, which never carried its `planQueueSetAsideFolder` marker, so every Set aside tool refused it with "Only the agent started from the Set aside tab on the Plan Queue page may use this tool". | [LT-1185 detail](#lt-1185) | [Set aside live checks, check 2](2026-11-15-set-aside-agent-merges-itself_plan_livetest.md) |
 
+### New findings — 2026-11-21 HTTP sign-in prompt on windows-pc
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1197 | P2 | **REPRODUCED LIVE 2026-11-21; FIX BUILT, AWAITING LIVE RECHECK.** On `windows-pc` (a computer with sites under secret protection) Chrome's own HTTP sign-in prompt could not be answered: `request_credential_access` and `fill_http_auth` were refused (`target_unavailable` / `invalid_url`) because the extension cannot check the error page under the prompt, and the waiting challenge was never reported because the extension deleted it when Chrome marked that page loaded. | [LT-1197 detail](#lt-1197) | [HTTP prompt on a protected computer live checks](2026-11-21-http-auth-prompt-on-protected-computer_plan_livetest.md) |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -16592,3 +16598,39 @@ The tool-search ranker matches whole words and does not stem. The tool names con
 ### Required behaviour and acceptance
 
 A `process` search with the default limit returns both tools on the deferred and stable surfaces, with no change to search semantics, schemas, ownership rules or the fence. Acceptance: the full-catalogue regressions in `orchestrator-mcp-deferral.spec.ts` (line 176) and `orchestrator-mcp-stable-tools.spec.ts` (line 119) pass; the installed run above found both tools. Implementation notes: root plan `2026-10-27-host-process-discovery-remediation_plan.md`.
+
+## LT-1197
+
+### LT-1197 — Chrome's HTTP sign-in prompt cannot be answered on a computer with a protected site
+
+**Status: reproduced live 21 November 2026 on `windows-pc`; fix built 21 November 2026; awaiting the live recheck.**
+
+### Observed behaviour
+
+21 November 2026, 01:34-02:10, and again at 11:17: `browser.find_or_open` of
+`https://dev.myshellartstudio.com/wp-login.php` on `windows-pc` returned
+`inspection_unavailable`, `url: https://redacted.invalid/` and no `httpAuthChallenge`.
+`browser.request_credential_access` and `browser.fill_http_auth` were refused with
+`target_unavailable` (or `invalid_url` without `url`). The Harness log has four
+`Saved-login tab check failed` lines, each `snapshot_allowed_failed` /
+`browser_secret_inspection_unavailable`. The same login worked on `ct-test-mac`.
+
+### Root cause
+
+`windows-pc` has `login.lcn.com` tabs under secret protection, so the extension checks every tab
+for frames of a protected site. While Chrome's prompt waits, Chrome has committed a blank error
+page at the challenged URL that no script can run in (measured on Chrome for Testing 158), so the
+check fails and every page read on the tab, including the snapshot Harness used to learn the
+tab's origin, is refused. Chrome also marks that error page loaded about 20 ms after the
+challenge, and the extension deleted its challenge record on every completed load, so the prompt
+was never reported on any computer (the open question in the 2026-10-17 HTTP auth live test).
+
+### Required behaviour and acceptance
+
+- A waiting prompt is reported while Chrome shows it, confirmed against the tab's live frames,
+  and forgotten once a new top-level navigation starts or the tab closes.
+- Saved-login requests and `fill_http_auth` resolve the origin of a waiting prompt from Chrome's
+  request record when the page cannot be read; page reads stay refused exactly as before; a tab
+  under protection and a prompt for another site are still refused.
+- Live: the checks in the linked live-test document pass on `windows-pc`.
+- Fix record: [2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md](2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md).

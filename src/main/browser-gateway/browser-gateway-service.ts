@@ -96,7 +96,9 @@ import {
 } from './browser-extension-contact-state';
 import {
   confirmBrowserExtensionCredentialWrite,
+  readHttpAuthChallengeOrigin,
   readHttpAuthCompletion,
+  supportsBrowserExtensionHttpAuthChallenge,
   supportsSecureBrowserExtensionCredentialFill,
   supportsSecureBrowserExtensionHttpAuth,
 } from './browser-extension-credential-compatibility';
@@ -1791,6 +1793,7 @@ export class BrowserGatewayService {
         ),
       refreshTargetOrigin: (profileId, targetId) => this.refreshTargetOrigin(profileId, targetId),
       readTargetUrl: (profileId, targetId) => this.readTargetUrl(profileId, targetId),
+      readHttpAuthChallengeOrigin: (profileId, targetId) => this.readHttpAuthChallengeOrigin(profileId, targetId),
       httpAuthNavigate: (profileId, targetId, input, beforeDispatch) =>
         this.httpAuthNavigateForTarget(profileId, targetId, input, beforeDispatch),
       ...(this.credentialVault ? { credentialVault: this.credentialVault } : {}),
@@ -1908,6 +1911,22 @@ export class BrowserGatewayService {
     }
     const target = await this.driver.refreshTarget(profileId, targetId);
     return target.url ?? '';
+  }
+
+  /**
+   * The origin of the HTTP sign-in prompt holding a shared tab, from Chrome's
+   * own request record (`http_auth_challenge`), never the page. Throws when no
+   * prompt is confirmed, the tab is under secret protection, or the extension
+   * is too old to say.
+   */
+  async readHttpAuthChallengeOrigin(profileId: string, targetId: string): Promise<string> {
+    const existingTab = this.extensionTabStore.getTab(profileId, targetId);
+    if (!existingTab || !supportsBrowserExtensionHttpAuthChallenge(
+      this.extensionContactState, credentialScopeForProfile(profileId), existingTab.extensionInstanceId,
+    )) {
+      throw new Error('http_auth_challenge_unavailable');
+    }
+    return readHttpAuthChallengeOrigin(await this.existingTabOperations.sendCommand(existingTab, 'http_auth_challenge'));
   }
 
   /**

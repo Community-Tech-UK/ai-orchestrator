@@ -743,6 +743,12 @@ describe('fillHttpAuthOperation', () => {
     httpAuthSupported?: boolean;
     existingTab?: boolean;
     dispatch?: FillOperationDeps['httpAuthNavigate'];
+    /** The extension refuses page reads (it cannot check Chrome's prompt page). */
+    pageUnreadable?: boolean;
+    /** What the extension says the waiting prompt's origin is; an Error when none is confirmed. */
+    promptOrigin?: string | Error;
+    /** Only this origin is approved for the saved login. */
+    approvedOrigin?: string;
   } = {}) {
     const vaultRead = vi.fn(async ({ kind }: { kind: string }) =>
       kind === 'username' ? 'alice' : 'TEST_ONLY_HTTP_AUTH_PASSWORD');
@@ -768,8 +774,17 @@ describe('fillHttpAuthOperation', () => {
       readControl: vi.fn(),
       driverType: vi.fn(),
       httpAuthNavigate: dispatch,
-      readTargetUrl: vi.fn(async () => options.liveUrl ?? CHALLENGE_URL),
+      readTargetUrl: vi.fn(async () => {
+        if (options.pageUnreadable) throw new Error('browser_secret_inspection_unavailable: command not run.');
+        return options.liveUrl ?? CHALLENGE_URL;
+      }),
+      readHttpAuthChallengeOrigin: vi.fn(async () => {
+        if (options.promptOrigin instanceof Error) throw options.promptOrigin;
+        if (options.promptOrigin === undefined) throw new Error('http_auth_no_pending_challenge');
+        return options.promptOrigin;
+      }),
       refreshTargetOrigin: vi.fn(async () => {
+        if (options.pageUnreadable) throw new Error('browser_secret_inspection_unavailable: command not run.');
         pageReads += 1;
         return pageReads > 1 && options.secondPageOrigin !== undefined
           ? options.secondPageOrigin
@@ -781,7 +796,8 @@ describe('fillHttpAuthOperation', () => {
         getGenericSecretForFill: vi.fn(),
       } as unknown as FillOperationDeps['credentialVault'],
       credentialAuthorizations: {
-        check: vi.fn(() => (options.authorized === false
+        check: vi.fn(({ origin }: { origin: string }) => (options.authorized === false
+          || (options.approvedOrigin !== undefined && origin !== options.approvedOrigin)
           ? { authorized: false as const, reason: (options.authorizationReason ?? 'origin_not_authorized') as 'origin_not_authorized' }
           : { authorized: true as const })),
         list: vi.fn(() => []),
@@ -900,6 +916,96 @@ describe('fillHttpAuthOperation', () => {
     // never dispatched and never surfaces.
     expect(vaultRead).toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain('TEST_ONLY_HTTP_AUTH_PASSWORD');
+  });
+
+  describe('on a tab whose page cannot be checked while Chrome\'s prompt waits (windows-pc, 21 Nov 2026)', () => {
+    it('answers the prompt for its own site, from Chrome\'s record of the challenge', async () => {
+      const { deps, dispatch, vaultRead } = makeHttpAuthDeps({
+        pageUnreadable: true,
+        promptOrigin: CHALLENGE_ORIGIN,
+        approvedOrigin: CHALLENGE_ORIGIN,
+      });
+
+      const result = await fillHttpAuthOperation(deps, request());
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { httpAuth: 'answered' } });
+      // The address is hidden, so the default is the prompt site's home page.
+      expect(dispatch).toHaveBeenCalledWith(
+        'existing-tab:7:42',
+        'existing-tab:7:42:target',
+        expect.objectContaining({ url: `${CHALLENGE_ORIGIN}/`, credentialOrigin: CHALLENGE_ORIGIN }),
+        expect.any(Function),
+      );
+      expect(vaultRead).toHaveBeenCalledWith(expect.objectContaining({ origin: CHALLENGE_ORIGIN }));
+    });
+
+    it('signs into the page the caller names on the prompt\'s site', async () => {
+      const { deps, dispatch } = makeHttpAuthDeps({ pageUnreadable: true, promptOrigin: CHALLENGE_ORIGIN });
+
+      const result = await fillHttpAuthOperation(deps, request(CHALLENGE_URL));
+
+      expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+      expect(dispatch).toHaveBeenCalledWith(
+        'existing-tab:7:42',
+        'existing-tab:7:42:target',
+        expect.objectContaining({ url: CHALLENGE_URL, credentialOrigin: CHALLENGE_ORIGIN }),
+        expect.any(Function),
+      );
+    });
+
+    it('refuses a prompt for a site the saved login is not approved for', async () => {
+      const { deps, dispatch, vaultRead } = makeHttpAuthDeps({
+        pageUnreadable: true,
+        promptOrigin: 'https://other.example',
+        approvedOrigin: CHALLENGE_ORIGIN,
+      });
+
+      const result = await fillHttpAuthOperation(deps, request());
+
+      expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run', origin: 'https://other.example' });
+      expect(result.reason).toContain('credential_not_authorized');
+      expect(vaultRead).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses to walk the saved login onto the approved site while the prompt is for another', async () => {
+      const { deps, dispatch, vaultRead } = makeHttpAuthDeps({
+        pageUnreadable: true,
+        promptOrigin: 'https://other.example',
+      });
+
+      const result = await fillHttpAuthOperation(deps, request(CHALLENGE_URL));
+
+      expect(result).toMatchObject({ decision: 'denied', outcome: 'not_run', reason: 'http_auth_origin_mismatch' });
+      expect(vaultRead).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    });
+
+    it('still refuses when no prompt is confirmed, or the tab is under secret protection', async () => {
+      for (const promptOrigin of [
+        new Error('http_auth_no_pending_challenge'),
+        new Error('browser_secret_observation_blocked_for_tainted_origin'),
+      ]) {
+        const { deps, dispatch, vaultRead } = makeHttpAuthDeps({ pageUnreadable: true, promptOrigin });
+
+        expect(await fillHttpAuthOperation(deps, request())).toMatchObject({ decision: 'denied', reason: 'invalid_url' });
+        expect(await fillHttpAuthOperation(deps, request(CHALLENGE_URL)))
+          .toMatchObject({ decision: 'denied', reason: 'target_unavailable' });
+        expect(vaultRead).not.toHaveBeenCalled();
+        expect(dispatch).not.toHaveBeenCalled();
+      }
+    });
+
+    it('re-confirms the prompt\'s site immediately before answering', async () => {
+      const { deps, dispatch } = makeHttpAuthDeps({ pageUnreadable: true, promptOrigin: CHALLENGE_ORIGIN });
+      const promptReads = deps.readHttpAuthChallengeOrigin as ReturnType<typeof vi.fn>;
+      promptReads.mockResolvedValueOnce(CHALLENGE_ORIGIN).mockResolvedValueOnce('https://somewhere.else');
+
+      const result = await fillHttpAuthOperation(deps, request());
+
+      expect(result).toMatchObject({ decision: 'denied', reason: 'origin_changed_during_fill' });
+      expect(dispatch).not.toHaveBeenCalled();
+    });
   });
 
   it('collapses an unknown dispatch error to the fixed fallback code', async () => {

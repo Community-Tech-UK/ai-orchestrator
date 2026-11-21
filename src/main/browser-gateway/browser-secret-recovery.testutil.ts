@@ -101,6 +101,10 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     webRequest: {
       onAuthRequired: event(),
     },
+    webNavigation: {
+      onBeforeNavigate: event(),
+      getAllFrames: vi.fn(async (_input: { tabId: number }): Promise<Array<Record<string, unknown>>> => []),
+    },
     debugger: {
       onEvent: event(), onDetach: event(),
     },
@@ -134,7 +138,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
       runCommandWithWatchdog, browserCommandErrorMessage,
       handleSecretProtectionMessage, applySecretObservationProtectionEnabled, applySecretObservationProtectionFromCommand, setGatewayEnabled, loadSecretTaints,
       loadSecretObservationProtection, secretObservationStatus,
-      secretTaintedTabs, secretTaintedOrigins,
+      secretTaintedTabs, secretTaintedOrigins, httpAuthChallenges,
       activeCount: () => activeBrowserCommandCount, enabled: () => gatewayEnabled,
       protectionEnabled: () => secretObservationProtectionEnabled,
       writeGeneration: () => secretWriteGeneration });`, context) as Runtime;

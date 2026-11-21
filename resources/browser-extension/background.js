@@ -213,6 +213,10 @@ const SECRET_SCAN_BASE = 257 + Math.floor(Math.random() * 60000000);
 //  - httpAuthChallenges: observe-only record (no credentials) that a challenge
 //    is WAITING on a tab the gateway controls or has shared, so navigate /
 //    open_tab / reload / snapshot payloads can tell the caller to answer it.
+//    Chrome shows its prompt over a blank error page it commits at the
+//    challenged URL (the tab then reads as loaded), so the record is confirmed
+//    against the tab's live frames whenever it is used: see
+//    pendingHttpAuthChallenge.
 const httpAuthStages = new Map();
 const httpAuthChallenges = new Map();
 // Server-supplied realm text is page/server-controlled: keep it bounded and
@@ -324,11 +328,6 @@ async function reloadExtensionRateLimited(now) {
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  // A load that completed is not held by an HTTP auth prompt: the dialog was
-  // answered or cancelled and the request finished either way.
-  if (changeInfo.status === 'complete') {
-    clearHttpAuthChallenge(tabId);
-  }
   // A page that has received a vault value can mirror it into a navigation
   // URL, response body, title, control, or later mutation result. A document
   // load is therefore NOT a safe declassification boundary. Keep the tab
@@ -509,7 +508,8 @@ function recordHttpAuthChallenge(details) {
     origin,
     scheme,
     ...(realm ? { realm } : {}),
-    at: Date.now(),
+    // Chrome's own clock, the one webNavigation.onBeforeNavigate compares with.
+    at: typeof details?.timeStamp === 'number' ? details.timeStamp : Date.now(),
   });
 }
 
@@ -518,8 +518,97 @@ function isGatewayObservedTab(tabId) {
     || sharedTabs.some((entry) => entry && entry.tabId === tabId);
 }
 
-function httpAuthChallengeForTab(tabId) {
-  return httpAuthChallenges.get(tabId);
+/**
+ * The recorded challenge, only while Chrome's prompt still holds the tab, and
+ * never for a tab that could pass a secret through it (see
+ * httpAuthChallengeMayCarrySecret).
+ *
+ * While the prompt waits, Chrome has committed a blank error page at the
+ * challenged URL and the tab reports itself loaded (measured on Chrome 158,
+ * 21 Nov 2026). So the record is confirmed against the live frames: one active
+ * frame, the top one, showing that error page on the challenged origin. That
+ * page runs no site script and holds no other frame. Anything else (the prompt
+ * answered or cancelled, a real page, a load still in flight) is not reported,
+ * and a frame list Chrome will not give fails closed.
+ */
+async function pendingHttpAuthChallenge(tabId) {
+  const challenge = await confirmedHttpAuthChallenge(tabId);
+  return challenge && !await httpAuthChallengeMayCarrySecret(tabId, challenge) ? challenge : undefined;
+}
+
+/** The recorded challenge when the tab's live frames show Chrome's prompt page for it. */
+async function confirmedHttpAuthChallenge(tabId) {
+  const challenge = httpAuthChallenges.get(tabId);
+  if (!challenge) {
+    return undefined;
+  }
+  const frames = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
+  if (!Array.isArray(frames)) {
+    return undefined;
+  }
+  // Pages Chrome prerenders or keeps for back/forward are not on screen.
+  // (Builds before documentLifecycle report on-screen frames only.)
+  const activeFrames = frames.filter((frame) => frame?.documentLifecycle === undefined
+    || frame.documentLifecycle === 'active');
+  const top = activeFrames[0];
+  let topOrigin = '';
+  try {
+    topOrigin = new URL(String(top?.url ?? '')).origin;
+  } catch {
+    return undefined;
+  }
+  if (
+    activeFrames.length !== 1
+    || top.frameId !== 0
+    || top.errorOccurred !== true
+    || topOrigin !== challenge.origin
+  ) {
+    return undefined;
+  }
+  return challenge;
+}
+
+/**
+ * The challenge's origin and realm come from whatever the tab navigated to,
+ * which a page holding a typed secret can choose (`https://<secret>.example`,
+ * a realm its server echoes). So nothing about it leaves the extension when
+ * the tab is under protection (its own lineage, its opener's, or its site's),
+ * or when it carries a value typed on a released site. Uncertainty withholds.
+ */
+async function httpAuthChallengeMayCarrySecret(tabId, challenge) {
+  try {
+    await loadSecretObservationProtection();
+    if (!isSecretObservationProtectionEnabled()) {
+      return false;
+    }
+    await loadSecretTaints();
+    if (knownSecretTaintOrigin(await chrome.tabs.get(tabId)) !== null) {
+      return true;
+    }
+    return await writtenSecretOriginIn([challenge.origin, challenge.realm ?? '']) !== null;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * browser.fill_http_auth and saved-login requests need the site a tab's
+ * prompt is for. On a computer where a site is under secret protection every
+ * tab is checked for that site's frames, and the check cannot run on Chrome's
+ * error page, so the tab's address is withheld and page reads are refused. The
+ * prompt's origin comes from Chrome's own request record instead, never from
+ * the page; page reads stay refused. A tab that could pass a secret through the
+ * challenge is refused, as it is for every other credential action.
+ */
+async function pendingHttpAuthChallengeOrigin(tabId) {
+  const challenge = await confirmedHttpAuthChallenge(tabId);
+  if (!challenge) {
+    throw new Error('http_auth_no_pending_challenge');
+  }
+  if (await httpAuthChallengeMayCarrySecret(tabId, challenge)) {
+    throw new Error('browser_secret_observation_blocked_for_tainted_origin');
+  }
+  return { origin: challenge.origin };
 }
 
 function clearHttpAuthChallenge(tabId) {
@@ -535,6 +624,16 @@ chrome.webRequest.onAuthRequired.addListener(
   { urls: ['<all_urls>'] },
   ['asyncBlocking'],
 );
+
+// A top-level navigation that starts after a challenge was recorded replaces
+// the page the prompt was shown over. (The navigation that met the challenge
+// started before it, so it does not clear its own record.)
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  const challenge = httpAuthChallenges.get(details?.tabId);
+  if (challenge && details.frameId === 0 && details.timeStamp >= challenge.at) {
+    clearHttpAuthChallenge(details.tabId);
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') {
@@ -2293,6 +2392,20 @@ function sanitizeSecretRecoveryResult(command, result) {
   };
 }
 
+// Only a canonical http(s) origin crosses the native boundary from http_auth_challenge.
+function sanitizeHttpAuthChallengeResult(result) {
+  const origin = typeof result?.origin === 'string' ? result.origin : '';
+  try {
+    const parsed = new URL(origin);
+    if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.origin === origin) {
+      return { origin };
+    }
+  } catch {
+    // Falls through to the fixed refusal.
+  }
+  throw new Error('http_auth_challenge_unavailable');
+}
+
 function browserTabOrigin(tab) {
   try {
     return new URL(tab?.url ?? '').origin;
@@ -2344,6 +2457,25 @@ async function taintedFrameOriginsForTabId(tabId) {
   return origins;
 }
 
+/**
+ * Protection a tab carries without looking inside it: its own lineage, the tab
+ * that opened it, or the site it is on. Taint state must already be loaded.
+ */
+function knownSecretTaintOrigin(tab) {
+  const existing = secretTaintedTabs.get(String(tab?.id));
+  if (typeof existing === 'string') {
+    return existing;
+  }
+  const openerOrigin = typeof tab?.openerTabId === 'number'
+    ? secretTaintedTabs.get(String(tab.openerTabId))
+    : undefined;
+  if (typeof openerOrigin === 'string') {
+    return openerOrigin;
+  }
+  const currentOrigin = browserTabOrigin(tab);
+  return secretTaintedOrigins.has(currentOrigin) ? currentOrigin : null;
+}
+
 async function secretTaintOriginForTab(tab) {
   await loadSecretObservationProtection();
   if (!isSecretObservationProtectionEnabled()) {
@@ -2355,15 +2487,7 @@ async function secretTaintOriginForTab(tab) {
   if (typeof existing === 'string') {
     return existing;
   }
-  const openerOrigin = typeof tab?.openerTabId === 'number'
-    ? secretTaintedTabs.get(String(tab.openerTabId))
-    : undefined;
-  const currentOrigin = browserTabOrigin(tab);
-  let inheritedOrigin = typeof openerOrigin === 'string'
-    ? openerOrigin
-    : secretTaintedOrigins.has(currentOrigin)
-      ? currentOrigin
-      : null;
+  let inheritedOrigin = knownSecretTaintOrigin(tab);
   if (inheritedOrigin === null && typeof tab?.id === 'number') {
     inheritedOrigin = await taintedFrameOriginForTabId(tab.id);
   }
@@ -2564,6 +2688,15 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
     return safeHttpAuthErrors.includes(httpAuthMessage)
       ? httpAuthMessage
       : 'http_auth_failed_or_may_have_applied_DO_NOT_retry_without_verifying_page_state';
+  }
+  if (command?.command === 'http_auth_challenge') {
+    // Fixed codes only, listed here for the source-extraction test harness.
+    const challengeMessage = error instanceof Error ? error.message : String(error);
+    return [
+      'http_auth_no_pending_challenge',
+      'browser_secret_observation_blocked_for_tainted_origin',
+      SAFE_MODE_ERROR,
+    ].includes(challengeMessage) ? challengeMessage : 'http_auth_challenge_unavailable';
   }
   if (
     command?.command === 'type'
@@ -2768,6 +2901,11 @@ async function runBrowserCommand(command, bridge) {
       // Harness even though (by design) the target tab is protected.
       : command?.command === 'secret_protection_review' || command?.command === 'release_secret_observation'
       ? sanitizeSecretRecoveryResult(command, result)
+      // Chrome's own request record of the prompt's origin, never page content.
+      // It must reach Harness when the tab cannot be checked for protected
+      // frames, which is the case it exists for.
+      : command?.command === 'http_auth_challenge'
+      ? sanitizeHttpAuthChallengeResult(result)
       : !reloadCommand
       && (typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType)
       ? {
@@ -3216,6 +3354,8 @@ async function executeBrowserCommand(command, deadlineAt) {
     }
     case 'http_auth_navigate':
       return executeHttpAuthNavigate(command, deadlineAt);
+    case 'http_auth_challenge':
+      return pendingHttpAuthChallengeOrigin(requireTargetTabId(command));
     case 'click': {
       const uid = optionalUidValue(command.payload?.uid);
       if (uid !== null) {
@@ -6468,6 +6608,11 @@ async function buildTabPayloadLocked(tab, options = {}) {
   const inspectionState = inspectionUnavailable || pageUnreadable
     ? 'inspection_unavailable'
     : secretTainted ? 'secret_tainted' : 'readable';
+  // A tab found protected above reports nothing about its prompt either. One
+  // that could not be checked is judged by what is known about it instead.
+  const httpAuthChallenge = secretTainted && !inspectionUnavailable
+    ? undefined
+    : await pendingHttpAuthChallenge(tab.id);
 
   return {
     tabId: tab.id,
@@ -6502,7 +6647,7 @@ async function buildTabPayloadLocked(tab, options = {}) {
     // Optional: a Chrome HTTP auth prompt waiting on this tab. Recorded only
     // for tabs the gateway controls or has shared, and never with credentials —
     // just enough to tell the caller to answer it with fill_http_auth.
-    ...(httpAuthChallengeForTab(tab.id) ? { httpAuthChallenge: httpAuthChallengeForTab(tab.id) } : {}),
+    ...(httpAuthChallenge ? { httpAuthChallenge } : {}),
     capturedAt: Date.now(),
   };
 }

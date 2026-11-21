@@ -495,7 +495,8 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     url: {
       ...stringProp,
       description:
-        "Optional http(s) URL being signed into; defaults to the tab's current URL. "
+        "Optional http(s) URL being signed into; defaults to the tab's current URL, or "
+        + "to the home page of the prompt's website when the tab's address is hidden. "
         + 'Must be same-origin with the live tab (or with the authorised origin when the '
         + "tab sits on Chrome's error or blank page). Refused over plain http except "
         + 'loopback.',

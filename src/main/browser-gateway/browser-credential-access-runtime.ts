@@ -51,42 +51,77 @@ export function createCredentialAccessDependencies(): BrowserCredentialAccessDep
 async function readCredentialTarget(profileId: string, targetId: string, context: BrowserGatewayContext = {}): Promise<CredentialTarget> {
   const before = requireTarget(profileId, targetId);
   // The operator's approval reaches here from the window, outside any session.
-  // Run the live check as the requesting session: the extension refuses an
+  // Run the live checks as the requesting session: the extension refuses an
   // owner-less command on a tab that session holds (17 Nov 2026, ct-test-mac).
-  const read = () => getBrowserGatewayService().snapshot({ ...context, profileId, targetId, requireLive: true });
-  const snapshot = await (context.instanceId ? withBrowserSessionOfInstance(context.instanceId, read) : read()).catch((error: unknown) => {
+  const inSession = <T>(read: () => Promise<T>): Promise<T> =>
+    context.instanceId ? withBrowserSessionOfInstance(context.instanceId, read) : read();
+  const snapshot = await inSession(() => getBrowserGatewayService().snapshot({ ...context, profileId, targetId, requireLive: true })).catch((error: unknown) => {
     unavailable('snapshot_threw', error instanceof Error ? error.message : 'unknown');
   });
-  if (snapshot.decision !== 'allowed' || snapshot.outcome !== 'succeeded' || !snapshot.data) {
-    const reason = snapshot.reason ?? '';
-    if (profileId.startsWith('existing-tab:') && isMissingExtensionTabError(reason)) {
-      throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
-    }
-    if (reason.includes('browser_secret_observation_blocked_for_tainted_origin')) {
-      throw new CredentialVaultError('The tab is locked after a password was typed into it', 'target_secret_protected');
-    }
-    if (reason.includes('browser_tab_held_by_another_session')) {
-      throw new CredentialVaultError('Another session is using this tab', 'target_held_by_another_session');
-    }
-    if (reason.includes('browser_extension_session_claims_unavailable') || reason.includes('shared_tab_secure_credential_fill_unavailable')) {
-      throw new CredentialVaultError('A current secure browser extension is required', 'shared_tab_secure_credential_fill_unavailable');
-    }
-    unavailable(`snapshot_${snapshot.decision}_${snapshot.outcome}`, reason);
-  }
+  const origin = snapshot.decision === 'allowed' && snapshot.outcome === 'succeeded' && snapshot.data
+    ? liveSnapshotOrigin(profileId, targetId, snapshot.data.url)
+    : await originWithoutSnapshot(profileId, targetId, snapshot.reason ?? '', `snapshot_${snapshot.decision}_${snapshot.outcome}`, inSession);
   const after = requireTarget(profileId, targetId);
   if (before.scope !== after.scope || before.computerId !== after.computerId) {
     unavailable('computer_changed_during_check');
   }
+  return { ...after, origin };
+}
+
+function liveSnapshotOrigin(profileId: string, targetId: string, url: string): string {
   let origin: string;
   try {
-    origin = normaliseBindableOrigin(snapshot.data.url);
+    origin = normaliseBindableOrigin(url);
   } catch {
     throw new CredentialVaultError('The browser website could not be confirmed', 'origin_mismatch');
   }
   if (profileId.startsWith('existing-tab:') && getBrowserExtensionTabStore().getTab(profileId, targetId)?.origin !== origin) {
     throw new CredentialVaultError('The browser website changed during validation', 'origin_mismatch');
   }
-  return { ...after, origin };
+  return origin;
+}
+
+/** Name the real reason the live snapshot was refused, or use a waiting HTTP prompt's origin. */
+async function originWithoutSnapshot(
+  profileId: string,
+  targetId: string,
+  reason: string,
+  cause: string,
+  inSession: <T>(read: () => Promise<T>) => Promise<T>,
+): Promise<string> {
+  const shared = profileId.startsWith('existing-tab:');
+  if (shared && isMissingExtensionTabError(reason)) {
+    throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
+  }
+  if (reason.includes('browser_secret_observation_blocked_for_tainted_origin')) {
+    throw new CredentialVaultError('The tab is locked after a password was typed into it', 'target_secret_protected');
+  }
+  if (reason.includes('browser_tab_held_by_another_session')) {
+    throw new CredentialVaultError('Another session is using this tab', 'target_held_by_another_session');
+  }
+  if (reason.includes('browser_extension_session_claims_unavailable') || reason.includes('shared_tab_secure_credential_fill_unavailable')) {
+    throw new CredentialVaultError('A current secure browser extension is required', 'shared_tab_secure_credential_fill_unavailable');
+  }
+  if (!shared || !reason.includes('browser_secret_inspection_unavailable')) {
+    unavailable(cause, reason);
+  }
+  // Chrome's own HTTP sign-in prompt shows over an error page the extension
+  // cannot check for protected frames, so it refuses the read. The prompt's
+  // origin comes from Chrome's request record instead (21 Nov 2026, windows-pc).
+  let promptOrigin: string;
+  try {
+    promptOrigin = await inSession(() => getBrowserGatewayService().readHttpAuthChallengeOrigin(profileId, targetId));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('browser_secret_observation_blocked_for_tainted_origin')) {
+      throw new CredentialVaultError('The tab is locked after a password was typed into it', 'target_secret_protected');
+    }
+    unavailable(cause, reason);
+  }
+  try {
+    return normaliseBindableOrigin(promptOrigin);
+  } catch {
+    throw new CredentialVaultError('The browser website could not be confirmed', 'origin_mismatch');
+  }
 }
 
 /** Exact trusted target identity for secure fill; unavailable targets fail scope matching. */

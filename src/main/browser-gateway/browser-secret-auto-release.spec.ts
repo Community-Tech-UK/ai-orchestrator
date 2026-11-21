@@ -110,6 +110,36 @@ describe('automatic release of secret protection after sign-in', () => {
     await expect(guardRead(h, read('screenshot'))).resolves.toBeUndefined();
   });
 
+  it('keeps a remembered value out of a sign-in prompt\'s details after release', async () => {
+    const h = signedInHarness();
+    await h.fill();
+    h.navigate('/dashboard', 'Dashboard');
+    h.setPage(pageWith('Welcome back'));
+    await guardRead(h, read());
+    expect(h.secretTaintedOrigins.size).toBe(0);
+    // The page then sends the tab to a server that echoes the value in its
+    // Basic realm, and Chrome holds the tab on its own prompt.
+    const leakOrigin = 'https://test-only-leak.example';
+    h.tabs.set(42, { id: 42, windowId: 7, url: leakOrigin + '/', title: leakOrigin });
+    const runtime = h as unknown as { httpAuthChallenges: Map<number, Record<string, unknown>> };
+    runtime.httpAuthChallenges.set(42, { origin: leakOrigin, scheme: 'basic', realm: `Hi ${SECRET}`, at: 1 });
+    h.chrome.webNavigation.getAllFrames.mockResolvedValue([
+      { frameId: 0, parentFrameId: -1, url: leakOrigin + '/', errorOccurred: true, documentLifecycle: 'active' },
+    ]);
+
+    await h.setGatewayEnabled(true);
+    const challenge = await h.run({ id: 'prompt-origin-1', command: 'http_auth_challenge', target: { tabId: 42 } });
+    expect(challenge).toMatchObject({ ok: false, error: 'browser_secret_observation_blocked_for_tainted_origin' });
+    const payload = await h.buildTabPayload(h.tabs.get(42)!, { includeText: false });
+    expect(payload).not.toHaveProperty('httpAuthChallenge');
+    expect(JSON.stringify([challenge, payload])).not.toContain(SECRET);
+
+    // The same prompt without the value is reported.
+    runtime.httpAuthChallenges.set(42, { origin: leakOrigin, scheme: 'basic', realm: 'Members', at: 1 });
+    expect(await h.run({ id: 'prompt-origin-2', command: 'http_auth_challenge', target: { tabId: 42 } }))
+      .toMatchObject({ ok: true, result: { origin: leakOrigin } });
+  });
+
   it('after an extension restart keeps page memory, log and traffic reads refused but allows page reads', async () => {
     const first = signedInHarness();
     await first.fill();

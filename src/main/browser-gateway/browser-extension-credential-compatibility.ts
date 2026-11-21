@@ -24,6 +24,9 @@ export const BROWSER_EXTENSION_SESSION_CLAIMS_MIN_VERSION = '0.2.54';
 /** First bundle whose credential write re-checks the portal path, not just the origin. */
 export const BROWSER_EXTENSION_PORTAL_BOUND_FILL_MIN_VERSION = '0.2.58';
 
+/** First bundle that reports the origin of a waiting HTTP prompt (`http_auth_challenge`). */
+export const BROWSER_EXTENSION_HTTP_AUTH_CHALLENGE_MIN_VERSION = '0.2.59';
+
 /** First bundle with the Harness-approved secret protection review and release commands. */
 export const BROWSER_EXTENSION_SECRET_RECOVERY_MIN_VERSION = '0.2.55';
 
@@ -191,6 +194,43 @@ export function supportsSecureBrowserExtensionHttpAuth(
   return isSecureBrowserExtensionHttpAuthRuntimeEvidence(
     contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
   );
+}
+
+/**
+ * Whether this exact channel/install answers `http_auth_challenge`. An older
+ * bundle would reject the unknown command, so it is not sent one.
+ */
+export function supportsBrowserExtensionHttpAuthChallenge(
+  contactState: BrowserExtensionContactStateReader,
+  channelId: string,
+  extensionInstanceId?: string,
+): boolean {
+  return contactState.isExtensionContactFresh(channelId)
+    && isRuntimeAtLeast(
+      contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
+      BROWSER_EXTENSION_HTTP_AUTH_CHALLENGE_MIN_VERSION,
+    );
+}
+
+/** The origin from an `http_auth_challenge` answer; anything else is not one. */
+export function readHttpAuthChallengeOrigin(value: unknown): string {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const origin = record['origin'];
+  if (Object.keys(record).length !== 1 || typeof origin !== 'string') {
+    throw new Error('http_auth_challenge_unavailable');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new Error('http_auth_challenge_unavailable');
+  }
+  if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.origin !== origin) {
+    throw new Error('http_auth_challenge_unavailable');
+  }
+  return origin;
 }
 
 export function isSecureBrowserExtensionHttpAuthRuntimeEvidence(

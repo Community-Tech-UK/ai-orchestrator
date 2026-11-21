@@ -122,7 +122,9 @@ const ALLOWLIST: Record<string, number> = {
   // 2026-10-28; the operation lives in browser-dialog-operations.ts).
   // Raised 2628 -> 2635 for the one-time-code fill ledger wiring (2026-11-01;
   // the logic lives in browser-one-time-code-submit.ts).
-  'src/main/browser-gateway/browser-gateway-service.ts': 2635,
+  // Raised 2635 -> 2655 for readHttpAuthChallengeOrigin (LT-1197, 2026-11-21):
+  // the waiting HTTP prompt's origin for a tab the extension cannot read.
+  'src/main/browser-gateway/browser-gateway-service.ts': 2655,
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.

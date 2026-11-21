@@ -82,6 +82,13 @@ export interface FillOperationDeps {
   /** The tab's current LIVE url, including non-http forms (chrome-error, blank). */
   readTargetUrl?: (profileId: string, targetId: string) => Promise<string>;
   /**
+   * The origin of the HTTP sign-in prompt holding a shared tab, from Chrome's
+   * own request record rather than the page. fill_http_auth uses it when the
+   * tab itself cannot be read (see browser-http-auth-fill-operation). Throws
+   * when no prompt is confirmed or the tab is under secret protection.
+   */
+  readHttpAuthChallengeOrigin?: (profileId: string, targetId: string) => Promise<string>;
+  /**
    * Map a live target profileId to the profile scope the credential
    * authorization is keyed by. Identity for managed profiles; for a shared
    * existing tab it returns the stable node scope (nodeId, or 'local') because

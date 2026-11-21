@@ -233,7 +233,9 @@ return executeBrowserCommand;`,
       'captureTabScreenshot',
       'runWithSecretObservationBoundary',
       'httpAuthChallenges',
-      `${extractFunctionSource(background, 'httpAuthChallengeForTab')}
+      `${extractFunctionSource(background, 'pendingHttpAuthChallenge')}
+${extractFunctionSource(background, 'confirmedHttpAuthChallenge')}
+${extractFunctionSource(background, 'httpAuthChallengeMayCarrySecret')}
 ${extractFunctionSource(background, 'buildTabPayload')}
 ${extractFunctionSource(background, 'buildTabPayloadLocked')}
 return buildTabPayload;`,
@@ -304,8 +306,11 @@ ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'taintedFrameOriginForTabId')}
 ${extractFunctionSource(background, 'taintedFrameOriginsForTabId')}
+${extractFunctionSource(background, 'knownSecretTaintOrigin')}
 ${extractFunctionSource(background, 'secretTaintOriginForTab')}
-${extractFunctionSource(background, 'httpAuthChallengeForTab')}
+${extractFunctionSource(background, 'pendingHttpAuthChallenge')}
+${extractFunctionSource(background, 'confirmedHttpAuthChallenge')}
+${extractFunctionSource(background, 'httpAuthChallengeMayCarrySecret')}
 ${extractFunctionSource(background, 'buildTabPayload')}
 ${extractFunctionSource(background, 'buildTabPayloadLocked')}
 return { clearSecretTaint, buildTabPayload };`,

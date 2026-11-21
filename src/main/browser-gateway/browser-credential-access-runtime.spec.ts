@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  snapshot: vi.fn(), getTab: vi.fn(), getProfile: vi.fn(), listTargets: vi.fn(),
+  snapshot: vi.fn(), promptOrigin: vi.fn(), getTab: vi.fn(), getProfile: vi.fn(), listTargets: vi.fn(),
   settings: vi.fn(), getNode: vi.fn(), fresh: vi.fn(), runtime: vi.fn(),
   approvalStore: {}, authorizations: {}, vault: {}, grants: {},
 }));
-vi.mock('./browser-gateway-service', () => ({ getBrowserGatewayService: () => ({ snapshot: mocks.snapshot }) }));
+vi.mock('./browser-gateway-service', () => ({ getBrowserGatewayService: () => ({ snapshot: mocks.snapshot, readHttpAuthChallengeOrigin: mocks.promptOrigin }) }));
 vi.mock('./browser-extension-tab-store', () => ({ getBrowserExtensionTabStore: () => ({ getTab: mocks.getTab }) }));
 vi.mock('./browser-target-registry', () => ({ getBrowserTargetRegistry: () => ({ listTargets: mocks.listTargets }) }));
 vi.mock('./browser-profile-store', () => ({ getBrowserProfileStore: () => ({ getProfile: mocks.getProfile }) }));
@@ -119,6 +119,47 @@ describe('credential request live runtime checks', () => {
     mocks.snapshot.mockResolvedValue({ decision: 'allowed', outcome: 'failed', reason, data: null });
     await expect(createCredentialAccessDependencies().readTarget(profileId, targetId, { instanceId: 'requesting-session' }))
       .rejects.toMatchObject({ code });
+  });
+
+  describe('a tab held by Chrome\'s own sign-in prompt that the extension cannot check', () => {
+    const inspectionUnavailable = { decision: 'allowed', outcome: 'failed', reason: 'browser_secret_inspection_unavailable: command not run.', data: null };
+
+    it('uses the waiting prompt\'s origin, asked as the requesting session', async () => {
+      setBrowserSessionUserDataPathProvider(() => '/test-only/user-data');
+      try {
+        let owner: string | undefined;
+        mocks.snapshot.mockResolvedValue(inspectionUnavailable);
+        // The tab store holds only the hidden address the extension reported.
+        mocks.getTab.mockReturnValue({ ...attachment, origin: 'https://redacted.invalid', url: 'https://redacted.invalid/' });
+        mocks.promptOrigin.mockImplementation(async () => {
+          owner = currentBrowserSessionOwner();
+          return 'https://test.example';
+        });
+
+        expect(await createCredentialAccessDependencies().readTarget(profileId, targetId, { instanceId: 'requesting-session' }))
+          .toEqual({ origin: 'https://test.example', scope: 'node-1', computerName: 'windows-pc', computerId: 'node-1' });
+        expect(mocks.promptOrigin).toHaveBeenCalledWith(profileId, targetId);
+        expect(owner).toBe(withBrowserSession('/test-only/user-data', 'requesting-session', currentBrowserSessionOwner));
+      } finally {
+        setBrowserSessionUserDataPathProvider(undefined);
+      }
+    });
+
+    it.each([
+      ['no prompt is confirmed', 'http_auth_no_pending_challenge', 'target_unavailable'],
+      ['the tab is under secret protection', 'browser_secret_observation_blocked_for_tainted_origin', 'target_secret_protected'],
+      ['the extension cannot say', 'http_auth_challenge_unavailable', 'target_unavailable'],
+    ])('refuses when %s', async (_label, error, code) => {
+      mocks.snapshot.mockResolvedValue(inspectionUnavailable);
+      mocks.promptOrigin.mockRejectedValue(new Error(error));
+      await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code });
+    });
+
+    it('asks only when the live read was refused for that reason', async () => {
+      mocks.snapshot.mockResolvedValue({ ...inspectionUnavailable, reason: 'browser_extension_command_timeout' });
+      await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'target_unavailable' });
+      expect(mocks.promptOrigin).not.toHaveBeenCalled();
+    });
   });
 
   it('checks connection state again after the live snapshot', async () => {

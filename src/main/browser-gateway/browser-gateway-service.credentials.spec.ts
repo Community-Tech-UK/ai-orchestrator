@@ -1506,6 +1506,67 @@ describe('BrowserGatewayService credentials', () => {
     expect(JSON.stringify([withUrl, withoutUrl])).not.toContain('TEST_ONLY_SECRET');
   });
 
+  it('fillHttpAuth answers a prompt on a tab the extension cannot check, from the prompt\'s recorded origin', async () => {
+    // windows-pc, 21 Nov 2026: a protected site elsewhere makes the extension
+    // check every tab for its frames; that check cannot run on the error page
+    // under Chrome's prompt, so every page read on the tab is refused.
+    const vault = {
+      getSecretForFill: vi.fn(async ({ kind }: { kind: string }) =>
+        kind === 'username' ? 'test-only-user' : 'TEST_ONLY_SECRET'),
+      createAgentCredential: vi.fn(),
+      getGenericSecretForFill: vi.fn(),
+    };
+    const extensionCommandStore = {
+      sendCommand: vi.fn(async (request: { command: string }) => {
+        if (request.command === 'snapshot') {
+          throw new Error('browser_secret_inspection_unavailable: command not run.');
+        }
+        if (request.command === 'http_auth_challenge') {
+          return { origin: 'https://portal.example.gov.uk' };
+        }
+        return {
+          completed: true,
+          observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin',
+          httpAuth: 'answered',
+        };
+      }),
+    };
+    const fill = async (version: string) => {
+      extensionCommandStore.sendCommand.mockClear();
+      vault.getSecretForFill.mockClear();
+      const { service } = makeService({
+        credentialVault: vault,
+        credentialAuthorizations: { check: vi.fn(() => ({ authorized: true })) },
+        extensionCommandStore,
+        extensionContactState: extensionContactState(version),
+        allowSharedTabCredentialFill: () => true,
+        existingTab: sharedPortalTab(),
+      });
+      return service.fillHttpAuth({
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        instanceId: 'instance-1',
+        provider: 'claude',
+        vaultItemRef: 'item-1',
+      });
+    };
+
+    const current = await fill('0.2.59');
+    expect(current).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { httpAuth: 'answered' } });
+    expect(extensionCommandStore.sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'http_auth_navigate',
+      payload: expect.objectContaining({ url: 'https://portal.example.gov.uk/', credentialOrigin: 'https://portal.example.gov.uk' }),
+    }));
+
+    // An older extension is never asked, and the tab stays refused.
+    const older = await fill('0.2.58');
+    expect(older).toMatchObject({ decision: 'denied', outcome: 'not_run', reason: 'invalid_url' });
+    expect(extensionCommandStore.sendCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'http_auth_challenge' }),
+    );
+    expect(vault.getSecretForFill).not.toHaveBeenCalled();
+  });
+
   it('accepts the fixed taint sentinel for a public username written after a password', async () => {
     const vault = {
       getSecretForFill: vi.fn(async ({ kind }: { kind: string }) =>

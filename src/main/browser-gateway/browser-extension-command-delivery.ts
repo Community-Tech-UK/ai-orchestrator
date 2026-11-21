@@ -9,6 +9,7 @@ export type BrowserExtensionCommandName =
   | 'close_tab'
   | 'navigate'
   | 'http_auth_navigate'
+  | 'http_auth_challenge'
   | 'reload'
   | 'click'
   | 'type'
