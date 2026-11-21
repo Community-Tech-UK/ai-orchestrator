@@ -402,6 +402,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1036 | P2 | **OBSERVED 2026-11-11; OPEN (not fixed).** The chat's expanded "Tool calls" card never shows a command's output. For a real Codex command the result card prints the metadata JSON (`id`, `name`, `input`, `status`, `exitCode`, `is_error`) and drops the output text, so `Progress check complete` and `Recovery check complete` never appear in the card even though the result message holds them. Found while running the Codex exec progress live checks; numbered 1036 because 1018 to 1035 were already claimed elsewhere on 11 November. | [LT-1036 detail](#lt-1036) | [Codex exec progress evidence](2026-10-15-codex-exec-progress_livetest.md#evidence-run--2026-11-11) |
 | LT-1152 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The Steer explanation on a queued message was created as an SVG element with no layout box, so it never showed. The panel is now attached without the trigger's view container; visible at 1400 and 700 px. | [LT-1152 detail](#lt-1152) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
 | LT-1153 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The working-session hint now says Enter queues for after the current turn and Steer redirects now (only while Steer is offered), and wraps instead of being cut off; readable at 1400 and 700 px. | [LT-1153 detail](#lt-1153) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
 | LT-1020 | P3 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** Tab in the message box was swallowed by a default shortcut that had no handler; the shortcut is removed and Tab now moves to the next control. | [LT-1020 detail](#lt-1020) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
@@ -17264,3 +17265,25 @@ sessions pass `danger-full-access`, so Codex applies no sandbox of its own and i
   started with `spawn_child hardened:true` from a root session in the rebuilt app, and a
   `touch` in the working directory from that session is refused.
 
+
+## LT-1036
+
+### LT-1036 — the tool card shows metadata JSON instead of the command's output
+
+**Status: observed 11 November 2026; open, no fix in the Codex exec progress live-test task.**
+
+### Observed behaviour
+
+Dev app from the Codex exec progress worktree (isolated profile, real Codex provider, exec mode). A Codex session ran `rtk proxy node -e 'setTimeout(() => console.log("Progress check complete"), 5000)'` and a second command printing `Recovery check complete`. The output buffer held the right `tool_result` messages (content `Progress check complete\n`, `Recovery check complete\n`, and `Exited with status 2` for the failing command). After expanding "Tool calls" in the rendered chat, the RESULT card showed only a JSON object of the message metadata:
+`{ "id": "item_4", "name": "Bash", "input": {...}, "status": "failed", "exitCode": 2, "is_error": false, "isCheck": false, "checkFailed": false }`.
+The command's printed output did not appear in the card, in the "ran N commands" summary row, or anywhere else on the page (only the prompt text and the command string matched a page-wide search).
+
+### Root cause
+
+`ToolGroupComponent.formatContent` (`src/renderer/app/shared/components/tool-group/tool-group.component.ts:250`) returns `JSON.stringify(message.metadata)` whenever the message has metadata, and only falls back to `message.content` when it has none. Codex results always carry metadata, so the content is never shown. The card is shared, so other providers' results with metadata are expected to behave the same way; that was not re-checked here.
+
+### Required behaviour and acceptance
+
+A result card shows the result's text (the command output or `Exited with status N`) as its main content, with status and exit code as readable labels rather than raw JSON. Acceptance: a component test with a `tool_result` that has both content and metadata asserts the content is rendered and the metadata JSON is not the card body; in the dev app, the Codex session above shows `Progress check complete` in its result card.
+
+Related observation, not filed as a defect: an ordinary non-zero exit (`process.exitCode = 2`) is `status: "failed"`, `exitCode: 2`, `is_error: false`, and the "Tool calls" header shows no "1 failed" badge. This follows the written rule in `tool-group.component.ts` (only an edit or write that errored, a command that could not run, or a failed check counts as failed), so it is a product decision, not a regression.
