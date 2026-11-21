@@ -443,6 +443,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-1130 | P3 | **SOURCE FIX VERIFIED 2026-11-14 by unit test; live recheck needs the rebuilt app.** A successful or dispatch-failed `browser.fill_credential` wrote an audit row with an empty `origin`; only the pre-dispatch denial named the form's origin. The fill result now carries the origin that receives the secret, so the audit row names it. | [LT-1130 detail](#lt-1130) | [Browser Gateway credential login livetest](browser-gateway-credential-login_livetest.md#lt-703-embedded-cross-origin-login-form) |
 | LT-1037 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A `gemini` Plan Queue worker is started as the Antigravity CLI, which is given no Harness tools, so it cannot call `plan_queue_report_ready` (or `plan_queue_report_verdict` as a checker). The worker searched the machine for 6 minutes and never reported. | [LT-1037 detail](#lt-1037) | [Worker report live check](2026-11-04-pq-b3-report-ready_livetest.md#gemini-check-a-failed-lt-1037) |
 | LT-1120 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (queue worktree); live re-run passed on the worktree build, installed-app check pending.** When Harness moved a worker's planning file to the main project folder (or saved it beside a different root copy) at a normal round checkpoint, the item's note saying so was cleared in the same millisecond. James never saw it; the file handling itself was correct. The note now lives in its own item field and shows on the item row until the work is gone. | [LT-1120 detail](#lt-1120) | [Planning-files live checks](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-queue-worker) |
+| LT-1187 | P2 | **OPEN — observed 2026-11-11 in one real session; NOT reproduced on 2026-11-14: a different MiMo session compacted normally after a reopen on 2026-11-13.** A MiMo Plan Queue worker compacted twice at about 120k tokens, then, after Harness reopened the same OpenCode session (`resume: true`, same session id), never compacted again while its context grew from 94k to 722k tokens over 3.5 hours (501 calls, 2.89B credits). The 140k input limit this plan sets is applied at every spawn, so the cause after a reopen is not yet known. | [LT-1187 detail](#lt-1187) | [Plan Queue MiMo spend: live checks](2026-10-28-plan-queue-mimo-spend_plan_livetest.md) |
+| LT-1188 | P3 | **FIXED ON MAIN, VERIFIED LIVE 2026-11-21** (capability repair `capability-d7663a38…`; a job held by the limit now shows "Waiting for a free work folder (2 in use)", starts when a folder frees, and the note clears; test Mac copy of the worktree merged with main). Originally reproduced 2026-11-18 on a live-test copy (test Mac). A Plan Queue job held back because the "Worktrees in use at once" limit is full stays `queued` with no note at all. The "Waiting for a free work folder (N in use)" wording the MiMo-spend plan and its live check expect is never shown for it: the queue's own limit in the pump holds the job before any folder is requested, and the only code that writes that wording is the capacity-error path, which queue folders no longer reach. Nothing parks and the job starts when a folder is freed, so the behaviour is right and only the reason is missing. | [LT-1188 detail](#lt-1188) | [Plan Queue MiMo spend: live checks](2026-10-28-plan-queue-mimo-spend_plan_livetest.md) |
 | LT-1119 | P3 | **SOURCE FIX VERIFIED 2026-11-12; REBUILT COPY CHECKED 2026-11-14 (no failed or slow read occurred, so the back-off itself is covered by specs only).** Observed in the real Harness log 2026-11-11: the leftover-program sweeper's process-table read took a median 1.2 s (up to 8.3 s) on the busy Mac, against the livetest's "well under 500 ms"; 16 reads failed and 4,012 identical `spawn EPERM` warnings were logged. The sweeper had no back-off; it now waits up to 6 ticks after a slow or failed read and logs a repeating failure once. Cause of the slow reads and failures unconfirmed (host load was 50 to 350 on 18 cores). | [Detail](#lt-1119) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
 | LT-1118 | P3 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A Harness copy started by `dev-app.js` on the test Mac runs with its working folder set to `/`, so `resolveAioMcpCliPath` (which looks under `process.cwd()` in a development run) never finds `dist/aio-mcp-cli-sea/aio-mcp`. Sessions in that copy get no `AI_ORCHESTRATOR_INSTANCE_ID` marker, no `AIO_MCP`, no orchestrator tools (`list_host_processes` is not available) and no codemem tools, so a live check that relies on the marker or on those tools cannot run there. | [LT-1118 detail](#lt-1118) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
 
@@ -17077,6 +17079,87 @@ once `compactContext()` has returned false.
 A compaction the person cancelled ends as cancelled: no fallback, the provider thread is kept and the session returns to idle. Needs a cancelled outcome from
 `compactContext()` through `nativeCompact` (`compaction-runtime.ts`) into the coordinator, which must not start `restartCompactStrategy` for it. Acceptance: repeat the
 LT-1177 fixture; the session keeps its provider session id and no continuity package appears.
+
+<a id="lt-1187"></a>
+
+## LT-1187
+
+### LT-1187 — MiMo compaction stopped firing after a worker session was reopened
+
+**Status: open. Observed once, in real data on 11 November 2026. A later reopened session (13 November) compacted normally, so the trigger is not yet known.**
+
+### Observed behaviour
+
+OpenCode session `ses_e3814059cffeR84yQacjY7jTxf` (Plan Queue worker, communitytech item
+`browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md`, provider `aio-mimo-comtechspare-f7a6`, model
+`mimo-v2.6-pro`, OpenCode on PATH 1.19.5) in `~/.local/share/opencode/opencode.db`:
+
+- 00:04:54Z session starts (`resume: false`). Compaction messages at 00:07:16Z (context 120,567 tokens just before) and
+  00:13:39Z (about 120,153): exactly `limit.input` 140,000 minus OpenCode's 20,000 reserve.
+- 00:19:44Z Harness logs `Creating instance … resume: true` for the same session id (again 00:30:14Z and 03:14:46Z).
+  From the first call after that, no compaction message exists. Context passes 140k at 00:25:24Z and ends at 722,645
+  tokens at 04:02:26Z; 441 of the later calls are over 140k. The session's JSON message shape before and after the reopen is
+  identical (same provider, model, variant, token fields), so the model was not swapped.
+- Cost of the run: 501 calls, 2,885,815,120 credits, 20 cache drops (`npm run audit:queue-mimo-spend -- --since 2026-10-30 --json`).
+
+No other post-rebuild MiMo session is long enough to compare: the only other long one (`ses_e38ae5fcc…`) ran on
+`opencode/*`, not MiMo.
+
+### Root cause
+
+Unknown. Ruled out by reading: `applyOpenCodeGenerationBudget` runs in the factory for every spawn regardless of `resume`
+(`opencode-adapter-factory.ts:155,244`) and `assertOpenCodeGenerationBudget` fails the spawn if the effective `limit.input`
+differs, so the configuration passed to the reopened process should carry the limit. Open candidates: OpenCode's ACP
+`session/load` path not applying `limit.input` to the reloaded model, or a different provider block being the one actually
+used after a reopen (the factory injects every enabled account's block, but only the routed account's model gets the budget).
+
+### Required behaviour and acceptance
+
+A MiMo session compacts near 115 to 125k tokens whether or not it was reopened. Acceptance: reproduce with a MiMo
+account that has allowance (fresh session versus the same session reopened, both driven past 140k), identify which layer drops
+the limit, fix it, and add a regression that asserts the limit on the reopened path. A reopened session's first call over
+140k is followed by a compaction message.
+
+Reproduction attempt on 12 November 2026 was blocked: the only MiMo account available to an isolated dev profile answered
+`quota exhausted` (HTTP 429). A stand-in using OpenCode's free MiMo model did not compact even for a fresh session at the
+configured limit, so it cannot separate the two cases (the free model's own limits apply, not this plan's budget).
+
+Re-check on 14 November 2026 (read-only, `opencode.db`, same OpenCode 1.19.5, installed app rebuilt 13 Nov 17:25 from code that has not
+touched `applyOpenCodeGenerationBudget` since 29 Oct): session `ses_e2f8ca15bffeWZCndjROYincKj` (MiMo `mimo-v2.6-pro`, account
+`comtechspare-f7a6`) was reopened with `resume: true` at 18:25:34Z on 13 Nov; its context then grew to 120,279 tokens and a compaction message
+followed at 18:52:11Z, and again at 123,751 and 18:59:46Z. Across 13 post-rebuild MiMo sessions, no call ran past 150k tokens (highest 149,902) and none stayed
+over the 140k input limit. So compaction can survive a reopen. What differs from the 11 November session is not yet known; candidates are
+the earlier install (10-30 build, before the 11-11 rebuild) and three reopens of one session at 00:19, 00:30 and 03:14Z with a long worker turn
+in between. Keep this open until a session reopened under the 11-11 or later build is seen failing, or the earlier build is shown to be the
+cause. Scripted check: per session, the first assistant message with `agent = 'compaction'`, and the message just before it.
+
+<a id="lt-1188"></a>
+
+## LT-1188
+
+### LT-1188 — a queued job held back by the folder limit gives no reason
+
+**Status: fixed on main by capability repair `capability-d7663a38…` (the pump now writes the note); verified live on 21 November 2026 on a test Mac copy of the MiMo-spend worktree merged with main (limit 2, three runs: two worked, the third showed "Waiting for a free work folder (2 in use)" with no folder for the 2 minutes until a run was removed, then started with its own folder and the note cleared; no park). Originally reproduced 18 November 2026; wording only, no wrong behaviour.**
+
+### Observed behaviour
+
+Live-test copy of this worktree on the test Mac (`dev-app.js start`, OpenCode, Codex, Cursor and Claude detected), `maxConcurrentWorktrees` set to 2, three
+disposable queue runs of one document each (`planQueueLiveTestFixtureStart`, Claude haiku workers, Codex checker):
+
+- 16:22:11Z all three started. Two went `working` with a work folder; the third stayed `state: queued`, `detail: ''`, no folder, `parkReason: null`, for
+  the 98 s until the cancel below (three reads 20 s apart, all the same). Nothing parked for capacity and no `capacity-wait` event was written.
+- 16:23:49Z the first run was cancelled and its job discarded (folder freed). The third job started working by itself; its first round activity was logged at 16:24:32Z.
+
+### Root cause
+
+`plan-queue-pump.ts:154` skips a queued item with `folderFree()` false and only calls `store.waits.blocked(item.id)`; no detail or stage is written. The note
+`Waiting for a free work folder (N in use)` is written only by `defer` in `plan-queue-error-class.ts:42` (after a `WorktreeCapacityError` at prepare, which queue
+folders never raise because `plan-queue-worktree.ts:164` passes `countsTowardLimit: false`) and, for held jobs, by the `no-free-folder` check-wait stage.
+
+### Required behaviour and acceptance
+
+A queued job that the folder limit is holding back shows that reason ("Waiting for a free work folder (N in use)") on its row, and the note clears when it starts.
+Acceptance: repeat the reproduction above and read the queued job's `detail` or `stage`; a pump unit test asserts the note is set for a job blocked by `folderFree()`.
 
 ## LT-1040 — entering Settings throws while the control shell looks up the active page
 
