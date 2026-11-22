@@ -490,6 +490,19 @@ supervisor log has `Worker child exited to load an update`.
 over `index.js` (move, not copy, so a stale previous bundle is not left behind), put the previous commit in `.source-commit`, and set
 `"autoUpdate": { "enabled": false }` until the problem commit is fixed.
 
+### Testing a branch's browser extension on this computer
+
+Chrome loads the Harness extension unpacked from this checkout's `resources/browser-extension`. A session that needs
+to test a branch's extension build uses the `install_test_browser_extension` and `restore_test_browser_extension`
+tools (exact node name, `sourceDir` inside its own working folder). The worker backs the folder up under
+`<worker home>/extension-test-install/`, writes the build, and tells the extension to reload onto the new version
+(the same path the self-updater uses). Refused unless the version is above the installed one and the manifest asks for
+no wider access (`key`, `manifest_version`, `background.service_worker` unchanged; permissions, host permissions,
+content-script matches, `externally_connectable` and `web_accessible_resources` no wider). One lease per computer, owned
+by the installing session, 30 minutes by default and 120 at most. The original is put back on restore, when the lease
+ends, or at the next worker start. While a lease is live the worker counts as busy, so it does not self-update. If the
+folder or the lease record is damaged, `git checkout -- resources/browser-extension` in this checkout restores it.
+
 ### Updating a running worker by hand
 
 Before 2026-09-22 a pull landed new code on disk and the running worker kept

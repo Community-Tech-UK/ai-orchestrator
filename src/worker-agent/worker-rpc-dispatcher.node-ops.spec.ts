@@ -910,3 +910,44 @@ describe('WorkerRpcDispatcher browser.extension.recover', () => {
     expect(sendError).not.toHaveBeenCalled();
   });
 });
+
+describe('WorkerRpcDispatcher browser.extension.testInstall', () => {
+  function makeWithInstall(handle: ReturnType<typeof vi.fn>) {
+    const sendResult = vi.fn();
+    const sendError = vi.fn();
+    const dispatcher = new WorkerRpcDispatcher({
+      config: { workingDirectories: [process.cwd()] },
+      extensionTestInstall: { handle },
+      sendResult,
+      sendError,
+    } as never);
+    return { dispatcher, sendResult, sendError };
+  }
+
+  it('needs service scope, validates the payload and delegates to the lease logic', async () => {
+    const handle = vi.fn(async () => ({ state: 'idle', restored: false }));
+    const { dispatcher, sendResult, sendError } = makeWithInstall(handle);
+    const params = { action: 'restore', ownerId: 'session-1' };
+
+    await dispatcher.handleRpcRequest(request('browser.extension.testInstall', params));
+    expect(handle).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenLastCalledWith(73, RPC_ERROR_CODES.UNAUTHORIZED, expect.stringContaining('scope=service'));
+
+    sendError.mockClear();
+    await dispatcher.handleRpcRequest(request('browser.extension.testInstall', { action: 'install', ownerId: 'x', ttlMs: 1, files: [] }, 'service'));
+    expect(handle).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledTimes(1);
+
+    sendError.mockClear();
+    await dispatcher.handleRpcRequest(request('browser.extension.testInstall', params, 'service'));
+    expect(handle).toHaveBeenCalledWith(params);
+    expect(sendResult).toHaveBeenLastCalledWith(73, { state: 'idle', restored: false });
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it('reports a refusal from the lease logic as an RPC error', async () => {
+    const { dispatcher, sendError } = makeWithInstall(vi.fn(async () => { throw new Error('lease_active'); }));
+    await dispatcher.handleRpcRequest(request('browser.extension.testInstall', { action: 'restore', ownerId: 'a' }, 'service'));
+    expect(sendError).toHaveBeenLastCalledWith(73, expect.any(Number), expect.stringContaining('lease_active'));
+  });
+});

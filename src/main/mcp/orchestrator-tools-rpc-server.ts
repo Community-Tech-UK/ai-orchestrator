@@ -49,11 +49,15 @@ import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tool
 import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
 import { dispatchPlanQueueCliRpc, isPlanQueueCliRpcMethod } from './orchestrator-tools-rpc-plan-queue';
 import {
+  InstallTestBrowserExtensionArgsSchema,
   IssueRemoteNodePairingArgsSchema,
   ResetNodeConnectionArgsSchema,
+  RestoreTestBrowserExtensionArgsSchema,
+  type InstallTestBrowserExtensionFn,
   type IssueRemoteNodePairingFn,
   type NodeConnectionToolContext,
   type ResetNodeConnectionFn,
+  type RestoreTestBrowserExtensionFn,
 } from './orchestrator-node-connection-tools';
 import type { HostProcessToolContext } from './orchestrator-host-process-tools';
 import {
@@ -218,6 +222,8 @@ export class OrchestratorToolsRpcServer {
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
   private readonly resetNodeConnection: ResetNodeConnectionFn | null;
   private readonly issueRemoteNodePairing: IssueRemoteNodePairingFn | null;
+  private readonly installTestBrowserExtension: InstallTestBrowserExtensionFn | null;
+  private readonly restoreTestBrowserExtension: RestoreTestBrowserExtensionFn | null;
   private readonly hostProcessTools: Omit<HostProcessToolContext, 'instanceId'>;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
@@ -282,6 +288,8 @@ export class OrchestratorToolsRpcServer {
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
     this.resetNodeConnection = options.resetNodeConnection ?? null;
     this.issueRemoteNodePairing = options.issueRemoteNodePairing ?? null;
+    this.installTestBrowserExtension = options.installTestBrowserExtension ?? null;
+    this.restoreTestBrowserExtension = options.restoreTestBrowserExtension ?? null;
     this.hostProcessTools = { listHostProcesses: options.listHostProcesses ?? null, stopLeftoverProcesses: options.stopLeftoverProcesses ?? null };
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
@@ -461,6 +469,18 @@ export class OrchestratorToolsRpcServer {
         const validated = IssueRemoteNodePairingArgsSchema.parse(params.payload);
         const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'issue_remote_node_pairing');
         if (!tool) throw new Error('issue_remote_node_pairing tool unavailable');
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.install_test_browser_extension': {
+        const validated = InstallTestBrowserExtensionArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'install_test_browser_extension');
+        if (!tool) throw new Error('install_test_browser_extension tool unavailable');
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.restore_test_browser_extension': {
+        const validated = RestoreTestBrowserExtensionArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'restore_test_browser_extension');
+        if (!tool) throw new Error('restore_test_browser_extension tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.list_host_processes':
@@ -744,6 +764,8 @@ export class OrchestratorToolsRpcServer {
         terminateNodeInstances: this.terminateNodeInstances,
         resetNodeConnection: this.resetNodeConnection,
         issueRemoteNodePairing: this.issueRemoteNodePairing,
+        installTestBrowserExtension: this.installTestBrowserExtension,
+        restoreTestBrowserExtension: this.restoreTestBrowserExtension,
         ...this.hostProcessTools,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
@@ -780,6 +802,8 @@ export class OrchestratorToolsRpcServer {
       terminateNodeInstances: this.terminateNodeInstances,
       resetNodeConnection: this.resetNodeConnection,
       issueRemoteNodePairing: this.issueRemoteNodePairing,
+      installTestBrowserExtension: this.installTestBrowserExtension,
+      restoreTestBrowserExtension: this.restoreTestBrowserExtension,
       ...this.hostProcessTools,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,

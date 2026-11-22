@@ -97,6 +97,11 @@ import { InstanceSendRawParamsSchema } from '../main/remote-node/instance-intera
 import { InstanceSampleStallProcessParamsSchema, StallProcessFactsSchema } from '../main/remote-node/stall-process-rpc';
 import { NodeKeepAwakeResultSchema } from '../main/remote-node/keep-awake-rpc';
 import { WorkerModelChangeError } from './worker-instance-model-change';
+import {
+  BrowserExtensionTestParamsSchema,
+  BrowserExtensionTestResultSchema,
+} from '../main/remote-node/extension-test-install-rpc';
+import type { WorkerExtensionTestInstall } from './worker-extension-test-install';
 import type { QueueJobHostApi } from '../main/remote-node/queue-job-rpc-schemas';
 import { runQueueJobCall } from './queue-jobs/queue-job-dispatch';
 
@@ -123,6 +128,7 @@ interface WorkerRpcDispatcherDeps {
   stopManagedBrowser: () => Promise<void>;
   executeNodeCommand?: (params: NodeExecParams) => Promise<NodeExecResult>;
   recoverExtensionRelay?: () => Promise<BrowserExtensionRecoverResult>;
+  extensionTestInstall?: Pick<WorkerExtensionTestInstall, 'handle'>;
   sendResult: (id: string | number, result: unknown) => void;
   /** WS15 — durable-stream replay/ack (absent only in stripped-down tests). */
   replayDurableEvents?: (cursors: { instanceId: string; afterSeq: number }[]) =>
@@ -526,6 +532,15 @@ export class WorkerRpcDispatcher {
             throw new Error('Browser extension relay recovery is unavailable on this worker');
           }
           result = BrowserExtensionRecoverResultSchema.parse(await this.deps.recoverExtensionRelay());
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_EXTENSION_TEST_INSTALL: {
+          if (!this.hasServiceScope(msg)) return;
+          const validated = BrowserExtensionTestParamsSchema.parse(params);
+          if (!this.deps.extensionTestInstall) {
+            throw new Error('Test extension install is unavailable on this worker');
+          }
+          result = BrowserExtensionTestResultSchema.parse(await this.deps.extensionTestInstall.handle(validated));
           break;
         }
         case COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST: {

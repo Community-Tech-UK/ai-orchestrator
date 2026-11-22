@@ -16,6 +16,8 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'exec_on_node',
       'reset_node_connection',
       'issue_remote_node_pairing',
+      'install_test_browser_extension',
+      'restore_test_browser_extension',
       'list_host_processes',
       'stop_leftover_processes',
       'read_session',

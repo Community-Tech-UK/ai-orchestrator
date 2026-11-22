@@ -644,7 +644,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 990 -> 1060 for the Worker Mode connection report and the
   // registration-answer watchdog (2026-10-21 worker start button plan); the
   // file was already 45 lines past 990. Re-tighten at the next worker split.
-  'src/worker-agent/worker-agent.ts': 1060,
+  'src/worker-agent/worker-agent.ts': 1066,
   // Added 2026-10-27: Plan Queue never-use check and the Copilot preview for queue
   // seats (699 -> 739). Re-tighten with a split of the routing service.
   'src/main/providers/copilot/copilot-account-routing-service.ts': 739,

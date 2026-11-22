@@ -98,6 +98,8 @@ export const COORDINATOR_TO_NODE = {
   // lazily on the next browser-enabled spawn.
   BROWSER_STOP_MANAGED: 'browser.stopManaged',
   BROWSER_EXTENSION_RECOVER: 'browser.extension.recover',
+  // Leased install of a branch's extension build into the folder Chrome loads, for tests.
+  BROWSER_EXTENSION_TEST_INSTALL: 'browser.extension.testInstall',
   AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
   AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
   AUDIO_TRANSCRIBE: 'audio.transcribe',

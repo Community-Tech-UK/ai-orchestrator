@@ -93,7 +93,7 @@ export class WorkerExtensionRelay {
   private extensionContactState: 'never' | 'active' | 'lost' = 'never';
   private authenticatedPollCount = 0;
   private lastCommandActivityAt = 0;
-  private readonly expectedExtensionVersion: string | undefined;
+  private expectedExtensionVersion: string | undefined;
   private readonly workerBuildId: string | undefined;
 
   constructor(options: WorkerExtensionRelayOptions) {
@@ -104,6 +104,8 @@ export class WorkerExtensionRelay {
     this.expectedExtensionVersion = options.ownsExtension === false ? undefined : options.expectedExtensionVersion ?? BUILD_EXTENSION_VERSION;
     this.workerBuildId = options.workerBuildId ?? BUILD_ID;
   }
+
+  setExpectedExtensionVersion(version: string): void { this.expectedExtensionVersion = version; }
 
   /** When a browser command last passed through the relay (epoch ms, 0 = never). */
   getLastCommandActivityAt(): number {

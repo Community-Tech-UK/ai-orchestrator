@@ -398,6 +398,14 @@ function readCompilerOptions(): ts.CompilerOptions {
  */
 const FULL_PROGRAM_TEST_TIMEOUT_MS = 120_000;
 
+/**
+ * Each shared bootstrap scenario resets the module cache and re-imports the
+ * whole main-process IPC graph (about 2,100 modules). Alone that takes about
+ * 6s; in a full parallel run it passed 20s and timed out. The timeout exists to
+ * catch a hang, not to police import time.
+ */
+const BOOTSTRAP_SCENARIO_TEST_TIMEOUT_MS = 90_000;
+
 function createOwnershipProgram(virtualSources: Record<string, string> = {}): ts.Program {
   const options = readCompilerOptions();
   const virtualFiles = new Map<string, string>(
@@ -2980,7 +2988,7 @@ describe('RLM process ownership', () => {
     expect(partial?.defaultWatcher?.listenerCount('changes:processed')).toBe(0);
     expect(partial?.autoCoordinator?.listenerCount('status')).toBe(0);
     expect(existsSync(partial?.directory ?? '')).toBe(false);
-  }, 20_000);
+  }, BOOTSTRAP_SCENARIO_TEST_TIMEOUT_MS);
 
   it('keeps shared bootstrap acquisition clean after transactional handler rollback', async () => {
     vi.resetModules();
@@ -3022,7 +3030,7 @@ describe('RLM process ownership', () => {
     ]);
     expect(electronMocks.handlers.size).toBe(0);
     expect(bootstrapFakes.lane.listenerCount('progress')).toBe(0);
-  }, 20_000);
+  }, BOOTSTRAP_SCENARIO_TEST_TIMEOUT_MS);
 
   it('cleans shared full bootstrap acquisition after body and cleanup failures', async () => {
     vi.resetModules();
@@ -3070,7 +3078,7 @@ describe('RLM process ownership', () => {
     expect(resources?.scenarioWatcher.stopAll).toHaveBeenCalledOnce();
     expect(resources?.manager.destroy).toHaveBeenCalledOnce();
     expect(resources?.fakeWorker.terminate).toHaveBeenCalledOnce();
-  }, 20_000);
+  }, BOOTSTRAP_SCENARIO_TEST_TIMEOUT_MS);
 
   it('starts the next shared bootstrap test with every actual resource isolated', async () => {
     const residue = bootstrapFailureResidue;
@@ -3163,7 +3171,7 @@ describe('RLM process ownership', () => {
     expect(bootstrapFakes.lane.listenerCount('progress')).toBe(0);
     expect(resources?.defaultWatcher.listenerCount('changes:processed')).toBe(0);
     expect(resources?.autoCoordinator.listenerCount('status')).toBe(0);
-  }, 20_000);
+  }, BOOTSTRAP_SCENARIO_TEST_TIMEOUT_MS);
 
   it('imports the main facade modules without resolving an RLM or unified-memory owner', async () => {
     vi.resetModules();

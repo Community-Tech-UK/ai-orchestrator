@@ -6476,7 +6476,7 @@
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
-      "lines": 3686
+      "lines": 3694
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
@@ -6859,6 +6859,10 @@
       "lines": 1413
     },
     {
+      "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
+      "lines": 1399
+    },
+    {
       "path": "src/tests/renderer-integration/history-preview-session.service.spec.ts",
       "lines": 1398
     },
@@ -6877,10 +6881,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
       "lines": 1374
-    },
-    {
-      "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
-      "lines": 1371
     },
     {
       "path": "src/main/automations/automation-runner.spec.ts",
@@ -7227,6 +7227,10 @@
       "lines": 1122
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 1114
+    },
+    {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
@@ -7237,10 +7241,6 @@
     {
       "path": "src/main/history/__tests__/history-manager-native-import.spec.ts",
       "lines": 1112
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 1108
     },
     {
       "path": "src/main/browser-gateway/browser-health-service.spec.ts",
@@ -7335,6 +7335,10 @@
       "lines": 1008
     },
     {
+      "path": "src/worker-agent/worker-extension-relay.spec.ts",
+      "lines": 1007
+    },
+    {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1005
     },
@@ -7357,6 +7361,10 @@
     {
       "path": "src/main/memory/project-memory-brief.ts",
       "lines": 997
+    },
+    {
+      "path": "docs/WORKER_AGENT_SETUP.md",
+      "lines": 996
     },
     {
       "path": "src/main/orchestration/loop-completion-detector.spec.ts",
@@ -7391,16 +7399,8 @@
       "lines": 986
     },
     {
-      "path": "src/worker-agent/worker-extension-relay.spec.ts",
-      "lines": 985
-    },
-    {
       "path": "src/main/rlm/context-residency-controller.spec.ts",
       "lines": 984
-    },
-    {
-      "path": "docs/WORKER_AGENT_SETUP.md",
-      "lines": 983
     },
     {
       "path": "src/worker-agent/worker-local-ai-health.spec.ts",
@@ -7461,6 +7461,10 @@
     {
       "path": "src/main/plugins/plugin-manager.spec.ts",
       "lines": 955
+    },
+    {
+      "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+      "lines": 954
     },
     {
       "path": "docs/superpowers/plans/2026-07-11-harness-mobile-codex-redesign_completed.md",
@@ -7551,11 +7555,11 @@
       "lines": 913
     },
     {
-      "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
-      "lines": 913
+      "path": "src/main/ipc/learning-ipc-handler.spec.ts",
+      "lines": 911
     },
     {
-      "path": "src/main/ipc/learning-ipc-handler.spec.ts",
+      "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
       "lines": 911
     },
     {
@@ -7621,10 +7625,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
       "lines": 888
-    },
-    {
-      "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
-      "lines": 887
     },
     {
       "path": "scripts/run-tests-quiet.js",

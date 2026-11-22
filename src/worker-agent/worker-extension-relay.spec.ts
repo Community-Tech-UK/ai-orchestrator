@@ -819,7 +819,12 @@ describe('WorkerExtensionRelay', () => {
   });
 
   async function relayRoundTrip(
-    relayOptions: { expectedExtensionVersion?: string; workerBuildId?: string; sendRequest: () => Promise<unknown> },
+    relayOptions: {
+      expectedExtensionVersion?: string;
+      workerBuildId?: string;
+      configure?: (relay: WorkerExtensionRelay) => void;
+      sendRequest: () => Promise<unknown>;
+    },
     method: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
@@ -833,6 +838,7 @@ describe('WorkerExtensionRelay', () => {
       ...(relayOptions.workerBuildId ? { workerBuildId: relayOptions.workerBuildId } : {}),
       logger: { info: vi.fn(), warn: vi.fn() },
     });
+    relayOptions.configure?.(relay);
     await relay.start();
     try {
       const client = net.createConnection(socketPath);
@@ -872,6 +878,22 @@ describe('WorkerExtensionRelay', () => {
       expectedExtensionVersion: '0.2.40',
       workerBuildId: 'build-1',
     });
+  });
+
+  it('names the version a leased test install put in the folder', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const moved = await relayRoundTrip(
+      {
+        expectedExtensionVersion: '0.2.40',
+        configure: (relay) => relay.setExpectedExtensionVersion('0.2.41'),
+        sendRequest: async () => null,
+      },
+      'browser.extension_poll_command',
+      { timeoutMs: 10 },
+    );
+    expect(moved['expectedExtensionVersion']).toBe('0.2.41');
   });
 
   it('adds no expected version to other replies, or when the build has none', async () => {

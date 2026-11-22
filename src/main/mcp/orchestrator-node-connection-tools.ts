@@ -1,6 +1,7 @@
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import type { OrchestratorToolsRpcClientLike } from './orchestrator-tools-rpc-client';
 import { z } from 'zod/v4';
+import type { ExtensionTestInstallToolResult } from '../remote-node/extension-test-install-service';
 
 const RESET_NODE_CONNECTION_DESCRIPTION =
   'Close a connected worker node\'s coordinator WebSocket WITHOUT revoking it; the worker reconnects on its own backoff. '
@@ -54,10 +55,51 @@ export type IssueRemoteNodePairingFn = (
   args: IssueRemoteNodePairingArgs & { instanceId: string },
 ) => Promise<IssueRemoteNodePairingResult>;
 
+const INSTALL_TEST_BROWSER_EXTENSION_DESCRIPTION =
+  'Install your branch build of the Harness browser extension on a browser computer for a test; check the result in '
+  + 'list_remote_nodes (extensionRelay.extensionVersion). sourceDir (usually resources/browser-extension) must be inside '
+  + 'your working folder. Refused unless its version is above the running one, its permissions are no wider, and no one '
+  + 'else holds the lease. The original is restored by restore_test_browser_extension, when the lease ends (default 30, '
+  + 'max 120 minutes) or when the worker restarts. Always restore when done. Exact node name or id.';
+
+const RESTORE_TEST_BROWSER_EXTENSION_DESCRIPTION =
+  'Put back the extension that install_test_browser_extension replaced and wait for the browser to reload onto it. '
+  + 'Only the installing session may restore before the lease ends. Exact node name or id.';
+
+export const InstallTestBrowserExtensionArgsSchema = z.object({
+  node: z.string().trim().min(1).max(200),
+  sourceDir: z.string().trim().min(1).max(4096),
+  ttlMinutes: z.number().int().min(1).max(120).optional(),
+}).strict();
+export type InstallTestBrowserExtensionArgs = z.infer<typeof InstallTestBrowserExtensionArgsSchema>;
+
+export const RestoreTestBrowserExtensionArgsSchema = ResetNodeConnectionArgsSchema;
+export type RestoreTestBrowserExtensionArgs = ResetNodeConnectionArgs;
+
+export type InstallTestBrowserExtensionFn = (
+  args: InstallTestBrowserExtensionArgs & { instanceId: string },
+) => Promise<ExtensionTestInstallToolResult>;
+export type RestoreTestBrowserExtensionFn = (
+  args: RestoreTestBrowserExtensionArgs & { instanceId: string },
+) => Promise<ExtensionTestInstallToolResult>;
+
 export interface NodeConnectionToolContext {
   resetNodeConnection?: ResetNodeConnectionFn | null;
   issueRemoteNodePairing?: IssueRemoteNodePairingFn | null;
+  installTestBrowserExtension?: InstallTestBrowserExtensionFn | null;
+  restoreTestBrowserExtension?: RestoreTestBrowserExtensionFn | null;
 }
+
+const installTestExtensionInputSchema = {
+  type: 'object',
+  properties: {
+    node: { type: 'string', description: 'Exact node name or id.' },
+    sourceDir: { type: 'string', description: 'Extension build folder inside your working folder.' },
+    ttlMinutes: { type: 'integer', minimum: 1, maximum: 120, description: 'Lease minutes, default 30.' },
+  },
+  required: ['node', 'sourceDir'],
+  additionalProperties: false,
+};
 
 const issuePairingInputSchema = {
   type: 'object',
@@ -111,6 +153,30 @@ export function createNodeConnectionToolDefinitions(
       }
       return context.issueRemoteNodePairing({ ...parsed, instanceId: context.instanceId });
     },
+  }, {
+    name: 'install_test_browser_extension',
+    description: INSTALL_TEST_BROWSER_EXTENSION_DESCRIPTION,
+    inputSchema: installTestExtensionInputSchema,
+    handler: async (args) => {
+      const parsed = InstallTestBrowserExtensionArgsSchema.parse(args);
+      if (!context.installTestBrowserExtension) {
+        throw new Error('install_test_browser_extension is unavailable: test extension install is not wired in this process');
+      }
+      if (!context.instanceId) throw new Error('install_test_browser_extension needs the calling session');
+      return context.installTestBrowserExtension({ ...parsed, instanceId: context.instanceId });
+    },
+  }, {
+    name: 'restore_test_browser_extension',
+    description: RESTORE_TEST_BROWSER_EXTENSION_DESCRIPTION,
+    inputSchema,
+    handler: async (args) => {
+      const parsed = RestoreTestBrowserExtensionArgsSchema.parse(args);
+      if (!context.restoreTestBrowserExtension) {
+        throw new Error('restore_test_browser_extension is unavailable: test extension install is not wired in this process');
+      }
+      if (!context.instanceId) throw new Error('restore_test_browser_extension needs the calling session');
+      return context.restoreTestBrowserExtension({ ...parsed, instanceId: context.instanceId });
+    },
   }];
 }
 
@@ -131,5 +197,7 @@ export function createNodeConnectionForwarderTools(
   return [
     forward('reset_node_connection', RESET_NODE_CONNECTION_DESCRIPTION, inputSchema),
     forward('issue_remote_node_pairing', ISSUE_REMOTE_NODE_PAIRING_DESCRIPTION, issuePairingInputSchema),
+    forward('install_test_browser_extension', INSTALL_TEST_BROWSER_EXTENSION_DESCRIPTION, installTestExtensionInputSchema),
+    forward('restore_test_browser_extension', RESTORE_TEST_BROWSER_EXTENSION_DESCRIPTION, inputSchema),
   ];
 }

@@ -61,6 +61,7 @@ import { INTERNAL_CONNECT_ERROR_MESSAGE, NO_SAVED_ADDRESS_MESSAGE, noAnswerMessa
 import { resolveWorkerChildCommand } from './worker-supervisor';
 import { blocksWorkerRestart } from './worker-exec-turn';
 import { WorkerKeepAwake } from './worker-keep-awake';
+import { createWorkerExtensionTestInstall, type WorkerExtensionTestInstall } from './worker-extension-test-install';
 import {
   buildCoordinatorCandidates,
   firstReachableCoordinatorCandidate,
@@ -113,6 +114,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly androidManager: WorkerAndroidManager;
   private readonly cdpTunnel: WorkerCdpTunnel;
   private readonly extensionRelay: WorkerExtensionRelay;
+  private readonly extensionTestInstall: WorkerExtensionTestInstall;
   private readonly extensionRelayRegistration: ExtensionRelayNativeRegistration;
   private readonly nodeExecutor: WorkerNodeExecutor;
   private lastExtensionRelayRegistrationCheckAt: number | null = null;
@@ -127,7 +129,8 @@ export class WorkerAgent extends EventEmitter {
   readonly activity = new WorkerActivity(() => (this.registrationAccepted && this.coordinatorSleepsIdleSessions
     ? this.instanceManager.getAllInstanceIds().filter((id) => blocksWorkerRestart(this.instanceManager.getInstance(id))).length
     : this.instanceManager.getInstanceCount()) + this.localModelSessionManager.getSessionCount()
-    + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount() + this.codexDeviceLogin.activeCount(), () => this.extensionRelay.getLastCommandActivityAt());
+    + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount() + this.codexDeviceLogin.activeCount()
+    + (this.extensionTestInstall?.isActive() ? 1 : 0), () => this.extensionRelay.getLastCommandActivityAt());
 
   constructor(
     private readonly config: WorkerConfig,
@@ -153,6 +156,7 @@ export class WorkerAgent extends EventEmitter {
       ownsExtension: isDefaultWorkerHome(path.dirname(this.configPath)),
       sendRequest: (method, params, timeoutMs) => this.sendRequest(method, params, timeoutMs),
     });
+    this.extensionTestInstall = createWorkerExtensionTestInstall(path.dirname(this.configPath), this.extensionRelay);
     this.extensionRelayRegistration = new ExtensionRelayNativeRegistration({
       userDataPath: path.dirname(this.configPath),
       hostName: workerRelayHostName(path.dirname(this.configPath)),
@@ -200,6 +204,7 @@ export class WorkerAgent extends EventEmitter {
         forceRegistrationCheck: () => this.checkExtensionRelayRegistration({ force: true }),
         sendHeartbeat: () => this.sendHeartbeat(),
       }),
+      extensionTestInstall: this.extensionTestInstall,
       sendResult: (id, result) => this.notifier.sendResult(id, result),
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
       replayDurableEvents: (cursors) => this.notifier.replayDurableEvents(cursors),
@@ -474,6 +479,7 @@ export class WorkerAgent extends EventEmitter {
     this.fsHandler?.cleanupAllWatchers();
     this.terminalHandler?.killAll();
     this.cdpTunnel.closeAll();
+    this.extensionTestInstall.dispose();
     await this.extensionRelay.stop();
     await this.browserManager.shutdown();
     await this.androidManager.shutdown();

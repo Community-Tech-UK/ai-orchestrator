@@ -36,11 +36,13 @@ const BUDGET = {
   // Nov-14: live-test capability repair adds four tools (report_capability_gap/_check/_probe and
   // authorize_capability_repairs), the recheck-readiness control and capability_gaps on the worker report:
   // 84,986 bytes; next 1 KiB ceiling is 84,992.
+  // Nov-16: install_test_browser_extension and restore_test_browser_extension (leased test build of the browser
+  // extension on a browser computer) add 1,330 bytes.
   // Nov-17: `stale_plan_text` on plan_queue_report_ready and plan_queue_report_verdict (one shared, trimmed schema), so
   // agents can say which plan sentence a change made directly on main overtook: 85,415 bytes.
-  // Nov-16/17 (merge): that plus the optional `effort` on the plan_queue route choice (+1,008 bytes) is about 86,423
-  // bytes; next 1 KiB ceiling is 87,040.
-  orchestratorFull: { bytes: 87040, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // Nov-21 (merge): those plus the optional `effort` on the plan_queue route choice (+1,008 bytes): 88,404 bytes;
+  // next 1 KiB ceiling is 89,088.
+  orchestratorFull: { bytes: 89088, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },

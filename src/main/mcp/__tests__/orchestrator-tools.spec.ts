@@ -822,6 +822,34 @@ describe('orchestrator MCP tools', () => {
     await expect(unwired!.handler({ node: 'windows-pc' })).rejects.toThrow('not wired');
   });
 
+  it('install and restore test browser extension validate args and act for the calling session', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const result = { nodeId: 'n1', nodeName: 'windows-pc', state: 'active' as const };
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: 'session-1',
+      installTestBrowserExtension: async (args) => { calls.push(['install', args]); return result; },
+      restoreTestBrowserExtension: async (args) => { calls.push(['restore', args]); return { ...result, state: 'idle' as const }; },
+    });
+    const install = tools.find((t) => t.name === 'install_test_browser_extension');
+    const restore = tools.find((t) => t.name === 'restore_test_browser_extension');
+
+    await expect(install!.handler({ node: ' windows-pc ', sourceDir: 'resources/browser-extension', ttlMinutes: 10 })).resolves.toEqual(result);
+    await expect(restore!.handler({ node: 'windows-pc' })).resolves.toMatchObject({ state: 'idle' });
+    expect(calls).toEqual([
+      ['install', { node: 'windows-pc', sourceDir: 'resources/browser-extension', ttlMinutes: 10, instanceId: 'session-1' }],
+      ['restore', { node: 'windows-pc', instanceId: 'session-1' }],
+    ]);
+    await expect(install!.handler({ node: 'windows-pc' })).rejects.toThrow();
+    await expect(install!.handler({ node: 'x', sourceDir: 'y', ttlMinutes: 500 })).rejects.toThrow();
+    await expect(restore!.handler({ node: 'x', extra: true })).rejects.toThrow();
+
+    const unwired = createOrchestratorToolDefinitions({ db, instanceId: 'session-1' });
+    await expect(unwired.find((t) => t.name === 'install_test_browser_extension')!.handler({ node: 'a', sourceDir: 'b' })).rejects.toThrow('not wired');
+    await expect(unwired.find((t) => t.name === 'restore_test_browser_extension')!.handler({ node: 'a' })).rejects.toThrow('not wired');
+  });
+
   it('issue_remote_node_pairing validates args and issues for the calling session', async () => {
     const db = createDb();
     const calls: unknown[] = [];

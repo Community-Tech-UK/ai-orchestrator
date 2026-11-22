@@ -27,6 +27,7 @@ import {
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
 import { resetWorkerNodeConnection, resolveConnectedWorkerNode } from '../remote-node/worker-node-connection-control';
+import { installTestBrowserExtension, restoreTestBrowserExtension } from '../remote-node/extension-test-install-service';
 import { issueAgentPairingCommand } from '../remote-node/agent-pairing-command';
 import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
@@ -130,6 +131,13 @@ export function createOrchestratorToolsStep(
           callerInstanceId
             ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
             : undefined,
+      });
+      const testExtensionDeps = () => ({
+        nodeControl: nodeControl(),
+        sendRpc: (nodeId: string, method: string, params: unknown, timeoutMs: number) =>
+          sendServiceRpc(nodeId, method, params, timeoutMs),
+        resolveWorkspace: (instanceId: string) => instanceManager.getInstance(instanceId)?.workingDirectory,
+        isBrowserComputer: (nodeId: string) => getRemoteNodeRosterService().get(nodeId)?.browserComputer === true,
       });
       const fileTransferTools = createRemoteNodeFileTransferImplementations({
         resolveLocalWorkspace: (callerInstanceId) =>
@@ -564,6 +572,8 @@ export function createOrchestratorToolsStep(
         },
         resetNodeConnection: async (args) =>
           resetWorkerNodeConnection(nodeControl(), args.node, 'Agent reset_node_connection'),
+        installTestBrowserExtension: async (args) => installTestBrowserExtension(testExtensionDeps(), args),
+        restoreTestBrowserExtension: async (args) => restoreTestBrowserExtension(testExtensionDeps(), args),
         issueRemoteNodePairing: async ({ instanceId, ...args }) => issueAgentPairingCommand({
           ...args,
           issuedBy: { instanceId, name: instanceManager.getInstance(instanceId)?.displayName ?? instanceId },
