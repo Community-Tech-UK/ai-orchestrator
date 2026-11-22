@@ -6,6 +6,7 @@ import type { PromptSurface } from '../logging/prompt-surfaces';
 import type { LoopControlEnv } from './loop-control';
 import { inferLoopPhase, type LoopInferredPhase } from './loop-phase-inference';
 import { deriveAttemptEvidenceFromResult } from './loop-invocation-attempt';
+import { loopRoundModel } from './loop-execution-authority';
 import { HarnessStopError } from '../../shared/utils/harness-stop';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
@@ -225,7 +226,7 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       loopRunId: state.id,
       chatId: state.chatId,
       provider: state.config.provider,
-      model: input.downshiftModel ?? state.config.model ?? state.config.executionAuthority?.model,
+      model: loopRoundModel(state.config, input.downshiftModel),
       workspaceCwd: state.config.workspaceCwd,
       executionCwd: state.config.executionCwd,
       stage,

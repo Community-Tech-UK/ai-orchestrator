@@ -12,6 +12,7 @@ import {
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
   SessionRecallSearchPayloadSchema,
+  CliUpdatePillStateEventSchema,
 } from '../observability.schemas';
 
 const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
@@ -54,5 +55,13 @@ describe('observability.schemas', () => {
       query: 'prior failures',
       model: tooLongCatalogModelId,
     }).success).toBe(false);
+  });
+
+  it('accepts the waiting-session count the CLI update pill publishes (LT-1204)', () => {
+    const base = { generatedAt: 1, count: 0, entries: [] };
+    expect(CliUpdatePillStateEventSchema.safeParse({ ...base, waitingSessionCount: 2 }).success).toBe(true);
+    expect(CliUpdatePillStateEventSchema.safeParse(base).success).toBe(true);
+    expect(CliUpdatePillStateEventSchema.safeParse({ ...base, waitingSessionCount: -1 }).success).toBe(false);
+    expect(CliUpdatePillStateEventSchema.safeParse({ ...base, other: 1 }).success).toBe(false);
   });
 });

@@ -1644,8 +1644,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // `path` is the UI-friendly (possibly truncated) string; `full_path`
               // carries the untruncated value so downstream writers (e.g. the
               // self-permission granter) can build an exact-path rule. `tool_name`
-              // is the original Claude CLI tool (Write/Edit/Read/Bash), which maps
-              // 1:1 to the settings.json permissions format `Tool(pattern)`.
+              // is the original Claude CLI tool (Write/Edit/Read/Bash). The
+              // self-permission granter turns it into a settings.json rule
+              // `Tool(pattern)` in `buildRulePattern`, where Write becomes an
+              // `Edit(...)` rule because settings.json has no Write rule family.
               this.emit('input_required', {
                 id: inputRequestId,
                 prompt,

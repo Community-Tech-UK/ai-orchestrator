@@ -14,6 +14,11 @@ export function loopExecutionSpawnOptions(config: ExecutionConfig = {}, provider
   return boundAutomationSpawnOptions(authority, provider ?? '', options);
 }
 
+/** The model a loop round actually runs with. The prompt's re-anchor check must resolve the same one. */
+export function loopRoundModel(config: ExecutionConfig, downshiftModel?: string): string | undefined {
+  return downshiftModel ?? config.model ?? config.executionAuthority?.model;
+}
+
 export function hasPinnedLoopExecution(config: ExecutionConfig = {}): boolean {
   return !!config.executionAuthority || config.model !== undefined || config.reasoningEffort !== undefined || config.yoloMode !== undefined;
 }

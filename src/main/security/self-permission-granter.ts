@@ -183,7 +183,17 @@ interface SettingsShape extends Record<string, unknown> {
 
 // ---------- Rule pattern construction ------------------------------------
 
-function buildRulePattern(
+/**
+ * Claude matches file rules by gitignore-style path: a single leading `/` is
+ * project-relative and `//` is an absolute filesystem path. Write rules are
+ * the `Edit` family (verified against Claude CLI 2.1.310: `Write(/abs)`,
+ * `Write(//abs)` and `Edit(/abs)` do not allow the write; `Edit(//abs)` does).
+ */
+function toClaudeAbsolutePathPattern(p: string): string {
+  return p.startsWith('/') && !p.startsWith('//') ? `/${p}` : p;
+}
+
+export function buildRulePattern(
   tool: ClaudeCliToolName,
   target: string | undefined,
   scopeTree: boolean,
@@ -197,11 +207,9 @@ function buildRulePattern(
     // Bash patterns are command strings; we never apply scopeTree.
     return `${tool}(${trimmed})`;
   }
-  if (scopeTree) {
-    const dir = path.dirname(trimmed);
-    return `${tool}(${dir}/**)`;
-  }
-  return `${tool}(${trimmed})`;
+  const family = tool === 'Write' ? 'Edit' : tool;
+  const subject = scopeTree ? `${path.dirname(trimmed)}/**` : trimmed;
+  return `${family}(${toClaudeAbsolutePathPattern(subject)})`;
 }
 
 // ---------- Granter -------------------------------------------------------

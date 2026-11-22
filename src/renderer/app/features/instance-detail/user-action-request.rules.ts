@@ -51,6 +51,16 @@ export function defaultInputRequiredScope(
 }
 
 export type PermissionMetadata = InputRequiredRequestLike['permissionMetadata'];
+
+/**
+ * The key the adapter registered for this prompt. A Claude denial carries it in
+ * its metadata (a hash of action and path); replying with any other string
+ * leaves the adapter's pending entry in place and silences every later prompt
+ * for the same path.
+ */
+export function permissionKeyOf(meta: { permissionKey?: string; action?: string; path?: string } | undefined): string | undefined {
+  return meta?.permissionKey ?? (meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined);
+}
 export type PermissionAskKind = 'claude-denial' | 'claude-held' | 'single';
 
 export function permissionAskKind(meta: PermissionMetadata): PermissionAskKind {

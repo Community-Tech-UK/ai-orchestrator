@@ -9,7 +9,8 @@ import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types
 
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ defaultCli: 'claude', loopModelByProvider: {}, auxiliaryLlmRoutingClassificationEnabled: false }) }) }));
 vi.mock('../cli/adapters/adapter-factory', () => ({ resolveCliType: async () => 'claude' }));
-vi.mock('./invocation-model-resolver', () => ({ resolveLoopChildModel: async () => 'test-model' }));
+// Routing returns an explicitly requested model unchanged, as the real resolver does.
+vi.mock('./invocation-model-resolver', () => ({ resolveLoopChildModel: async (args: { payloadModel?: string }) => args.payloadModel ?? 'test-model' }));
 
 const REPLAY_MARKER = 'old parent chat marker';
 
@@ -150,5 +151,21 @@ describe('A3 proven continuation seam', () => {
       expect(result.prompt).toBe(result.routingPrompt);
     }
     expect((await prepare(2, state, true)).reanchorGoal).toBe(true);
+  });
+});
+
+describe('A3 card with an explicit loop model (LT-1203)', () => {
+  const caps = (model: string) => ({ supportsResume: true, sameThreadContinuation: true, model });
+
+  it('sends the card when the round runs the model the loop config names', async () => {
+    const config = { ...defaultLoopConfig(tmpDir, 'My persistent loop goal'), model: 'haiku' };
+    const result = await prepare(1, stateFor({ config, lastFullAnchorSeq: 0, lastThreadCaps: caps('haiku') }));
+    expect(result.reanchorGoal).toBe(false);
+  });
+
+  it('still re-anchors when the previous round ran a different model than the config names', async () => {
+    const config = { ...defaultLoopConfig(tmpDir, 'My persistent loop goal'), model: 'haiku' };
+    const result = await prepare(1, stateFor({ config, lastFullAnchorSeq: 0, lastThreadCaps: caps('test-model') }));
+    expect(result.reanchorGoal).toBe(true);
   });
 });

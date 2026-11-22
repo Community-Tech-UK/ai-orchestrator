@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { SelfPermissionGranter } from '../self-permission-granter';
+import { SelfPermissionGranter, buildRulePattern } from '../self-permission-granter';
 
 describe('SelfPermissionGranter', () => {
   let tmpRoot: string;
@@ -59,11 +59,11 @@ describe('SelfPermissionGranter', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.rulePattern).toBe('Edit(/Users/test/.claude/settings.json)');
+    expect(result.rulePattern).toBe('Edit(//Users/test/.claude/settings.json)');
     expect(result.alreadyExisted).toBe(false);
     expect(result.settingsFile).toBe(settingsFile);
     expect(fs.existsSync(settingsFile)).toBe(true);
-    expect(readAllowArray()).toEqual(['Edit(/Users/test/.claude/settings.json)']);
+    expect(readAllowArray()).toEqual(['Edit(//Users/test/.claude/settings.json)']);
   });
 
   it('appends a rule to an existing settings.json without disturbing other fields', () => {
@@ -100,7 +100,7 @@ describe('SelfPermissionGranter', () => {
       deny: string[];
       defaultMode: string;
     };
-    expect(perms.allow).toEqual(['WebFetch', 'Edit(/tmp/a.ts)']);
+    expect(perms.allow).toEqual(['WebFetch', 'Edit(//tmp/a.ts)']);
     expect(perms.deny).toEqual(['Bash(rm -rf /)']);
     expect(perms.defaultMode).toBe('default');
   });
@@ -117,11 +117,11 @@ describe('SelfPermissionGranter', () => {
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.alreadyExisted).toBe(true);
-    expect(second.rulePattern).toBe('Edit(/tmp/x.ts)');
+    expect(second.rulePattern).toBe('Edit(//tmp/x.ts)');
 
     // The mtime comparison can be flaky with coarse-grained filesystems; the
     // stronger guarantee is that the allow array still has exactly one entry.
-    expect(readAllowArray()).toEqual(['Edit(/tmp/x.ts)']);
+    expect(readAllowArray()).toEqual(['Edit(//tmp/x.ts)']);
     // Best-effort mtime check
     const mtimeAfter = fs.statSync(settingsFile).mtimeMs;
     expect(mtimeAfter).toBe(mtimeBefore);
@@ -141,7 +141,7 @@ describe('SelfPermissionGranter', () => {
       const r = g.grant({ action, path: '/tmp/new.ts' });
       expect(r.ok).toBe(true);
       if (!r.ok) return;
-      expect(r.rulePattern).toBe('Write(/tmp/new.ts)');
+      expect(r.rulePattern).toBe('Edit(//tmp/new.ts)');
     }
   });
 
@@ -155,7 +155,7 @@ describe('SelfPermissionGranter', () => {
       const r = g.grant({ action, path: '/tmp/e.ts' });
       expect(r.ok).toBe(true);
       if (!r.ok) return;
-      expect(r.rulePattern).toBe('Edit(/tmp/e.ts)');
+      expect(r.rulePattern).toBe('Edit(//tmp/e.ts)');
     }
   });
 
@@ -166,11 +166,22 @@ describe('SelfPermissionGranter', () => {
     expect(r.rulePattern).toBe('Bash(rm -rf node_modules)');
   });
 
+  it('writes absolute paths in the `//` form Claude matches, and Write as an Edit rule', () => {
+    // Verified against Claude CLI 2.1.310: Write(/abs), Write(//abs) and Edit(/abs)
+    // all leave the write denied; Edit(//abs) and Read(//abs) allow it.
+    expect(buildRulePattern('Write', '/tmp/o/w.txt', false)).toBe('Edit(//tmp/o/w.txt)');
+    expect(buildRulePattern('Edit', '/tmp/o/w.txt', false)).toBe('Edit(//tmp/o/w.txt)');
+    expect(buildRulePattern('Read', '/tmp/o/r.txt', false)).toBe('Read(//tmp/o/r.txt)');
+    expect(buildRulePattern('Edit', '/tmp/o/w.txt', true)).toBe('Edit(//tmp/o/**)');
+    expect(buildRulePattern('Edit', '//tmp/o/w.txt', false)).toBe('Edit(//tmp/o/w.txt)');
+    expect(buildRulePattern('Bash', 'git status', false)).toBe('Bash(git status)');
+  });
+
   it('prefers an explicit Claude toolName over action', () => {
     const r = granter.grant({ action: 'modify', toolName: 'Write', path: '/tmp/x.ts' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.rulePattern).toBe('Write(/tmp/x.ts)');
+    expect(r.rulePattern).toBe('Edit(//tmp/x.ts)');
   });
 
   it.each(['WebFetch', 'mcp__example__tool', 'UnknownTool'])('refuses explicit unsupported tool %s without writing a fallback Edit rule', (toolName) => {
@@ -184,7 +195,7 @@ describe('SelfPermissionGranter', () => {
     const r = granter.grant({ action: 'frobulate', path: '/tmp/y.ts' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.rulePattern).toBe('Edit(/tmp/y.ts)');
+    expect(r.rulePattern).toBe('Edit(//tmp/y.ts)');
   });
 
   it('refuses to grant when action is unknown and no path is supplied', () => {
@@ -202,7 +213,7 @@ describe('SelfPermissionGranter', () => {
     const r = granter.grant({ toolName: 'Edit', path: '/Users/suas/.claude/settings.json' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.rulePattern).toBe('Edit(/Users/suas/.claude/settings.json)');
+    expect(r.rulePattern).toBe('Edit(//Users/suas/.claude/settings.json)');
   });
 
   it('writes a tree-scoped rule when scopeTree is true', () => {
@@ -213,7 +224,7 @@ describe('SelfPermissionGranter', () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.rulePattern).toBe('Edit(/Users/suas/.claude/**)');
+    expect(r.rulePattern).toBe('Edit(//Users/suas/.claude/**)');
   });
 
   it('ignores scopeTree for Bash (uses command verbatim)', () => {
@@ -258,7 +269,7 @@ describe('SelfPermissionGranter', () => {
     const r = granter.grant({ toolName: 'Edit', path: '/tmp/x.ts' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(readAllowArray()).toEqual(['Edit(/tmp/x.ts)']);
+    expect(readAllowArray()).toEqual(['Edit(//tmp/x.ts)']);
   });
 
   it('returns NO_HOME_DIR when no settings path can be resolved', () => {
@@ -289,7 +300,7 @@ describe('SelfPermissionGranter', () => {
     expect(lines.length).toBe(1);
     const entry = JSON.parse(lines[0]!) as Record<string, unknown>;
     expect(entry['toolName']).toBe('Edit');
-    expect(entry['rulePattern']).toBe('Edit(/tmp/a.ts)');
+    expect(entry['rulePattern']).toBe('Edit(//tmp/a.ts)');
     expect(entry['instanceId']).toBe('inst-1');
     expect(entry['requestId']).toBe('req-1');
     expect(entry['alreadyExisted']).toBe(false);
@@ -330,7 +341,7 @@ describe('SelfPermissionGranter', () => {
     granter.grant({ toolName: 'Write', path: '/tmp/new.ts', instanceId: 'i1' });
     expect(seen.length).toBe(1);
     const ev = seen[0] as Record<string, unknown>;
-    expect(ev['rulePattern']).toBe('Write(/tmp/new.ts)');
+    expect(ev['rulePattern']).toBe('Edit(//tmp/new.ts)');
     expect(ev['toolName']).toBe('Write');
     expect(ev['instanceId']).toBe('i1');
   });
@@ -355,11 +366,11 @@ describe('SelfPermissionGranter', () => {
     }
     const allow = readAllowArray();
     expect(allow).toEqual([
-      'Edit(/tmp/a0.ts)',
-      'Edit(/tmp/a1.ts)',
-      'Edit(/tmp/a2.ts)',
-      'Edit(/tmp/a3.ts)',
-      'Edit(/tmp/a4.ts)',
+      'Edit(//tmp/a0.ts)',
+      'Edit(//tmp/a1.ts)',
+      'Edit(//tmp/a2.ts)',
+      'Edit(//tmp/a3.ts)',
+      'Edit(//tmp/a4.ts)',
     ]);
   });
 });

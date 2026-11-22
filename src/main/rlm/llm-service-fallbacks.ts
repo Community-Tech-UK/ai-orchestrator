@@ -8,6 +8,14 @@
 import { LLM_UNAVAILABLE_TEXT } from './llm-service.constants';
 
 /**
+ * The model's reply when it is real text, or null for an empty reply or the
+ * "LLM unavailable" placeholder (LT-1172): callers must not store that as content.
+ */
+export function usableLlmText(text: string | null | undefined): string | null {
+  return text?.trim() && text !== LLM_UNAVAILABLE_TEXT ? text : null;
+}
+
+/**
  * Local extraction without LLM (fallback).
  */
 export function generateLocalFallback(prompt: string): string {

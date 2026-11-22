@@ -10,6 +10,7 @@
 
 import { EventEmitter } from 'events';
 import { getLLMService, type LLMService } from '../rlm/llm-service';
+import { usableLlmText } from '../rlm/llm-service-fallbacks';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { runAuthorizedFrontierFallback } from '../local-ai-guard/local-ai-cost-correlation';
 import { getLogger } from '../logging/logger';
@@ -664,10 +665,10 @@ export class ContextCompactor extends EventEmitter {
       if (auxDecision.source !== 'fallback' && auxText.trim()) {
         summaryContent = auxText;
       } else if (auxDecision.allowFrontierFallback) {
-        summaryContent = await runAuthorizedFrontierFallback(
+        summaryContent = usableLlmText(await runAuthorizedFrontierFallback(
           auxDecision,
           () => llm.generate(compactionSystemPrompt, compactionPrompt),
-        );
+        )) ?? this.generateBasicSummary(turns, priorSummary);
       } else {
         // Frontier fallback is disabled for the compression slot — keep all
         // content local with the deterministic summary rather than sending it

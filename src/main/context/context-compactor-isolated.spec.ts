@@ -10,15 +10,17 @@ const externalAI = vi.hoisted(() => ({
   ) => Promise<{ text: string; decision: { source: 'local' | 'fallback'; allowFrontierFallback: boolean } }>>(),
 }));
 const costSink = vi.hoisted(() => ({ record: vi.fn() }));
+const frontier = vi.hoisted(() => ({ generate: vi.fn<() => Promise<string>>() }));
 
 vi.mock('../rlm/llm-service', () => ({
-  getLLMService: () => ({ isAvailable: externalAI.available, generate: vi.fn() }),
+  getLLMService: () => ({ isAvailable: externalAI.available, generate: frontier.generate }),
 }));
 vi.mock('../rlm/auxiliary-llm-service', () => ({
   getAuxiliaryLlmService: () => ({ generate: externalAI.generate }),
 }));
 vi.mock('../core/system/cost-attribution', () => ({ recordCostAttribution: costSink.record }));
 
+import { LLM_UNAVAILABLE_TEXT } from '../rlm/llm-service.constants';
 import { ContextCompactor } from './context-compactor';
 
 describe('isolated forced context compaction', () => {
@@ -30,6 +32,7 @@ describe('isolated forced context compaction', () => {
       decision: { source: 'local', allowFrontierFallback: false },
     });
     costSink.record.mockReset();
+    frontier.generate.mockReset();
   });
 
   it('summarises below the normal trigger even when the model output is larger than the source, without changing the singleton', async () => {
@@ -99,6 +102,30 @@ describe('isolated forced context compaction', () => {
     expect(costSink.record).toHaveBeenCalledWith(expect.objectContaining({
       purpose: 'helper', provider: 'aio-basic-summary', costSource: 'free', costUsd: 0,
     }));
+  });
+
+  it('LT-1172: never stores the "LLM unavailable" placeholder as a summary when the frontier fallback has no provider', async () => {
+    externalAI.generate.mockResolvedValue({ text: '', decision: { source: 'fallback', allowFrontierFallback: true } });
+    frontier.generate.mockResolvedValue(LLM_UNAVAILABLE_TEXT);
+    const isolated = ContextCompactor.createIsolated({ autoCompact: false, preserveRecent: 0 });
+    isolated.addTurn({ role: 'assistant', content: 'Remember codeword PELICAN-42', tokenCount: 6 });
+
+    const result = await isolated.compact({ force: true, preserveRecentOverride: 0 });
+
+    expect(result.summaryGenerated).toBe(true);
+    expect(isolated.getState().summaries[0]?.content).not.toContain('LLM unavailable');
+    expect(costSink.record).toHaveBeenCalledWith(expect.objectContaining({ provider: 'aio-basic-summary', costSource: 'free' }));
+  });
+
+  it('keeps the frontier model text when the fallback is authorised and it answers', async () => {
+    externalAI.generate.mockResolvedValue({ text: '', decision: { source: 'fallback', allowFrontierFallback: true } });
+    frontier.generate.mockResolvedValue('Frontier-written handoff');
+    const isolated = ContextCompactor.createIsolated({ autoCompact: false, preserveRecent: 0 });
+    isolated.addTurn({ role: 'assistant', content: 'earlier request', tokenCount: 3 });
+
+    await isolated.compact({ force: true, preserveRecentOverride: 0 });
+
+    expect(isolated.getState().summaries[0]?.content).toContain('Frontier-written handoff');
   });
 
   it('keeps the ordinary savings guard when force is omitted', async () => {

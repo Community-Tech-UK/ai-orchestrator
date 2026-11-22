@@ -5,6 +5,7 @@ import {
   approveLabelFor,
   canTellWhatToDoInstead,
   permissionHintFor,
+  permissionKeyOf,
   canAddClaudeAllowRule,
   decisionFor,
   permissionAskKind,
@@ -57,6 +58,18 @@ describe('user action request rules', () => {
     expect(defaultInputRequiredScope({ type: 'permission_denial' })).toBe('always');
     expect(defaultInputRequiredScope({ type: 'deferred_permission' })).toBe('once');
     expect(defaultInputRequiredScope(undefined)).toBe('once');
+  });
+});
+
+describe('permission key', () => {
+  it('replies with the adapter key carried in the prompt metadata, not an action:path string', () => {
+    expect(permissionKeyOf({ permissionKey: 'edit:3f9a1c0d2b7e4a55', action: 'edit', path: '/work/a.txt' })).toBe('edit:3f9a1c0d2b7e4a55');
+  });
+
+  it('falls back to action:path for prompts whose adapter sends no key', () => {
+    expect(permissionKeyOf({ action: 'edit', path: '/work/a.txt' })).toBe('edit:/work/a.txt');
+    expect(permissionKeyOf({ action: 'edit' })).toBeUndefined();
+    expect(permissionKeyOf(undefined)).toBeUndefined();
   });
 });
 

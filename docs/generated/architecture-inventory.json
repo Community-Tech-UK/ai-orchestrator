@@ -6416,7 +6416,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 17290
+      "lines": 17430
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6608,7 +6608,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2215
+      "lines": 2217
     },
     {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",
@@ -7332,7 +7332,7 @@
     },
     {
       "path": "src/main/context/context-compactor.ts",
-      "lines": 1008
+      "lines": 1009
     },
     {
       "path": "src/worker-agent/worker-extension-relay.spec.ts",
@@ -7719,6 +7719,10 @@
       "lines": 857
     },
     {
+      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
+      "lines": 856
+    },
+    {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 855
     },
@@ -7772,10 +7776,6 @@
     },
     {
       "path": "src/main/bootstrap/capability-probe.spec.ts",
-      "lines": 840
-    },
-    {
-      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
       "lines": 840
     },
     {

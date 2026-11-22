@@ -773,6 +773,22 @@ describe('renderer event validation', () => {
     })).toBe(true);
   });
 
+  // LT-1173: the tracker stores `origin` with each entry and publishes the whole
+  // entry, so the strict schema must know the key or every priced turn is dropped.
+  it('accepts a cost-recorded payload that carries origin (LT-1173)', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
+      id: 'entry-3',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+      sessionId: 'sess-1',
+      model: 'claude-haiku-5-5',
+      inputTokens: 2,
+      outputTokens: 46,
+      cost: 0.0107,
+      origin: 'user',
+    })).toBe(true);
+  });
+
   it('still accepts a measured cost-recorded payload with isEstimated omitted', () => {
     expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
       id: 'entry-2',

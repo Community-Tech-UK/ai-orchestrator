@@ -25,6 +25,7 @@ import {
   canTellWhatToDoInstead,
   decisionFor,
   permissionHintFor,
+  permissionKeyOf,
   permissionReplyText,
   permissionScopesFor,
   rejectLabelFor,
@@ -738,8 +739,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     clearResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id));
     try {
       const meta = request.permissionMetadata;
-      const permissionKey =
-        meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
+      const permissionKey = permissionKeyOf(meta);
       const decisionScope = this.getInputRequiredScope(request);
       const ipcMetadata: Record<string, unknown> = {
         type: 'deferred_permission',
@@ -826,8 +826,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
 
         const meta = request.permissionMetadata;
-        // Create permission key to clear pending permission tracking
-        const permissionKey = meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
+        // The adapter's own key clears its pending permission tracking
+        const permissionKey = permissionKeyOf(meta);
         const decision = decisionFor(meta, approved, this.getInputRequiredScope(request));
         const decisionScope = decision?.scope;
         const decisionAction = decision?.action;

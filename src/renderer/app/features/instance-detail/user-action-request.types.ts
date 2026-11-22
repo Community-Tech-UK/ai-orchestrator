@@ -57,6 +57,8 @@ export interface UserActionRequest {
     live?: boolean;
     tool_use_id?: string;
     action?: string;
+    /** The adapter's own key for this prompt; reply with it unchanged. */
+    permissionKey?: string;
     /** Display-friendly (possibly truncated) path shown in prompts. */
     path?: string;
     /**

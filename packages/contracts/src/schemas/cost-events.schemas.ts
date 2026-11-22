@@ -26,5 +26,6 @@ export const CostEntryEventSchema = z.object({
   creditCheckpointTotalNano: credits.optional(),
   creditCheckpointPremiumTotal: credits.optional(),
   byModel: z.array(CostModelUsageDeltaSchema).max(100).optional(),
-  origin: z.string().min(1).max(100).optional(),
+  /** Session origin tag the tracker stores with the entry (LT-1173); open-ended on purpose. */
+  origin: z.string().min(1).max(200).optional(),
 }).strict();

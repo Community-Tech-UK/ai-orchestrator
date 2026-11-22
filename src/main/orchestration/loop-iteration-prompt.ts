@@ -3,6 +3,7 @@ import type { LoopConfig, LoopState } from '../../shared/types/loop.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import { resolveLoopChildModel } from './invocation-model-resolver';
+import { loopRoundModel } from './loop-execution-authority';
 import { shouldReanchorLoopGoal } from './loop-goal-reanchor';
 import type { LoopStageMachine } from './loop-stage-machine';
 import type { PendingInputLike } from './loop-stage-prompt-helpers';
@@ -146,7 +147,7 @@ export async function prepareLoopIterationPrompt(input: {
         getSettingsManager().getAll().defaultCli,
       ),
       requestedProvider: input.state.config.provider,
-      payloadModel: input.downshiftModel,
+      payloadModel: loopRoundModel(input.state.config, input.downshiftModel),
       routingPrompt,
     }) ?? null;
   } catch {

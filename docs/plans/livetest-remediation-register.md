@@ -402,6 +402,19 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1195 | P2 | **FIXED + LIVE VERIFIED 2026-11-10.** "Always allow" now writes `Edit(//abs/path)` (`Read(//abs/path)` for reads), the form Claude CLI 2.1.310 matches. Live: rule written, session restarted, the retried write succeeded. | [Detail](#lt-1195) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-10-plan-queue-ea521c) |
+| LT-1196 | P3 | **FIXED + LIVE VERIFIED 2026-11-10.** The reply now carries the adapter's own permission key, so "Don't allow" clears the pending entry. Live: the same path asked again with a new card; settings files unchanged. | [Detail](#lt-1196) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-10-plan-queue-ea521c) |
+| LT-1202 | P3 | **WITHDRAWN 2026-11-10 — misdiagnosed.** The surviving `claude` process after Close all was Harness's warm standby process (5-minute expiry), not the loop's iteration process, and its six children were MCP helpers, not the user's shell command. Re-run: resident, loop child and loop all gone within 6 s. | [Detail](#lt-1020) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-10-plan-queue-ea521c) |
+| LT-1203 | P3 | **FIXED + LIVE VERIFIED 2026-11-10.** The short-card check now resolves the same model the round runs with. Live, config model `haiku`: prompt bytes 7007 / 2546 / 2546 / 2546 / 2546 (was 6519 every round). | [Detail](#lt-1021) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-10-plan-queue-ea521c) |
+| LT-820 | P2 | **FIXED on main 2026-11-06 (`817a30b80`), worker-verified 2026-11-03; retained-day re-audit not re-run.** The transcript cost comparator used different Opus 5.5 cache prices from the app. Versioned rates now match. | [Detail](#lt-820) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-821 | P2 | **FIXED on main 2026-11-06 (`817a30b80`), worker-verified 2026-11-03; not re-observed live.** A native fork inherited its source's cumulative dollars and the ledger rebooked them (a $306.05 zero-token row). Forks now subtract the inherited total. | [Detail](#lt-821) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-822 | P2 | **FIXED on main; LIVE CHECKED 2026-11-10.** `cost:usage-recorded` events carrying `byModel` were rejected by the strict event schema. Zero rejections during this run's priced Claude and Codex turns. | [Detail](#lt-822) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-823 | P2 | **FIXED on main; LIVE CHECKED 2026-11-10 (held shell call).** A deferred tool permission ended a loop before the operator decided. A held call approved with "Allow this once" resumed and ran once. | [Detail](#lt-823) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-824 | P3 | **FIXED on main; LIVE CHECKED 2026-11-10.** The Costs page rendered a literal backslash before dollar amounts. Zero backslashes with real data in two reads. | [Detail](#lt-824) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-826 | P1 | **FIXED on main; LIVE CHECKED 2026-11-10.** Close all left the original resident Claude process alive. Re-run with a running same-session loop: instances 9 to 0, loop cancelled, resident and loop processes gone within 6 s. | [Detail](#lt-826) | [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md) |
+| LT-1204 | P3 | **FIXED 2026-11-10, spec-tested; renderer log re-check pending.** The CLI update pill's delta event carries `waitingSessionCount`, which its strict schema rejected, so the renderer dropped the event at every startup ("Unrecognized key"). The field is now in `CliUpdatePillStateEventSchema`. | [Detail](#lt-1022) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-10-plan-queue-ea521c) |
+| LT-1172 | P2 | **FIXED 2026-11-16, spec-tested; live re-check passed.** "Compact now" on a session that takes the restart-with-summary path (Antigravity, Gemini, Copilot) stored the placeholder `[LLM unavailable - unable to process query. Please configure an LLM provider…]` as the summary and logged `summaryGenerated: true`, whenever no helper model was reachable and no API-key provider was configured (the normal state for a profile that signs in through CLIs). A sentinel or empty frontier reply now falls back to the deterministic basic summary. | [Detail](#lt-1172) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-16-plan-queue-ea521c-resumed-round-4) |
+| LT-1173 | P2 | **FIXED 2026-11-16, spec-tested; live re-check passed.** Every priced turn's `cost:usage-recorded` event was blocked before the renderer: `CostEntryEventSchema` is strict and did not list `origin`, which the cost tracker now stores and publishes with each entry. 100 blocked events in one 2-hour dev-app run; 0 after adding the field. Same class as LT-822 (`byModel`). | [Detail](#lt-1173) | [Phase 0 live checks](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-11-16-plan-queue-ea521c-resumed-round-4) |
 | LT-1036 | P2 | **OBSERVED 2026-11-11; OPEN (not fixed).** The chat's expanded "Tool calls" card never shows a command's output. For a real Codex command the result card prints the metadata JSON (`id`, `name`, `input`, `status`, `exitCode`, `is_error`) and drops the output text, so `Progress check complete` and `Recovery check complete` never appear in the card even though the result message holds them. Found while running the Codex exec progress live checks; numbered 1036 because 1018 to 1035 were already claimed elsewhere on 11 November. | [LT-1036 detail](#lt-1036) | [Codex exec progress evidence](2026-10-15-codex-exec-progress_livetest.md#evidence-run--2026-11-11) |
 | LT-1152 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The Steer explanation on a queued message was created as an SVG element with no layout box, so it never showed. The panel is now attached without the trigger's view container; visible at 1400 and 700 px. | [LT-1152 detail](#lt-1152) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
 | LT-1153 | P2 | **SOURCE FIX VERIFIED IN DEV APP 2026-11-11; rebuilt-app check pending.** The working-session hint now says Enter queues for after the current turn and Steer redirects now (only while Steer is offered), and wraps instead of being cut off; readable at 1400 and 700 px. | [LT-1153 detail](#lt-1153) | [Phase F live test](2026-10-20-oct2-phaseF-tooltips_livetest.md) |
@@ -568,12 +581,6 @@ Source branch had no register entries left (its branch was removed); these rows 
 
 | ID | Priority | Status / observed defect | Evidence | Acceptance owner |
 | --- | --- | --- | --- | --- |
-| LT-820 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Transcript cost comparison used different prices from the app (one million Opus 5.5 cache reads: app $0.20, comparator $0.50). Comparator now uses versioned rates matching the app; both retained-day audits still fail for corpus/history reasons, not an established overbilling percentage. | [LT-820 detail](#lt-820) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
-| LT-821 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** A real native fork inherits its source's cumulative dollars; the ledger reset a fork to zero and rebooked that history (retained row of $306.046325 under a new session ID with zero tokens). Forks now seed from the source cost state. No retained history was changed. | [LT-821 detail](#lt-821) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
-| LT-822 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Priced Claude completions emitted `cost:usage-recorded` with `byModel`; the strict event schema rejected it (`Unrecognized key: "byModel"`) before the renderer saw it. The event now carries a bounded strict per-model array. | [LT-822 detail](#lt-822) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
-| LT-823 | P1 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** A deferred tool permission ended a `/goal` loop (`error: Claude CLI cancelled`) while the operator had not decided. Borrowed requests now wait for the decision and resume on the same adapter; loop timeouts exclude the wait. | [LT-823 detail](#lt-823) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
-| LT-824 | P3 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Costs page rendered a literal backslash before dollar amounts, and narrow layouts clipped metric cards. Backslashes removed; page-local grid breakpoint added. | [LT-824 detail](#lt-824) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
-| LT-826 | P1 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Close all removed the session but left the original resident Claude process alive, because a borrowed request started a one-shot child over the resident process reference. Borrowed requests now use the resident pipe. | [LT-826 detail](#lt-826) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
 | LT-1018 | P2 | **FIXED AND VERIFIED LIVE 2026-11-12.** Every priced completion's `cost:usage-recorded` event was blocked before the renderer: the completion recorder tags each entry with `origin` (`user` or `machine`) but the strict renderer event schema did not list it, so the main log said `Unrecognized key: "origin"` on each turn. The Costs page then updated only on its 10-second poll. The schema now accepts a bounded `origin` string. | [LT-1018 detail](#lt-1018) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
 | LT-1019 | P3 | **FIXED AND VERIFIED LIVE 2026-11-12.** The `cli-update-pill:delta` event was blocked at every start-up with `Unrecognized key: "waitingSessionCount"`: the update poll service adds that count to its state, but the strict event schema did not list it, so the title-bar pill never heard how many sessions were holding an update. The schema now accepts it. | [LT-1019 detail](#lt-1019) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
 | LT-1131 | P1 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** Approving a held tool permission inside a running `/goal` or Loop killed the very process that had just been approved. The resumed Claude CLI runs the held tool before it sends its session confirmation, so the resume probe settled on the first output, found no confirmation, and the approval handler terminated the live process and cancelled the loop's request. The tool still ran once, but the loop paused with "Claude CLI cancelled". Output is no longer taken as proof while the confirmation is pending. | [LT-1131 detail](#lt-1131) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
@@ -13891,6 +13898,139 @@ failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: doc
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
 
+## LT-1195
+
+### LT-1195 — "Always allow" writes a Claude rule that Claude never matches
+
+**Status: fixed and live verified 10 November 2026.** `buildRulePattern` (`self-permission-granter.ts`) now returns `Edit(//abs)` for Write and Edit and `Read(//abs)` for Read, in `//` absolute form; `self-permission-granter.spec.ts` pins the strings. Live (rebuilt dev app): "Always allow" wrote `Edit(//.../denial-A.txt)`, the session restarted (new pid, resumed), and the retried Write created the file. Read(//abs) was also confirmed with a native probe. Global settings were restored byte for byte afterwards.
+
+### Observed behaviour
+
+A non-YOLO Claude session (CLI 2.1.310) was asked to write a file outside its working directory. Claude denied it natively and Harness showed the card with "Don't allow" and "Always allow (adds a rule to ~/.claude/settings.json and restarts)". Clicking "Always allow" wrote `Write(/Users/.../outside-dir/denial-3.txt)` into `~/.claude/settings.json` (and a matching Harness rule in `~/.orchestrator/permissions.json`), restarted the session (new process, restartCount 1), and the retried write was denied again with the same message. Both global files were restored byte for byte afterwards (SHA-1 equal to the pre-test copies).
+
+### Root cause
+
+Proved with native one-shot probes (`claude --print --settings '<inline rules>'`, same directory, no Harness): `Edit(//abs/path)` allows the write; `Edit(/abs/path)`, `Write(/abs/path)` and `Write(//abs/path)` all still deny. In Claude's rule syntax a single leading `/` means project-relative and `//` means absolute, and the allow rule belongs to the `Edit` family. `buildRulePattern` in `src/main/security/self-permission-granter.ts` returns `` `${tool}(${trimmed})` `` for the tool name and the raw absolute path.
+
+### Required behaviour and acceptance
+
+For Write/Edit (and Read, checked separately) denials the rule must be one the CLI matches (`Edit(//abs/path)` for writes). Acceptance: after "Always allow" and the restart, the same write succeeds in a live session; a regression test pins the exact string; the unrelated-key and idempotence behaviour of the granter is unchanged.
+
+## LT-1196
+
+### LT-1196 — a refused Claude denial can never be asked again in that session
+
+**Status: fixed and live verified 10 November 2026.** The card now replies with `permissionMetadata.permissionKey` (`permissionKeyOf` in `user-action-request.rules.ts`, specs added). Live: refuse, retry the same path, a new card appears; settings files unchanged after "Don't allow".
+
+### Observed behaviour
+
+After "Don't allow" on the denial card for `.claude/lt-note.md`, asking Claude to try the same path again produced no new card and no new "Permission required" line (the assistant just reported the block). A different path (`lt-note-2.md`) in the same session produced a new card at once. Settings files were unchanged.
+
+### Root cause (strongly supported, not proved by a debug trace)
+
+`user-action-request.component.ts:879` builds the key sent back as `` `${meta.action}:${meta.path}` ``; the adapter registers `createPermissionKey(action, path)` = `action:<sha256 prefix>` (`claude-cli-permission-details.ts:131`) in `pendingPermissions`. The app log of the reply carries the path-shaped key. `sendRaw` therefore never clears the pending entry, and the duplicate guard at `claude-cli-adapter.ts:1533` skips the next denial silently (debug-level log only). The metadata already carries the right `permissionKey`.
+
+### Required behaviour and acceptance
+
+The reply must use the adapter's own key (`permissionMetadata.permissionKey`). Acceptance: refuse a denial, retry the same path in the same session, and a new card appears; a spec pins renderer key == adapter key.
+
+## LT-1202
+
+### LT-1202 — withdrawn: Close all does not leave the loop's process running
+
+**Status: withdrawn 10 November 2026 (misdiagnosis).**
+
+### What was reported, and why it was wrong
+
+The first 10 November run recorded that one `claude` process (pid 84441, child of the app, cwd in the loop workspace) survived Close all for about 3.4 minutes and called it the loop's iteration process with the shell command's children. Re-run on the rebuilt app (same scenario, 22:03 UTC, process arguments recorded beforehand): the resident chat process (`--dangerously-skip-permissions --model haiku`) and the loop's iteration process (same flags, new session id) were both gone within 6 s, the loop was `cancelled` and the instance list empty. The one survivor (pid 43008, `--permission-mode acceptEdits`, no model, session id never used by any instance) is the `WarmStartManager` standby the app pre-spawns for the workspace: the log shows `Warm process ready` at spawn and `Warm process expired - killing, ageMs 300002` five minutes later, and its six children were MCP helper servers (atlassian, chrome-devtools, imap, agy), not the user's command. The 3.4 minutes in the first run was the rest of that five-minute life, and the earlier "Stream idle timeout" line belongs to the same standby.
+
+### Outcome
+
+Close all is not leaking a session or loop process. Whether Close all should also dispose the idle standby process is a product choice, recorded as a follow-up rather than a defect.
+
+## LT-1203
+
+### LT-1203 — the short loop card is skipped when the loop config names a model
+
+**Status: fixed and live verified 10 November 2026.** `loopRoundModel` (`loop-execution-authority.ts`) is now used both by the invoker and by the re-anchor check; `loop-iteration-prompt.spec.ts` covers both. Live: config model `haiku` gives prompt bytes 7007 / 2546 / 2546 / 2546 / 2546 (before: 6519 every round).
+
+### Observed behaviour
+
+Counting loops of five to six rounds in a disposable repo, `prompt_bytes` per round: config model `haiku`: 6519 / 6630 / 6519 / 6519 / 6519; model `claude-haiku-5-5`: 7374 / 6630 / 6519 / 6519 / 6519; no model (ran as sonnet): 7925 / 2546 / 2546 / 2733 / 2546 / 2546. Cache-read tokens grew every round in all three, so the thread was continued each time.
+
+### Root cause
+
+`loop-iteration-prompt.ts:143` resolves `thisAttemptModel` with only `payloadModel: input.downshiftModel`, so the loop routing tier (`sonnet`) is used; the round runs `downshiftModel ?? config.model ?? executionAuthority.model` (`loop-child-invoker.ts:208`). The recorded model differs, so `shouldReanchorLoopGoal` fails closed every round. The loop settings panel does not set `model`, so this affects automations, `/goal` or programmatic starts that set one.
+
+### Required behaviour and acceptance
+
+Resolve the model the round will actually run with. Acceptance: the same loop with an explicit model shrinks to the card from round 2.
+
+## LT-820
+
+### LT-820 — transcript comparison used different prices from the app
+
+**Status: fixed on main (`817a30b80`), worker-verified 3 November 2026; retained-day audits not re-run on 10 November.** Reproduced 27 October with a one-million-cache-read-token Opus 5.5 diagnostic: app $0.20, comparator $0.50 (or $0.40 with its override). Versioned input, output and cache rates now match the app; the five-percent threshold and unpriced-model caveats are unchanged. Required: both retained days (19 and 26 October) reconcile or fail only for reasons the audit names. Detail: [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md). The register entries for LT-820 to LT-826 were recreated on 10 November 2026 from that plan, because the original branch holding them no longer exists.
+
+## LT-821
+
+### LT-821 — retained accounting contains an apparent cumulative duplicate
+
+**Status: fixed on main, worker-verified 3 November 2026; not re-observed live.** Instance `cp6lr11gj` booked $306.046325 with zero tokens at 2026-10-26 22:39:43 UTC under a new session id, equal to its previous five entries. A real native fork inherits its source's cumulative dollars; the old ledger rebooked them. Forks now subtract the inherited total. No historical row was changed. Required: a live fork books only new spend. Detail: [remediation plan](2026-10-27-phase0-livetest-remediation_plan.md).
+
+## LT-822
+
+### LT-822 — model-breakdown cost events failed renderer validation
+
+**Status: fixed on main; no rejections seen on 10 November 2026.** `cost:usage-recorded` carrying `byModel` was rejected with `Unrecognized key: "byModel"` and never reached the renderer. The event schema now accepts a bounded, strict per-model array. Live: zero `byModel` rejections in the log across this run's priced turns.
+
+## LT-823
+
+### LT-823 — a deferred tool permission ended a loop before the operator decided
+
+**Status: fixed on main; held-call path checked live on 10 November 2026.** A real `/goal` reading a fixture ended `error: Claude CLI cancelled` while its parent waited for permission. Borrowed requests now survive the native defer and resume on the same adapter after a decision. Live: a held Bash call approved with "Allow this once" resumed (`Resumed after deferred permission successfully`) and ran once. The full goal composition is not repeated.
+
+## LT-824
+
+### LT-824 — Costs page rendered a literal backslash before dollar amounts
+
+**Status: fixed on main; checked live on 10 November 2026.** Per-model, per-session and recent-entry cells contained `\$`. Live with real data on two reads: no backslash, 15 and 37 dollar signs.
+
+## LT-826
+
+### LT-826 — Close all left the original resident provider alive
+
+**Status: fixed on main; checked live on 10 November 2026.** On 27 October the loop was cancelled and the session removed but Claude pid 94693 stayed alive. Re-run: with a same-session loop running, Close all removed every session, cancelled the loop, and the resident and loop processes were gone within 6 s (the first 10 November write-up of a survivor was a misdiagnosis, see LT-1202).
+
+## LT-1204
+
+### LT-1204 — the CLI update pill's event schema rejected its own field
+
+**Status: fixed 10 November 2026; renderer log re-check pending.** At every startup the log showed `Blocked invalid renderer event payload ... channel: 'cli-update-pill:delta' ... Unrecognized key: "waitingSessionCount"`. `cli-update-poll-service.ts:149` publishes `waitingSessionCount` (and the pill component reads it), but `CliUpdatePillStateEventSchema` (`observability.schemas.ts`) is strict and omitted it, so the delta was dropped. The field is now in the schema; `observability.schemas.spec.ts` covers it. Acceptance: no such warning at startup on the rebuilt app.
+
+## LT-1172
+
+### LT-1172 — a compaction stored the "LLM unavailable" placeholder as its summary
+
+**Status: fixed 16 November 2026; live re-check passed.**
+
+- **Observed.** Dev app, isolated profile with no helper model and no API-key provider. An Antigravity session with about 80K characters of earlier messages, then `compactInstance`: the continuity package's `<summary>` read `[LLM unavailable - unable to process query. Please configure an LLM provider (Anthropic, OpenAI, or Ollama) for intelligent responses.]`, the compaction finished 3 ms after it started and the log said `summaryGenerated: true`.
+- **Root cause.** `ContextCompactor.generateSummary` (`context-compactor.ts`) asks `LLMService.isAvailable()`, which is true when the configured provider is `local`. The auxiliary compression slot then answers `source: 'fallback'` with frontier fallback allowed, and `LLMService.generate()` (no API key, no Ollama) returns `LLM_UNAVAILABLE_TEXT` through `generateLocalFallback`, because the compaction prompt does not contain the word "summarize". That text became the summary, so the new session started with no real summary and nothing said so. The plan (Step 10) required "decide on `summaryGenerated`, never the placeholder".
+- **Required behaviour.** A summary is a model's text or the deterministic basic summary, never the placeholder.
+- **Fix.** In `generateSummary`, a frontier reply that is empty or equal to `LLM_UNAVAILABLE_TEXT` uses `generateBasicSummary` (recorded as `aio-basic-summary`, free). Specs: `context-compactor-isolated.spec.ts` (sentinel falls back; a real frontier reply is kept).
+- **Acceptance.** Re-run live after the fix: the summary is the local one ("(local compaction — no LLM verification available; 4 turns compacted)"). With a helper model enrolled the summary is the helper's text. Both observed on 16 November 2026.
+
+## LT-1173
+
+### LT-1173 — the cost-entry event schema rejected its own `origin` field
+
+**Status: fixed 16 November 2026; live re-check passed.**
+
+- **Observed.** Dev app, isolated profile, a few hours of real Claude, Codex and Antigravity turns: 100 log lines `Blocked invalid renderer event payload … channel: 'cost:usage-recorded' … issues: [ { path: '', message: 'Unrecognized key: "origin"' } ]`, one per priced entry. The renderer never received those events (the Costs page and header still got figures from polling, so the damage was a stale live feed, not wrong totals).
+- **Root cause.** `CostTracker` stores `origin` with each entry and `cost-handlers.ts:363` sends the whole `CostEntry` to the renderer, but `CostEntryEventSchema` (`packages/contracts/src/schemas/cost-events.schemas.ts`) is `.strict()` and had no `origin`. LT-822 fixed the same class for `byModel`.
+- **Required behaviour.** An entry the tracker publishes passes the event validator.
+- **Fix.** `origin: z.string().min(1).max(200).optional()` in the schema; `renderer-event-validation.spec.ts` covers a payload with `origin`.
+- **Acceptance.** After rebuilding and restarting, a priced Claude turn logs zero blocked `cost:usage-recorded` events. Observed 16 November 2026 (100 before, 0 after).
 <a id="lt-1157"></a>
 
 ## LT-1157
@@ -14675,7 +14815,7 @@ Inherited `requestResponse` used one-shot `sendMessage`, which replaced `this.pr
 
 ### Required behaviour and acceptance
 
-Borrowed requests send on the resident pipe. One-shot/streaming overwrites and overlapping sends are refused; controlled restarts reap the old process first. Acceptance: `claude-resident-request.spec.ts` and `claude-cli-adapter.spec.ts` pass, and a native run through the real loan registry and termination coordinator leaves no instance, adapter or surviving PID after five seconds. Full Close all confirmation (original and invocation PIDs absent, no respawn over 30 seconds) is a deferred live check in the [live-check document](2026-10-27-phase0-livetest-remediation_livetest.md). A related later live observation of a surviving loop-iteration child is filed separately on another branch as LT-1020.
+Borrowed requests send on the resident pipe. One-shot/streaming overwrites and overlapping sends are refused; controlled restarts reap the old process first. Acceptance: `claude-resident-request.spec.ts` and `claude-cli-adapter.spec.ts` pass, and a native run through the real loan registry and termination coordinator leaves no instance, adapter or surviving PID after five seconds. Full Close all confirmation (original and invocation PIDs absent, no respawn over 30 seconds) is a deferred live check in the [live-check document](2026-10-27-phase0-livetest-remediation_livetest.md). A related later live observation of a surviving loop-iteration child is filed separately on another branch as LT-1202.
 
 ## LT-1028
 
@@ -15585,7 +15725,7 @@ Dev app on the test Mac built from head `39e443963`. A silent Opus (effort max) 
 
 ### LT-1102 — the Progress panel does not fill when Claude plans with its newer task tools
 
-**Status: FIXED AND VERIFIED LIVE 14 November 2026.** Reproduced 10 November 2026 (then recorded as LT-1020; renumbered because main already used that number for a different defect) and again on 14 November at head `39e443963`.
+**Status: FIXED AND VERIFIED LIVE 14 November 2026.** Reproduced 10 November 2026 (then recorded as LT-1202; renumbered because main already used that number for a different defect) and again on 14 November at head `39e443963`.
 
 ### Observed behaviour
 
