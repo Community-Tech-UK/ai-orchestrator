@@ -6,6 +6,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceQueries } from '../../core/state/instance/instance.queries';
 import { SettingsStore } from '../../core/state/settings.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { FANOUT_COST_TOOLTIP, summariseFanoutCost } from './fanout-cost';
@@ -32,9 +33,10 @@ import { FANOUT_COST_TOOLTIP, summariseFanoutCost } from './fanout-cost';
 })
 export class FanoutCostComponent {
   private readonly store = inject(InstanceStore);
+  private readonly queries = inject(InstanceQueries);
   private readonly settings = inject(SettingsStore);
   readonly instanceId = input.required<string>();
   readonly tooltip = FANOUT_COST_TOOLTIP;
   readonly showCost = computed(() => this.settings.showCost());
-  readonly summary = computed(() => summariseFanoutCost(this.instanceId(), this.store.instances()));
+  readonly summary = computed(() => summariseFanoutCost(this.instanceId(), this.store.instances(), this.queries.finishedHelpers()));
 }

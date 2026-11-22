@@ -22,8 +22,11 @@ export interface RuntimeChangeFlags {
   accountProfileChanged: boolean;
 }
 
-/** How the conversation survives the restart; the values of the main process's `ContinuityPlan`. */
-export type RuntimeContinuity = 'replay' | 'native-resume' | 'native-resume-fork';
+/**
+ * How the conversation survives the change: the values of the main process's `ContinuityPlan`, plus
+ * `in-place` for a resident Claude session that switches model without restarting (`canTryLiveSwitch`).
+ */
+export type RuntimeContinuity = 'replay' | 'native-resume' | 'native-resume-fork' | 'in-place';
 
 export type RuntimeChangeKind =
   | 'provider' | 'local-model' | 'copilot-account' | 'model' | 'account' | 'reasoning' | 'auto-approve';
@@ -122,6 +125,20 @@ export function describeRuntimeChangeCost(
       droppedTokens,
       // A replay costs little; what it leaves behind is told in the sentence, not held for a yes.
       large: false,
+    };
+  }
+
+  // An in-place switch keeps the process, the session and the whole conversation. Only a different model
+  // makes the next message read it again from an empty cache (Claude's cache is per model).
+  if (options.continuity === 'in-place') {
+    if (kind !== 'model' || known === null || options.cacheWarm === false) return null;
+    return {
+      kind,
+      text: `${lead} keeps this session and its whole conversation, and the next message will re-read about ${formatApproxTokens(known)} tokens at full price.`,
+      resendTokens: known,
+      carriedTokens: null,
+      droppedTokens: null,
+      large: known >= LARGE_RESEND_TOKENS,
     };
   }
 

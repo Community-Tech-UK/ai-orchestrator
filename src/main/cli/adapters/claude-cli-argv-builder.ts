@@ -22,7 +22,7 @@ import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT, materializeSubagentWaitingRuleFile, resolveClaudeSubagentPromptArgs } from './claude-subagent-policy';
 import { DEFAULT_DISALLOWED_TOOLS } from './host-cli-tool-policy';
 import { buildPreCompactOverlay, preCompactRoleFor } from './claude-precompact-overlay';
-import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
+import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, isVersionAtLeast, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
 import type {
   ClaudeCliReasoningEffort,
@@ -170,7 +170,7 @@ export interface BuildClaudeCliArgsInput {
 export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   const { spawnOptions, sessionId, materializeInlineJsonArg } = input;
   const cliVersion = resolveClaudeCliVersion(input.cliVersion);
-  const includeSystemPrompt = !!spawnOptions.systemPrompt && (!spawnOptions.resume || isKnownOlderThan(cliVersion, RECORDED_PROMPT_MIN_VERSION));
+  const includeSystemPrompt = !!spawnOptions.systemPrompt;
   const args = [
     '--print',
     '--output-format',
@@ -359,8 +359,10 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--disallowedTools', disallowedTools.join(','));
   }
 
-  // Claude 2.1.267+ records and restores the prompt; known older versions need
-  // the overlay again on resume. An unknown version keeps the existing behavior.
+  // The overlay rides on every spawn, resumes included. The CLI's own record of the
+  // appended prompt does not survive compaction (LT-1183): a resumed session that
+  // was compacted, or compacts later, otherwise runs without it. The same text sent
+  // again records no second copy.
   // Default is APPEND: `--system-prompt` REPLACES Claude Code's entire default
   // system prompt (tool guidance, safety, todo machinery) and also disables
   // --exclude-dynamic-system-prompt-sections. Our orchestration prompt and

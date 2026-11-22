@@ -3,7 +3,8 @@
  *
  * The header already shows the session's own cost. A session that starts helpers (scouts included)
  * spends more through them, so this totals the helper sessions below it. A helper that has not
- * reported a cost yet is counted but not priced: the total is only ever what was reported.
+ * reported a cost yet is counted but not priced: the total is only ever what was reported. Helpers
+ * that finished and left the list are passed in separately so the count survives them.
  */
 
 export interface FanoutInstance {
@@ -21,10 +22,18 @@ export interface FanoutCost {
   costUsd: number;
 }
 
-/** The fan-out below `rootId`, or null when the session has started no helpers. */
-export function summariseFanoutCost(rootId: string, instances: readonly FanoutInstance[]): FanoutCost | null {
+/**
+ * The fan-out below `rootId`, or null when the session has started no helpers. `finished` are helpers
+ * that already left the list (LT-1199); they still count, and a listed helper wins over its finished record.
+ */
+export function summariseFanoutCost(
+  rootId: string,
+  instances: readonly FanoutInstance[],
+  finished: readonly FanoutInstance[] = [],
+): FanoutCost | null {
   const childrenOf = new Map<string, FanoutInstance[]>();
-  for (const instance of instances) {
+  const listed = new Set(instances.map(instance => instance.id));
+  for (const instance of [...instances, ...finished.filter(helper => !listed.has(helper.id))]) {
     if (instance.parentId) childrenOf.set(instance.parentId, [...(childrenOf.get(instance.parentId) ?? []), instance]);
   }
   const seen = new Set<string>([rootId]);

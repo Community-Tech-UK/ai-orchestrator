@@ -144,6 +144,15 @@ describe('turn-ending corpus', () => {
     expect(classifyTurnEnding({ kind: 'error', error: new Error('Stopped by Harness: look-alike text') }).reason).toBe('unknown_error');
   });
 
+  // LT-1148: once the stop error is serialised into an event only its `details` marker survives.
+  it('treats a Harness stop carried only as event details as a deliberate end', () => {
+    const details = { stoppedByHarness: { reason: 'turn-token-ceiling', tokens: 56_382, thresholdTokens: 40_000 } };
+    expect(classifyTurnEnding({ kind: 'error', error: { message: 'Stopped by Harness: this turn passed 40K tokens.', willRetry: false }, metadata: { willRetry: false, details } }))
+      .toMatchObject({ reason: 'completed', evidence: 'harness_stop', autoContinueSuppressed: true });
+    expect(classifyTurnEnding({ kind: 'error', error: 'provider failed', metadata: { details: { stoppedByHarness: { reason: 'other', tokens: 1, thresholdTokens: 1 } } } }).reason)
+      .toBe('unknown_error');
+  });
+
   it('reads saturation usage and open tool calls from adapter metadata when inputs omit them', () => {
     const generationBudget = { model: 'xiaomi-token-plan-ams/mimo-v2.6-pro', combinedOutputTokens: 32_000, reasoningBudgetSupported: false };
     const metadata = { stopReason: 'end_turn', outputTokens: 0, reasoningTokens: 32_000, generationBudget };

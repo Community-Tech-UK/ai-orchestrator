@@ -1776,10 +1776,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       );
     });
 
-    adapter.on('usage', (usage: CliResponse['usage']) => {
+    adapter.on('usage', (usage: CliResponse['usage'], metadata?: CliResponse['metadata']) => {
       if (isStaleAdapterEvent('usage')) return;
       const instance = this.deps.getInstance(instanceId);
-      if (instance) this.recordCompletionCost(instanceId, instance, { id: generateId(), content: '', role: 'assistant', usage });
+      if (instance) this.recordCompletionCost(instanceId, instance, { id: generateId(), content: '', role: 'assistant', usage, ...(metadata ? { metadata } : {}) });
     });
 
     adapter.on('complete', (response: CliResponse) => {

@@ -8,6 +8,7 @@
 import { Injectable, signal } from '@angular/core';
 import { readStorage, writeStorage, type StorageField } from '../../../shared/utils/typed-storage';
 import { getInstanceThreadId } from './instance.types';
+import { FinishedHelpers } from './finished-helpers';
 import type {
   InstanceStoreState,
   Instance,
@@ -36,6 +37,8 @@ export class InstanceStateService {
   private readonly unreadThreadIds = new Set<string>(readStorage(UNREAD_COMPLETIONS_FIELD));
   private transcriptRevision = 0;
   private readonly repairedTranscripts = new Map<string, { revision: number; createdAt: number }>();
+  /** Helpers that finished and left the list while their lead is still listed (LT-1199). */
+  readonly finishedHelpers = new FinishedHelpers();
 
   captureTranscriptRevision(): number { return this.transcriptRevision; }
 
@@ -229,6 +232,13 @@ export class InstanceStateService {
    */
   removeInstance(instanceId: string): void {
     this.repairedTranscripts.delete(instanceId);
+    const leaving = this.getInstance(instanceId);
+    // Remember a leaving helper only while something above it is still listed; a record kept after
+    // its lead is gone would never be cleaned up.
+    const leadStillShown = !!leaving?.parentId
+      && (this.getInstance(leaving.parentId) !== undefined || this.finishedHelpers.has(leaving.parentId));
+    if (leaving && leadStillShown) this.finishedHelpers.retain(leaving);
+    else this.finishedHelpers.forgetBelow(instanceId);
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       const parentId = newMap.get(instanceId)?.parentId;

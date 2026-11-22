@@ -1,6 +1,7 @@
 import type { ProviderTurnEndingReason, TurnEndingClassification } from '@contracts/types/provider-runtime-events';
 import { hasCollapsedReasoning } from './adapters/reasoning-collapse';
 import { isContentFilterEnding } from './adapters/content-filter-ending';
+import { harnessStopDetailsOf } from '../../shared/utils/harness-stop';
 import { findTrailingProviderRefusal, findTrailingTransportFailure } from './transport-failure';
 
 export type { ProviderTurnEndingReason, TurnEndingClassification } from '@contracts/types/provider-runtime-events';
@@ -65,7 +66,8 @@ export function classifyTurnEnding(input: TurnEndingInput): TurnEndingClassifica
   if (cancelled) return result('completed', 'client_cancelled', { autoContinueSuppressed: true });
   // Harness ended this turn on purpose (a round past its token ceiling) and already said so in the transcript:
   // not a provider failure, and nothing may continue it by itself.
-  if (meta['stoppedByHarness'] === true) return result('completed', 'harness_stop', { autoContinueSuppressed: true });
+  // The marker is either the error's own flag or, once the error has been serialised into an event, its `details`.
+  if (meta['stoppedByHarness'] === true || harnessStopDetailsOf(meta['details']) !== null) return result('completed', 'harness_stop', { autoContinueSuppressed: true });
 
   const errorRecord = record(input.error);
   const errorText = input.error instanceof Error ? input.error.message : typeof input.error === 'string' ? input.error : typeof errorRecord['message'] === 'string' ? errorRecord['message'] : '';

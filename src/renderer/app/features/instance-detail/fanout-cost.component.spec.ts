@@ -4,21 +4,25 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { FanoutCostComponent } from './fanout-cost.component';
 import type { FanoutInstance } from './fanout-cost';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceQueries } from '../../core/state/instance/instance.queries';
 import { SettingsStore } from '../../core/state/settings.store';
 
 const node = (id: string, parentId: string | null, costEstimate?: number): FanoutInstance => ({ id, parentId, contextUsage: costEstimate === undefined ? {} : { costEstimate } });
 
 describe('FanoutCostComponent', () => {
   const instances = signal<FanoutInstance[]>([]);
+  const finishedHelpers = signal<FanoutInstance[]>([]);
   const showCost = signal(true);
 
   beforeEach(() => {
     instances.set([]);
+    finishedHelpers.set([]);
     showCost.set(true);
     TestBed.configureTestingModule({
       imports: [FanoutCostComponent],
       providers: [
         { provide: InstanceStore, useValue: { instances } },
+        { provide: InstanceQueries, useValue: { finishedHelpers } },
         { provide: SettingsStore, useValue: { showCost } },
       ],
     });
@@ -55,5 +59,13 @@ describe('FanoutCostComponent', () => {
     instances.set([node('lead', null), node('s1', 'lead', 3)]);
     showCost.set(false);
     expect(chip(render())).toBe('1 helper');
+  });
+
+  it('keeps showing the helpers once every one of them has finished and left the list', () => {
+    instances.set([node('lead', null), node('s1', 'lead', 0.4), node('s2', 'lead')]);
+    expect(chip(render())).toBe('2 helpers ≈$0.40+');
+    instances.set([node('lead', null)]);
+    finishedHelpers.set([node('s1', 'lead', 0.4), node('s2', 'lead')]);
+    expect(chip(render())).toBe('2 helpers ≈$0.40+');
   });
 });

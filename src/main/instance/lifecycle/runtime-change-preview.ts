@@ -14,6 +14,7 @@ import { resolveCacheLifetimeMs, trustedContextTokens } from '../../../shared/ut
 import { describeRuntimeChangeCost, type RuntimeChangeCostNote } from '../../../shared/utils/runtime-change-cost';
 import type { CliType } from '../../cli/cli-detection';
 import { readAccountContinuation } from './account-continuation-policy';
+import { canTryLiveSwitch } from './runtime-live-switch';
 import { computeRuntimeDiff, planRuntimeContinuity } from './runtime-reconciler-plan';
 import type { RuntimeAdapterCapabilities } from './runtime-reconciler.types';
 
@@ -52,7 +53,9 @@ export function previewRuntimeChange(
   if (!diff.hasChanges) return null;
 
   const localModel = desired.modelRuntimeTarget?.kind === 'local-model';
-  const continuity = planRuntimeContinuity({
+  // The reconciler tries a live switch first and replays only if it is refused, so that is the planned path.
+  const liveSwitch = canTryLiveSwitch({ diff, desired, instance, adapter: deps.getAdapter(instanceId) });
+  const continuity = liveSwitch ? 'in-place' : planRuntimeContinuity({
     diff,
     capabilities,
     // Same gate as the reconciler: a turn the provider never stored cannot

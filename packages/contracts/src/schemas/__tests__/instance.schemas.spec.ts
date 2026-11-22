@@ -406,6 +406,14 @@ describe('InstanceCompactStatusEventSchema contextUsage (LT-018)', () => {
     expect(parsed.success).toBe(true);
   });
 
+  it('accepts a completed event whose usage carries the per-call cache accounting', () => {
+    const cached = { ...usage, uncachedInput: 2, cacheRead: 50_266, cacheWrite: 17_381, mainThread: true, callId: 'msg_synthetic' };
+    expect(InstanceCompactStatusEventSchema.safeParse({
+      instanceId: 'inst-1', status: 'completed', success: true, method: 'native', blocking: true,
+      previousUsage: cached, newUsage: cached,
+    }).success).toBe(true);
+  });
+
   it('still rejects a genuinely unknown key, so strictness is not weakened', () => {
     const parsed = InstanceCompactStatusEventSchema.safeParse({
       instanceId: 'inst-1',

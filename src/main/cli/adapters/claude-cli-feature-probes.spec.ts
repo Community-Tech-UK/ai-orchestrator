@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const cache = vi.hoisted(() => ({ peek: vi.fn() }));
 vi.mock('../cli-detection', () => ({ getCliDetectionService: () => ({ peekCachedResult: cache.peek }) }));
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
-import { isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
+import { resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { ClaudeCliAdapter } from './claude-cli-adapter';
 import type { CliStatus } from './base-cli-adapter';
 
@@ -17,10 +17,6 @@ describe('Claude version resolution', () => {
     cache.peek.mockReturnValue(null);
     expect(resolveClaudeCliVersion(undefined)).toBeNull();
     expect(resolveClaudeCliVersion('unknown')).toBeNull();
-  });
-  it('known-old check rejects missing and malformed versions', () => {
-    expect(isKnownOlderThan('2.1.266', '2.1.267')).toBe(true);
-    for (const version of [null, undefined, 'unknown', 'bad', '2.1.267', '2.1.296']) expect(isKnownOlderThan(version, '2.1.267')).toBe(false);
   });
   it('loop-style auto-approve gets the cache flag from detection without a version subprocess', async () => {
     cache.peek.mockReturnValue({ detected: [{ name: 'claude', version: '2.1.296' }] });
@@ -41,7 +37,7 @@ describe('Claude version resolution', () => {
     expect(check).toHaveBeenCalledOnce();
     const args = internals.buildArgs({});
     expect(args.includes('--exclude-dynamic-system-prompt-sections')).toBe(version === '2.1.296');
-    expect(args.includes('--append-system-prompt')).toBe(version === '2.1.266');
+    expect(args).toContain('--append-system-prompt');
   });
 });
 
@@ -77,6 +73,6 @@ describe('worker version subprocess seam', () => {
     expect((await adapter.checkStatus()).version).toBe(version);
     const args = internals.buildArgs({});
     expect(args.includes('--exclude-dynamic-system-prompt-sections')).toBe(version === '2.1.296');
-    expect(args.includes('--append-system-prompt')).toBe(version === '2.1.266');
+    expect(args).toContain('--append-system-prompt');
   });
 });

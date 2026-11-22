@@ -23,4 +23,12 @@ describe('summariseFanoutCost', () => {
   it('survives a parent cycle', () => {
     expect(summariseFanoutCost('a', [node('a', 'b', 1), node('b', 'a', 1)])).toEqual({ count: 1, pricedCount: 1, unpricedCount: 0, costUsd: 1 });
   });
+
+  it('still counts helpers that finished and left the list, and lets a listed helper win over its finished record', () => {
+    const finished = [node('s1', 'lead', 0.4), node('s2', 'lead'), node('grandchild', 's1', 0.1), node('s3', 'lead', 0.3)];
+    expect(summariseFanoutCost('lead', [node('lead', null)], finished))
+      .toEqual({ count: 4, pricedCount: 3, unpricedCount: 1, costUsd: expect.closeTo(0.8, 6) });
+    expect(summariseFanoutCost('lead', [node('lead', null), node('s3', 'lead', 0.5)], finished))
+      .toEqual({ count: 4, pricedCount: 3, unpricedCount: 1, costUsd: expect.closeTo(1, 6) });
+  });
 });

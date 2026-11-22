@@ -548,6 +548,13 @@ const ContextUsageEventSchema = z.object({
   // `.strict()` rejects the whole event on an unknown key, so omitting this
   // would fail every compact-status completed on an aggregate-only provider.
   occupancyIsAggregate: z.boolean().optional(),
+  // Per-call cache accounting the Claude adapter attaches to the live usage object (see instance-cache-usage.ts).
+  // Same rule as above: an unmirrored key made every Claude `compact-status` `completed` fail validation (seen 11 Nov 2026).
+  uncachedInput: z.number().nonnegative().finite().optional(),
+  cacheRead: z.number().nonnegative().finite().optional(),
+  cacheWrite: z.number().nonnegative().finite().optional(),
+  mainThread: z.boolean().optional(),
+  callId: z.string().min(1).max(500).optional(),
 }).strict();
 
 export const ContextWarningEventSchema = z.union([

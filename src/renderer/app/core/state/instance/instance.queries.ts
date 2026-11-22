@@ -40,6 +40,9 @@ export class InstanceQueries {
     Array.from(this.stateService.state().instances.values())
   );
 
+  /** Helpers that already finished and left the list, kept so a lead's helper count survives them. */
+  readonly finishedHelpers = this.stateService.finishedHelpers.list;
+
   /** Instances as Map for direct lookup */
   readonly instancesMap = computed(() => this.stateService.state().instances);
 

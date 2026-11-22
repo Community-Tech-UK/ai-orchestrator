@@ -82,6 +82,42 @@ describe('previewRuntimeChange: Claude replays, so the new session gets a short 
   });
 });
 
+describe('previewRuntimeChange: a resident Claude session switches in place (LT-1181)', () => {
+  const resident = {
+    getRuntimeCapabilities: () => ({ supportsResume: true, supportsForkSession: false }),
+    applyLiveRuntime: async () => ({ ok: true }),
+    getAdapterCapabilities: () => ({ residentSession: true }),
+  };
+
+  it('says the conversation is kept and the next message re-reads it at full price, and asks first when that is large', () => {
+    const note = preview(makeInstance(), { model: 'claude-sonnet-4-6' }, resident);
+    expect(note).toMatchObject({ kind: 'model', resendTokens: 230_000, large: true, carriedTokens: null, droppedTokens: null });
+    expect(note?.text).toBe('Switching model keeps this session and its whole conversation, and the next message will re-read about 230K tokens at full price.');
+    expect(note?.text).not.toContain('new session');
+  });
+
+  it('does not ask first for a small session', () => {
+    const small = makeInstance({ contextUsage: { used: 60_000, total: 1_000_000, percentage: 6, occupancyReported: true } });
+    expect(preview(small, { model: 'claude-sonnet-4-6' }, resident)).toMatchObject({ large: false, resendTokens: 60_000 });
+  });
+
+  it('says nothing for an effort-only change, which keeps the session and its cache', () => {
+    expect(preview(makeInstance(), { model: 'claude-opus-4-7', reasoningEffort: 'max' }, resident)).toBeNull();
+  });
+
+  it('does not claim a re-read cost once the cache has expired', () => {
+    expect(preview(makeInstance({ lastActivity: NOW - 3 * 60 * MIN }), { model: 'claude-sonnet-4-6' }, resident)).toBeNull();
+  });
+
+  it('still describes a replay when the session is not resident, remote, or the change is a provider switch', () => {
+    const notResident = { ...resident, getAdapterCapabilities: () => ({ residentSession: false }) };
+    expect(preview(makeInstance(), { model: 'claude-sonnet-4-6' }, notResident)?.text).toMatch(/^Switching model starts a new session/);
+    const remote = makeInstance({ executionLocation: { type: 'remote' } } as Partial<Instance>);
+    expect(preview(remote, { model: 'claude-sonnet-4-6' }, resident)?.text).toMatch(/^Switching model starts a new session/);
+    expect(preview(makeInstance(), { provider: 'gemini', model: 'gemini-3-pro' }, resident)?.text).toMatch(/^Switching provider starts a new session/);
+  });
+});
+
 describe('previewRuntimeChange: providers that resume read the whole conversation again', () => {
   const codex = (patch: Partial<Instance> = {}) => makeInstance({ provider: 'codex', currentModel: 'gpt-6-astra', ...patch });
 

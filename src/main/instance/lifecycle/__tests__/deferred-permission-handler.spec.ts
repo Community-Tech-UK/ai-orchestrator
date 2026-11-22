@@ -124,6 +124,7 @@ describe('DeferredPermissionHandler', () => {
         workingDirectory: instance.workingDirectory,
         model: instance.currentModel,
         resume: true,
+        residentClaude: true,
       }),
       instance.executionLocation,
     );

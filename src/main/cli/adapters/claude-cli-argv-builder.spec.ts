@@ -192,13 +192,13 @@ describe('buildClaudeCliArgs', () => {
     expect(new Set(merged).size).toBe(merged.length); // deduped
   });
 
-  it('does not pass --system-prompt when resuming', () => {
+  it('appends the overlay again when resuming, and never replaces the default prompt (LT-1183)', () => {
     const args = buildClaudeCliArgs(baseInput({
       spawnOptions: { resume: true, systemPrompt: 'be helpful' },
       sessionId: 'sess-3',
     }));
     expect(args).not.toContain('--system-prompt');
-    expect(args).not.toContain('--append-system-prompt');
+    expect(args).toEqual(expect.arrayContaining(['--append-system-prompt', 'be helpful']));
   });
 
   it('uses --append-system-prompt by default and --system-prompt for replace mode', () => {
@@ -260,10 +260,10 @@ describe('Claude version gates', () => {
     expect(buildClaudeCliArgs(input)).toContain('--exclude-dynamic-system-prompt-sections');
     expect(buildClaudeCliArgs({ ...input, excludeDynamicSectionsSupported: false })).not.toContain('--exclude-dynamic-system-prompt-sections');
   });
-  it.each([['2.1.266', true], ['2.1.267', false], [null, false]] as const)('resume at %s carries overlay: %s', (cliVersion, carries) => {
+  it.each(['2.1.266', '2.1.267', '2.1.322', null])('resume at %s carries the overlay (LT-1183)', cliVersion => {
     const args = buildClaudeCliArgs(baseInput({ cliVersion, shouldUseNativeResume: true, sessionId: 'stub-session',
       spawnOptions: { resume: true, systemPrompt: 'STUB_OVERLAY' } }));
-    expect(args.includes('--append-system-prompt')).toBe(carries);
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toBe('STUB_OVERLAY');
   });
 });
 
@@ -385,7 +385,7 @@ describe('Claude Bash cap in final argv (Step 9a)', () => {
     expect(settings(args)).toEqual({ bashOutputMaxChars: 12_000 });
     expect(args).toEqual(expect.arrayContaining(['--resume', 'placeholder-resume']));
     expect(args).not.toContain('--session-id');
-    expect(args).not.toContain('--append-system-prompt');
+    expect(args).toEqual(expect.arrayContaining(['--append-system-prompt', 'placeholder overlay']));
   });
 
   it('materializes the merged cap overlay through the final argv settings argument', () => {

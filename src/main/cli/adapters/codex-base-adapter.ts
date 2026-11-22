@@ -38,11 +38,15 @@ export abstract class CodexBaseAdapter extends BaseCliAdapter {
   protected readonly usageAccounting = new CodexUsageAccounting();
   protected readonly ephemeralUsage: CodexEphemeralUsageTracker;
 
-  protected flushPartialUsage(): void {
+  /**
+   * Books spend that never reached a completed response (a stopped, interrupted or failed round).
+   * `turn` names the round so its cost row carries the same identity as its turn-share row (Costs lists it once).
+   */
+  protected flushPartialUsage(turn?: { threadId: string; turnId?: string | null }): void {
     const usage = this.usageAccounting.take(this.cliConfig.model);
     if (!usage) return;
     this.cumulativeCostUsd += usage.cost ?? 0;
-    this.emit('usage', usage);
+    this.emit('usage', usage, turn?.turnId ? { codexTurn: { threadId: turn.threadId, turnId: turn.turnId } } : undefined);
     // Re-publish the authoritative total; notification spend is already included.
     this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
     const contextWindow = this.resolveContextWindow();

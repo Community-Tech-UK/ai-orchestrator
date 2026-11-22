@@ -18,7 +18,6 @@ export function helpAdvertisesExcludeDynamicSections(helpOutput: string): boolea
 }
 
 export const EXCLUDE_DYNAMIC_MIN_VERSION = '2.1.268';
-export const RECORDED_PROMPT_MIN_VERSION = '2.1.267';
 
 function parseVersion(version: string | undefined | null): number[] | null {
   return version && /^\d+\.\d+\.\d+$/.test(version) ? version.split('.').map(Number) : null;
@@ -32,10 +31,6 @@ export function isVersionAtLeast(version: string | undefined | null, minimumVers
     if (current[index] !== minimum[index]) return current[index] > minimum[index];
   }
   return true;
-}
-
-export function isKnownOlderThan(version: string | undefined | null, minimumVersion: string): boolean {
-  return !!parseVersion(version) && !!parseVersion(minimumVersion) && !isVersionAtLeast(version, minimumVersion);
 }
 
 /** One fallback for main-process callers; workers probe their machine when it returns null. */

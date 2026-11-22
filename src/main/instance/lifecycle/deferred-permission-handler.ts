@@ -20,6 +20,7 @@ import { planSessionRecovery, computeResumeConfigFingerprint } from './session-r
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { applyProviderSessionDurability } from './provider-session-durability';
 import { livePermissionsOf, type ResumeDeferredOptions } from './deferred-permission-options';
+import { residentClaudeForSpawn } from './interrupt-utils';
 import { harnessRefusal } from '../../cli/adapters/claude-permission-response';
 
 const logger = getLogger('DeferredPermissionHandler');
@@ -306,6 +307,9 @@ export class DeferredPermissionHandler {
         reasoningEffort: instance.reasoningEffort,
         bare: instance.bareMode === true,
         resume: true,
+        // Every other respawn keeps the session resident; without this the resumed adapter could not
+        // steer, interrupt or compact natively for the rest of the session (LT-1182).
+        residentClaude: residentClaudeForSpawn(instance),
         mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),
         chromeDevtoolsMcp: this.ops.getChromeDevtoolsMcpOptions?.(instance.executionLocation, instance.id) ?? undefined,
         browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(

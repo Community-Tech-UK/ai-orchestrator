@@ -31,6 +31,7 @@ import {
   type InstanceAttachment,
 } from './instance-attachments';
 import { deserializeInstanceProvider } from './instance-list-provider-helpers';
+import { UpdateBatcherService } from '../../services/update-batcher.service';
 
 export type { CreateInstanceWithMessageOptions };
 
@@ -53,6 +54,7 @@ function describeResyncFailure(error: { code?: string; message?: string } | unde
 @Injectable({ providedIn: 'root' })
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
+  private batcher = inject(UpdateBatcherService);
   private ipc = inject(IpcFacadeService);
   private fileIpc = inject(FileIpcService);
   private providerState = inject(ProviderStateService);
@@ -98,6 +100,8 @@ export class InstanceListStore {
    * Remove an instance from the store (called from IPC listener)
    */
   removeInstance(instanceId: string): void {
+    // A short helper reports its cost and leaves within seconds: apply that last update before it goes.
+    this.batcher.forceFlush();
     this.stateService.removeInstance(instanceId);
   }
 

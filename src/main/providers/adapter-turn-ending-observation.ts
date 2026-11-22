@@ -114,7 +114,7 @@ export class AdapterTurnEndingObservation {
         outputTokens: response.usage?.isEstimated ? undefined : response.usage?.outputTokens ?? event.outputTokens,
         reasoningTokens: response.usage?.reasoningTokens ?? event.reasoningTokens,
         cancelled: response.degradedReason === 'cancelled' || this.cancelled,
-      } : { error: raw, metadata: { ...raw as Record<string, unknown>, ...(this.providerRetrying ? { providerRetrying: true } : {}) } }),
+      } : { error: raw, metadata: { ...raw as Record<string, unknown>, ...(event.kind === 'error' && event.details ? { details: event.details } : {}), ...(this.providerRetrying ? { providerRetrying: true } : {}) } }),
       thinking: [...this.thinking.values(), ...readReasoningBlocks(response?.thinking)],
       hasOpenToolCall: this.openTools.size > 0,
       lastToolReadLike: this.lastToolReadLike,

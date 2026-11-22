@@ -102,7 +102,7 @@ export class InstanceReasoningCollapseContinuation {
       && event.requestCountAtCompletion !== instance.requestCount)) return;
     const payload = record(envelope.raw?.payload);
     const classification = event.turnEnding ?? classifyTurnEnding({
-      kind: event.kind, metadata: { ...(event.stopReason ? { stopReason: event.stopReason } : {}), ...(event.finish ? { finish: event.finish } : {}), ...completionMetadata(envelope) }, raw: envelope.raw?.payload,
+      kind: event.kind, metadata: { ...(event.stopReason ? { stopReason: event.stopReason } : {}), ...(event.finish ? { finish: event.finish } : {}), ...(event.kind === 'error' && event.details ? { details: event.details } : {}), ...completionMetadata(envelope) }, raw: envelope.raw?.payload,
       text: typeof payload?.['content'] === 'string' ? payload['content'] : typeof payload?.['result'] === 'string' ? payload['result'] : undefined,
       error: event.kind === 'error' ? envelope.raw?.payload : undefined,
     });

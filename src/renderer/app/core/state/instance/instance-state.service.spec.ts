@@ -78,6 +78,30 @@ describe('InstanceStateService unread completion persistence', () => {
     expect(first.isThreadUnread('thread-removed')).toBe(true);
   });
 
+  it('remembers a helper that leaves the list while its lead stays, and forgets the fan-out with the lead (LT-1199)', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('lead'));
+    service.addInstance({ ...instance('scout'), parentId: 'lead', contextUsage: { used: 1, total: 2, percentage: 50, costEstimate: 0.4 } });
+
+    service.removeInstance('scout');
+    expect(service.getInstance('scout')).toBeUndefined();
+    expect(service.finishedHelpers.list()).toEqual([{ id: 'scout', parentId: 'lead', contextUsage: { costEstimate: 0.4 } }]);
+
+    service.removeInstance('lead');
+    expect(service.finishedHelpers.list()).toEqual([]);
+  });
+
+  it('does not keep a helper that leaves after its lead has already left (LT-1199)', () => {
+    const service = new InstanceStateService();
+    service.addInstance(instance('lead'));
+    service.addInstance({ ...instance('scout'), parentId: 'lead' });
+
+    service.removeInstance('lead');
+    service.removeInstance('scout');
+
+    expect(service.finishedHelpers.list()).toEqual([]);
+  });
+
   it('carries the dot across a restore that mints a new instance id', () => {
     // Restore/fork/crash-recovery all mint a fresh instance id for the same
     // thread. Keying by instance id stranded the marker in that case too.

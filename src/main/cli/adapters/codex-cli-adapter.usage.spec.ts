@@ -28,12 +28,13 @@ function harness() {
     (adapter as unknown as { handleIdleAppServerNotification(n: AppServerNotification): void }).handleIdleAppServerNotification(notification));
   const completions: CliResponse[] = [];
   const partials: CliResponse['usage'][] = [];
+  const partialMetadata: unknown[] = [];
   const contexts: { used: number; total: number; cumulativeTokens: number }[] = [];
   adapter.on('complete', response => completions.push(response));
-  adapter.on('usage', usage => partials.push(usage));
+  adapter.on('usage', (usage, metadata) => { partials.push(usage); partialMetadata.push(metadata); });
   adapter.on('context', context => contexts.push(context));
   return {
-    adapter, completions, partials, contexts,
+    adapter, completions, partials, partialMetadata, contexts,
     notify(notification: AppServerNotification) { for (const listener of listeners) listener(notification); },
     async send(events: AppServerNotification[], status = 'completed', usage?: Record<string, number>) {
       transportError = status === 'transport-error';
@@ -267,6 +268,8 @@ describe('Codex cumulative usage accounting', () => {
     expect(h.completions[0].usage?.totalTokens).toBe(120);
     await vi.waitFor(() => expect(h.partials).toMatchObject([{ totalTokens: 60, isEstimated: true }]), { timeout: 2_000 });
     expect(scans).toBe(2);
+    // LT-1180: a late helper receipt belongs to the round that spawned it, or Costs lists it as a turn of its own.
+    expect(h.partialMetadata).toEqual([{ codexTurn: { threadId: 'root', turnId: expect.stringMatching(/^turn-/) } }]);
   });
 
   it('records streamed interrupted output as an estimate without charging the next native call twice', async () => {
@@ -305,6 +308,15 @@ describe('Codex cumulative usage accounting', () => {
     await h.send([update(sample(150, 100, 30, 6), sample(50, 20, 10, 2))]);
     expect(h.completions[0].usage?.totalTokens).toBe(60);
     expect(h.partials).toHaveLength(1);
+  });
+
+  // LT-1149: the cost row for a stopped or failed round must name its round, or Costs lists the round twice.
+  it.each(['failed', 'interrupted'])('names the round on the partial usage of a %s turn', async status => {
+    const h = harness();
+    const first = h.send([update(sample(100, 80, 20, 4))], status);
+    if (status === 'failed') await expect(first).rejects.toThrow('Codex turn failed');
+    else await first;
+    expect(h.partialMetadata).toEqual([{ codexTurn: { threadId: 'root', turnId: 'turn-1' } }]);
   });
 
   it('uses an observed idle/resume baseline without charging historical spend', async () => {

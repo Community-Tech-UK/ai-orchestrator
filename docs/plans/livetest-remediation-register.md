@@ -587,6 +587,154 @@ Source branch had no register entries left (its branch was removed); these rows 
 | LT-1132 | P2 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** A tool permission left waiting for a person was treated as a silent, stuck process: a warning at about 20 minutes and, at 40 minutes 55 seconds, the stuck-process watchdog killed the Claude CLI and cancelled the loop's request. The watchdog already skipped live permission cards but not the hook-deferred path used for Bash. It now skips both. | [LT-1132 detail](#lt-1132) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
 | LT-1133 | P2 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** After a person clicked **Don't allow** on a tool permission held inside a running `/goal`, the loop kept starting iterations that repeated the same question to the model: seven in about a minute, about $0.04, until it was stopped by hand. The loop now pauses as soon as a person declines a call it is holding, and waits for them to resume or stop it. A refusal by a saved rule or the reviewer (nobody asked) does not pause it. | [LT-1133 detail](#lt-1133) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
 | LT-1134 | P3 | **SEEN ONCE (14 November 2026, test Mac), NOT REPRODUCED in four follow-up live runs; cause unconfirmed; not repaired.** After **Don't allow** on a Bash permission in an ordinary chat, the transcript line was worded "Cancelled when the session closed" (Bash) instead of "You said no: Bash". That wording is only ever written for a card that closed because its session went away, never for a refusal. Later runs on the same build showed "You said no: Bash" every time, live and after a reload from stored history. | [LT-1134 detail](#lt-1134) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#lt-1134-follow-up-14-november-2026) |
+| LT-1147 | P2 | **FIXED IN WORKTREE 11 NOV 2026; regression-tested.** The native RTK hook probe (`scripts/audit/rtk-native-hook-probe.mjs`) never turned the hook's rewrite-only mode on: it passed a `--rewrite-only` argument the hook ignores and deleted the environment variable the hook reads, so its ON arm ran the ordinary defer hook and the provider parked the first call (`tool_deferred`, one call instead of four). | [LT-1147 detail](#lt-1147) | [Phase D livetest, evidence run 11 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-11-queue-worker) |
+| LT-1148 | P2 | **FIXED IN WORKTREE 11 NOV 2026; regression-tested; live-rechecked on a rebuilt dev app (2 notices only).** After a Codex chat round is stopped by Harness, the transcript also showed "The provider ended this turn with an error" with a Retry action. The stop's marker survived only in the event's `details`, which the turn-ending classifier did not read. | [LT-1148 detail](#lt-1148) | [Phase D livetest, evidence run 11 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-11-queue-worker) |
+| LT-1149 | P3 | **FIXED IN WORKTREE 11 NOV 2026; regression-tested; live-rechecked (one row per stopped round).** Costs "Biggest turns this week" listed a Harness-stopped Codex round twice, because the partial usage written for an interrupted round carried no turn identity for the de-duplication. | [LT-1149 detail](#lt-1149) | [Phase D livetest, evidence run 11 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-11-queue-worker) |
+| LT-1150 | P2 | **FIXED IN WORKTREE 11 NOV 2026; regression-tested; rebuilt-app check pending.** Every Claude `instance:compact-status` `completed` event was dropped by the renderer-event check (`Unrecognized keys: uncachedInput, cacheRead, cacheWrite, mainThread, callId` in `previousUsage`), the failure LT-018 describes: the renderer keeps showing "compacting". | [LT-1150 detail](#lt-1150) | [Phase D livetest, evidence run 11 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-11-queue-worker) |
+| LT-1179 | P3 | **FIXED IN WORKTREE 16 NOV 2026; regression-tested; live-rechecked.** After Harness stops a Codex round that was started as Harness work (an automation run), the transcript still gets a third notice, "The provider ended this turn with an error", with a Retry button, as if the provider had failed. | [LT-1179 detail](#lt-1179) | [Phase D livetest, evidence run 16 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-16-queue-worker-round-4) |
+| LT-1180 | P3 | **FIXED IN WORKTREE 16 NOV 2026; regression-tested; live recheck inconclusive (late helper receipts did not recur).** Costs "Biggest turns this week" listed each late helper receipt of a Codex round as a separate turn (five extra rows, 38K to 84K tokens, beside the round's own 329K row), so one helper round appeared six times. | [LT-1180 detail](#lt-1180) | [Phase D livetest, evidence run 16 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-16-queue-worker-round-4) |
+| LT-1181 | P2 | **FIXED IN WORKTREE 16 NOV 2026; regression-tested; live-rechecked (small chat; the 100K hold is unit-tested only).** The cost sentence shown before a Claude model switch said "starts a new session with a short summary ... the rest does not carry over", but a resident local Claude session switches in place and keeps the whole conversation. The picker showed that sentence under the correct "Switches in place" line, and the held question asked for a yes for the wrong reason. | [LT-1181 detail](#lt-1181) | [Phase D livetest, evidence run 16 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-16-queue-worker-resumed) |
+| LT-1182 | P2 | **FIXED IN WORKTREE 16 NOV 2026; regression-tested; live-rechecked.** After a person approved a permission request once ("Allow this once"), the respawned Claude adapter was no longer a resident session, so Compact now silently replaced the session (new process, new session id, short summary) instead of compacting in place, and occupancy fell back to aggregate-only. | [LT-1182 detail](#lt-1182) | [Phase D livetest, evidence run 16 Nov 2026](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-16-queue-worker-resumed) |
+| LT-1183 | P1 | **OPEN, FIX IN WORKTREE (16 NOV 2026).** A Claude session resumed with `--resume` and no re-sent Harness system prompt (the CLI is assumed to restore it from 2.1.267) loses that prompt once the conversation has been compacted: after Compact now then an app restart and history restore, or after a resume then Compact now. The whole Harness overlay is gone, including the reviewer rule, while the Sonnet helper setting still applies, so a review helper from an Opus root runs on Sonnet. | [LT-1183 detail](#lt-1183) | [Phase D livetest, evidence run 16 Nov 2026 (fourth session)](2026-10-20-oct2-phaseD-tokens_livetest.md#evidence-run--2026-11-16-queue-worker-fourth-session) |
+
+<a id="lt-1179"></a>
+
+## LT-1179
+
+### LT-1179 — A Harness-stopped Codex round still gets "The provider ended this turn with an error"
+
+**Status: fixed in the worktree 16 November 2026; regression-tested; live-rechecked.** Same symptom as LT-1148, which fixed the chat route only.
+
+### Observed behaviour
+
+Dev app, Codex automation run (a Harness-work round) with wrap-up at 80K and stop at 250K tokens, one helper thread. The transcript
+showed the wrap-up notice, "Stopped by Harness: this turn passed 250K tokens.", and then a third notice, "The provider ended this
+turn with an error. Your message and the work above are kept." (metadata `source: unknown-error`, `action: retry`). Two runs, same result.
+
+### Root cause
+
+Proved with a temporary log line (removed). The provider error event carried the Harness-stop marker in `details` and the bridge
+classified it as `harness_stop`. `AdapterTurnEndingObservation.enrich` then re-classified the error from the raw payload, which on
+this route is the serialised `{message, willRetry}` object with no marker, got `unknown_error`, and its result replaced the bridge's
+(`adapter-turn-ending-observation.ts`, the `: classified` branch). The continuation service posts a notice for any non-`completed` ending.
+
+### Required behaviour and acceptance
+
+A Harness stop produces the wrap-up and stop notices only. Fix: the observation's error-branch metadata also carries the event's
+`details`, so the classifier sees the marker. Acceptance (met): new spec `adapter-turn-ending-observation.spec.ts` (fails without
+the fix, passes with it); live, the same automation on the rebuilt app (271,594 tokens) shows exactly the wrap-up and stop notices.
+
+<a id="lt-1180"></a>
+
+## LT-1180
+
+### LT-1180 — Costs lists each late helper receipt of a Codex round as a turn of its own
+
+**Status: fixed in the worktree 16 November 2026; regression-tested; live recheck inconclusive.** Same class as LT-1149.
+
+### Observed behaviour
+
+Dev app, Codex chat that used one helper thread. "Biggest turns this week" (`biggestTurns` in the cost purpose summary) held the
+round (`codex-round`, 328,911 tokens, helper share 53%) and five more rows from the same chat at 13:22:58 to 13:23:12
+(`turn-cost`: 38,055, 49,585, 61,111, 72,646, 84,229). Those five are the increments between the round's share revisions
+(helper tokens 26,460, 64,515, 114,100, 175,211: 64,515 minus 26,460 is 38,055, and so on), so the same helper work was listed
+again as turns. Five of the ten rows were fragments of one round.
+
+### Root cause
+
+`scheduleChildRolloutRetry` reconciles helper rollouts after the round ended and then calls `flushPartialUsage()` with no round
+identity (`codex-app-server-turn-adapter.ts`). The cost row therefore has no `codexTurn`, and `collectBiggestTurns` keeps any row it
+cannot match to a share row (`cost-biggest-turns.ts`). The retry already knows `rootThreadId` and `rootTurnId`.
+
+### Required behaviour and acceptance
+
+One round, one row. Fix: pass `{ threadId: rootThreadId, turnId: rootTurnId }` to that flush. Acceptance (met): the case "persists
+a child receipt that appears just after root finalization" in `codex-cli-adapter.usage.spec.ts` now asserts the identity (fails
+without the fix, passes with it). Live: two reruns on the rebuilt app produced a single `codex-round` row per chat and no fragments,
+but their helper receipts all arrived inside the round, so the late path itself was not exercised again; not claimed as live-verified.
+
+<a id="lt-1181"></a>
+
+## LT-1181
+
+### LT-1181 — The "what will this cost" sentence for a Claude model switch describes a replay that does not happen
+
+**Status: fixed in the worktree 16 November 2026; regression-tested; live-rechecked on a small chat (12K tokens); the 100K hold is covered by unit tests only.**
+
+### Observed behaviour
+
+Test Mac dev app, local resident Claude chat at 230,607 tokens, idle. The header model picker showed two notes at once: the fixed
+"Switches in place. The whole conversation, including tool results, is kept. The next reply re-reads it at the new model's price
+(about 231K tokens)." and, on pointing at Opus, "Switching model starts a new session with a short summary of this one (your first
+request, the last 24 messages and open to-dos: up to 9K of the 230K tokens here ...); the rest does not carry over." Choosing it held
+the change with that second sentence and "Switch anyway / Keep current". Keep current left the model, process and session untouched.
+Switch anyway then ran an in-place switch: same process id, same session id, restart count 0, notice "Switched from claude-sonnet-5-5
+to opus[1m] in place. The whole conversation, including tool results, was kept."
+
+### Root cause
+
+`previewRuntimeChange` plans continuity with `planRuntimeContinuity`, which says Claude model changes replay. The reconciler tries
+`canTryLiveSwitch` first (`runtime-reconciler.ts`) and only replays if that is refused, so for a resident local Claude session the
+preview described the fallback, not the planned path.
+
+### Required behaviour and acceptance
+
+The preview takes the same first step as the reconciler. For a model change that `canTryLiveSwitch` accepts it says the session and its
+whole conversation are kept and the next message re-reads about N tokens at full price, and asks first from 100K tokens; an effort-only
+live change says nothing. Everything else is unchanged. Acceptance: new group in `runtime-change-preview.spec.ts` (fails without the
+fix; 43 of 43 pass with `runtime-change-cost.spec.ts`). Rebuilt app: the pointed-at note and the held question agree with the fixed
+note and with what the switch then does.
+
+<a id="lt-1182"></a>
+
+## LT-1182
+
+### LT-1182 — A session that had a permission request approved once is no longer resident, so Compact now replaces it
+
+**Status: fixed in the worktree 16 November 2026; regression-tested; live-rechecked.**
+
+### Observed behaviour
+
+Test Mac dev app, two chats on Claude Code 2.1.322 (above the 2.1.310 native-compaction minimum). Chat A (no permission prompts): Compact now
+returned `method: native`, same process, same session id. Chat B: a Bash call asked for permission, "Allow this once" was pressed, the
+turn finished (idle), then Compact now returned `method: restart-with-summary`: new process, new session id, the old transcript archived.
+Log: `Resuming after deferred permission` then `restart-with-summary compaction completed`; no native attempt. The same happened to a chat
+that had been approved while a background job was running. Occupancy after the respawn is reported `occupancyIsAggregate: true`.
+
+### Root cause
+
+`DeferredPermissionHandler` builds the resume spawn options without `residentClaude` (`deferred-permission-handler.ts`). Every other
+respawn site passes `residentClaudeForSpawn(instance)`, and `getAdapterCapabilities().residentSession` needs it, so the resumed adapter
+had no resident capabilities: no native compaction, no live interrupt or steer, aggregate-only occupancy.
+
+### Required behaviour and acceptance
+
+The resumed adapter is resident like every other respawn. Fix: pass `residentClaude: residentClaudeForSpawn(instance)`. Acceptance: the
+`deferred-permission-handler.spec.ts` resume case asserts `residentClaude: true` (18 of 18 pass). Rebuilt app: after "Allow this once" the
+tool still runs, the chat returns to idle, and Compact now reports `method: native` on the same process and session.
+
+## LT-1183
+
+### LT-1183 — A resumed Claude session loses Harness's system prompt after compaction
+
+**Status: open; fix in the worktree 16 November 2026 (see the Phase D livetest, fourth session).**
+
+### Observed behaviour
+
+Mac dev app, Claude Code 2.1.322 (above 2.1.267, so `claude-cli-argv-builder.ts` sends no `--append-system-prompt` on resume). Opus roots, `claudeHelperAgentModel` trial, session id ending 0 (Sonnet helpers).
+- Fresh root, then native Compact now, no restart: asked "does your system prompt contain the rule for a review helper, and what example model does it give", it answers `opus` before and after. Prompt kept.
+- Root resumed in place (`restartInstance`, process now `--resume`, no `--append-system-prompt`): answers `opus`. Then Compact now (native, same process): answers `NONE`.
+- Root compacted, then the whole app restarted and the chat restored from history (`--resume`, no flag): answers `NONE`. Asked to start a verification helper with no model given, twice, the root gave no `model` and the helper ran on `claude-sonnet-5-5`; a fresh root given the same ask gave `model: opus`, and its helper ran on Opus.
+- Session-policy row for the restored root: `applied: true`, `reviewerRuleDelivered: false`.
+- Same result with the bare CLI (2.1.325, `-p --model haiku`, a made-up rule as the appended prompt): resume without the flag keeps it; after `/compact` a resume without the flag says no rule; a resume with the flag after `/compact` returns it.
+
+### Root cause
+
+`buildClaudeCliArgs` skips the overlay on resume for any CLI from 2.1.267 (`includeSystemPrompt`), on the plan's reading that the CLI records the prompt once and restores it (`2026-10-10-oct-housekeeping_plan_completed.md`, a changelog inference, not a live check). The CLI's record does not survive compaction. Every long session that is compacted and then resumed (restart, restore, switch, in-place restart) or that compacts after a resume runs without the Harness prompt (orchestration rules, tool-permission block, reviewer rule). Passing the same text again on resume does not add a second copy: three requests in one bare-CLI session (fresh, resume with flag, resume without) recorded one system-prompt shape.
+
+### Required behaviour and acceptance
+
+A resume always carries the overlay (the same text the session started with). Fix: drop the version gate in `includeSystemPrompt`; remove the now unused `RECORDED_PROMPT_MIN_VERSION` and `isKnownOlderThan`; update the specs that encoded the old rule. Acceptance: `claude-cli-argv-builder.spec.ts` and `claude-cli-feature-probes.spec.ts` assert the flag on resume at every version; rebuilt app: a root compacted, then restored after an app restart, answers the rule question with the example model and the policy row shows `reviewerRuleDelivered: true`.
 
 ### New findings — 2026-11-15 sidechat acceptance
 
@@ -797,6 +945,12 @@ goes on and Settings leaves as before. The earlier `defaultPrevented` marker and
 were removed as redundant. Covered by the base branch's spec "keeps Escape from reaching other handlers only while a hint is
 open". Earlier (19 November) the first fix was re-checked on a rebuilt native Windows copy: first Escape removed the reason with
 Settings open and focus on the checkbox, the second left Settings; that check needs repeating on the merged code after a rebuild.
+
+### New findings — 2026-11-21 Phase D live checks (ninth session)
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1199 | P3 | **FIXED IN THE QUEUE-D626D2 WORKTREE AND CHECKED LIVE 2026-11-21 (not yet landed).** The helper count and cost chip in the session's Context details counted only helpers still in the list, and a scout leaves it as soon as it reports back, so the chip vanished after a fan-out. The window now keeps each removed helper (parent and reported cost) while its lead stays listed. Live: three short scouts, chip "3 helpers ≈$0.46" after the last one reported. | [LT-1199 detail](#lt-1199) | Phase D live test, section 3 |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -16766,6 +16920,119 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
 
+<a id="lt-1147"></a>
+
+## LT-1147
+
+### LT-1147 — the native RTK hook probe ran the ordinary defer hook in its ON arm
+
+**Status: fixed in the worktree 11 November 2026; regression-tested.**
+
+### Observed behaviour
+
+First paid run of `rtk proxy node scripts/audit/rtk-native-hook-probe.mjs` (11 November 2026): the OFF arm made its four
+calls, but the ON arm made one (`git status --short`), ended with `stop_reason: tool_deferred` and no result text, and the
+script exited 1 (call count 1, not 4). The hook's decision log folder was never created.
+
+### Root cause
+
+`src/main/cli/hooks/rtk-defer-hook.mjs` has no command-line flags. It enters rewrite-only mode only when
+`ORCHESTRATOR_RTK_REWRITE_ONLY=1` is in its environment and writes its coverage log to `ORCHESTRATOR_RTK_LOG_DIR`; the app
+sets both in `buildClaudeRtkEnv` (`src/main/cli/rtk/rtk-rollout.ts`). The probe built the hook command as
+`hook --rewrite-only --decision-log-dir=...` (both ignored), and deleted `ORCHESTRATOR_RTK_REWRITE_ONLY` and a variable
+name (`ORCHESTRATOR_RTK_DECISION_LOG_DIR`) the hook never reads. The ordinary defer hook therefore ran and asked for the
+call to be parked.
+
+### Required behaviour and acceptance
+
+The ON arm sets `ORCHESTRATOR_RTK_REWRITE_ONLY=1` and `ORCHESTRATOR_RTK_LOG_DIR` in the CLI's environment and uses a plain
+hook command. Acceptance: `scripts/__tests__/rtk-native-hook-probe.spec.ts` asserts the probe uses the variable the hook
+reads and that `--rewrite-only` is gone (written after the fix; not run against the old script), and the rerun made four unique
+calls in both arms with hook rows `rewritten`, `rewritten`, `passthrough`, `ignored-deny` (see the livetest evidence).
+
+<a id="lt-1148"></a>
+
+## LT-1148
+
+### LT-1148 — a Harness-stopped Codex chat round is followed by "The provider ended this turn with an error"
+
+**Status: fixed in the worktree 11 November 2026; regression-tested; live-rechecked.**
+
+### Observed behaviour
+
+Dev app, Codex app-server chat created with an initial message, chat wrap-up 15K and chat stop 40K. Transcript system rows,
+in order: "This turn passed 15K tokens, so Harness asked Codex to wrap up." (stage wrap-up); "Stopped by Harness: this turn
+passed 40K tokens." (stage stop, 53,861 tokens); then "The provider ended this turn with an error. Your message and the
+work above are kept." (source `unknown-error`, action `retry`). The instance ended `idle`. The log has
+`Initial prompt failed after successful spawn; preserving session` for the same instance.
+
+### Root cause
+
+Found with a temporary log line in the notice code (removed): the event reaching `instance-reasoning-collapse-continuation.ts` was
+`kind: 'error'` with the stop in `details.stoppedByHarness` (reason `turn-token-ceiling`, 56,382 tokens), but it was classified
+`unknown_error` (evidence `provider_error`). The classifier (`turn-ending-classifier.ts`) recognised a stop only by the error's own
+`stoppedByHarness === true` flag. Once the error is serialised into an event only `details` survives (the payload keys were
+`message,willRetry`), so every serialised stop read as a provider failure.
+
+### Required behaviour and acceptance
+
+A Harness stop produces only its own plain notice; no provider-error notice and no Retry action. Fix: `classifyTurnEnding` also reads
+the stop marker from `meta.details`, and the turn-ending observation and the continuation fallback pass the event's `details` in.
+Acceptance (met): a new `turn-ending-classifier.spec.ts` case (details-only stop is `completed`/`harness_stop`; a non-stop details object
+still `unknown_error`); live on the rebuilt dev app, a chat stopped on its first message shows exactly "This turn passed 15K tokens..."
+and "Stopped by Harness: this turn passed 40K tokens." and nothing else (instance idle). A stop on a later message was not run separately.
+
+<a id="lt-1149"></a>
+
+## LT-1149
+
+### LT-1149 — Costs lists a Harness-stopped round twice
+
+**Status: fixed in the worktree 11 November 2026; regression-tested; live-rechecked.**
+
+### Observed behaviour
+
+Costs, "Biggest turns this week": two rows of 54K tokens at 01:36, one noted "Stopped by Harness", one not. The purpose
+summary's raw `biggestTurns` has the same round as a `codex-round` row (`stopRequested: true`) and a `turn-cost` row with the
+same instance and 53,861 tokens, 1 ms apart. The three rounds that finished normally appear once each.
+
+### Root cause
+
+(From reading the code; not re-proved with a patched run.) `collectBiggestTurns` drops a round's cost row only when its
+`codexTurn` identity matches the share row (`cost-biggest-turns.ts:62-68`). The identity is set only on the normal completion
+response (`codex-app-server-turn-adapter.ts:544`). For an interrupted or failed round the adapter calls
+`flushPartialUsage()` before throwing (`:432-437`), and that cost row carries no `codexTurn`, so it is kept as a second turn.
+
+### Required behaviour and acceptance
+
+One round, one row, with the stop note. Fix: `flushPartialUsage(turn)` (`codex-base-adapter.ts`) now emits the round's
+`codexTurn` identity with the partial usage on the failed/interrupted paths, and `instance-communication.ts` passes it into the cost
+row. Acceptance (met): `codex-cli-adapter.usage.spec.ts` case "names the round on the partial usage of a failed/interrupted turn";
+live, after two stopped chat rounds the purpose summary lists one `codex-round` row (`stopRequested: true`) per round and no `turn-cost` twin.
+
+<a id="lt-1150"></a>
+
+## LT-1150
+
+### LT-1150 — Claude `compact-status` completed events are dropped by the renderer-event check
+
+**Status: fixed in the worktree 11 November 2026; regression-tested; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Dev app log after a Claude "Compact now": `Blocked invalid renderer event payload`, channel `instance:compact-status`, issue at
+`previousUsage`: `Unrecognized keys: "uncachedInput", "cacheRead", "cacheWrite", "mainThread", "callId"`.
+
+### Root cause
+
+`ContextUsageEventSchema` (`packages/contracts/src/schemas/instance.schemas.ts`) is `.strict()` and must mirror the live context-usage
+object; the Claude adapter attaches per-call cache accounting (`instance-cache-usage.ts`) that the schema never listed. Same class as
+LT-018, LT-1147 and LT-1019 (the last two already fixed on main).
+
+### Required behaviour and acceptance
+
+The five fields are optional in the schema. Acceptance: new case in `instance.schemas.spec.ts` (64 of 64 pass with the renderer-event
+spec). Rebuilt app: no `Blocked invalid renderer event payload` for `instance:compact-status` after Compact now.
 <a id="lt-1158"></a>
 
 ## LT-1158
@@ -17369,6 +17636,24 @@ was never reported on any computer (the open question in the 2026-10-17 HTTP aut
   under protection and a prompt for another site are still refused.
 - Live: the checks in the linked live-test document pass on `windows-pc`.
 - Fix record: [2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md](2026-11-21-http-auth-prompt-on-protected-computer_plan_completed.md).
+
+## LT-1199
+
+### LT-1199 — The helper chip forgets helpers that have finished
+
+**Status: fixed in the queue-d626d2 worktree and checked live on 21 November 2026; lands with that branch.** Decision: the cost is kept in this window only (renderer), in `InstanceStateService.finishedHelpers`; a restart starts it empty. Fix: `finished-helpers.ts`; `InstanceStateService.removeInstance` keeps a helper (parent id and reported cost) when it leaves, and drops the whole fan-out when its lead leaves; `InstanceListStore.removeInstance` applies the last batched update first so a scout's final cost is not lost; `summariseFanoutCost` takes the kept helpers as a third argument (a listed helper wins over its record). Live (test Mac copy of this worktree): an Opus lead started three scouts (all Sonnet, high effort); after the last exited only the lead was listed and the chip read "3 helpers ≈$0.46" (the three reported costs, $0.155, $0.155, $0.155, were all present at removal); closing the lead emptied the kept list and the chip. Receipts: `2026-10-20-oct2-phaseD-tokens_evidence/queue-livetest-nov21/eleventh-session-scout-chip.json`.
+
+### Observed behaviour
+
+Test Mac dev app. An Opus lead started three research scouts (two default, one with an explicit model). In Context details the chip read "2 helpers" while two were alive, "1 helper" after the first reported back, and the chip disappeared when the last one finished. Sampled every 3 seconds across a live scout's whole life: its `costEstimate` stayed empty, so no dollar figure was ever shown. With seeded instances (four helpers, three priced, one not) the chip reads "4 helpers ≈$0.37+", so the rendering itself is right.
+
+### Root cause
+
+`summariseFanoutCost` (`fanout-cost.ts`) totals the instances still in the instance store, and a finished helper is no longer there (observed). Why a live scout never carried a `costEstimate` was not traced; its cost is probably only known once its turn result arrives, after which it exits within seconds.
+
+### Required behaviour and acceptance
+
+After a fan-out finishes the lead's header still states how many helpers it started and what the known part cost, with the incomplete marker for any helper whose cost was never reported. Acceptance: live, three short scouts, the chip still reads "3 helpers" with a dollar figure after the last one reports.
 
 ## LT-1200
 

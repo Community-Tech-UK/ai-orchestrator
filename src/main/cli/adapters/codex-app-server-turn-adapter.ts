@@ -281,12 +281,12 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     if (turnId) this.scheduleChildRolloutRetry(rootThreadId, turnId, startedAtMs, endedAtMs);
     const status = state.finalTurn?.status;
     if (status === 'failed' || state.error) {
-      this.flushPartialUsage();
+      this.flushPartialUsage(state);
       this.emitProviderTurnError(createCodexTurnFailure(state));
       return;
     }
     if (status === 'interrupted') {
-      this.flushPartialUsage();
+      this.flushPartialUsage(state);
       this.reportProviderHarnessStop(state);
       return;
     }
@@ -442,7 +442,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     }
     this.cumulativeTokensUsed = this.usageAccounting.cumulativeTokens;
     if (turnState.finalTurn?.status === 'failed' || turnState.finalTurn?.status === 'interrupted' || turnState.error) {
-      this.flushPartialUsage();
+      this.flushPartialUsage(turnState);
       this.throwIfStoppedByHarness(turnState, () => { if (turnState.turnId) this.scheduleChildRolloutRetry(rootThreadId, turnState.turnId, startedAtMs, endedAtMs); });
     }
 
@@ -589,7 +589,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       void this.reconcileChildRollouts(rootThreadId, rootTurnId, startedAtMs, endedAtMs)
         .then(() => {
           if (epoch !== this.childRolloutRetryEpoch) return;
-          if (!this.appServerRuntime.hasActiveTurn() && !this.providerTurnDone && !this.harnessTurnPublishing) this.flushPartialUsage();
+          if (!this.appServerRuntime.hasActiveTurn() && !this.providerTurnDone && !this.harnessTurnPublishing) this.flushPartialUsage({ threadId: rootThreadId, turnId: rootTurnId });
         })
         .catch(() => { /* A transient rollout read can be retried at the next bounded attempt. */ })
         .finally(() => {
