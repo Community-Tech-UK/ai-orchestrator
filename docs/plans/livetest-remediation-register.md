@@ -553,6 +553,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-998 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Tab-scoped 768×1024 emulation disappears when the command ends; subsequent page reads remain desktop-sized. A repeated set reports tab_emulation despite mismatched actual dimensions. | [LT-998 detail](#lt-998) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-999 | P2 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Window read mode returns zero width/height for the live Chrome window, preventing a usable original-bounds capture. Optional shared-window resizing was not attempted. | [LT-999 detail](#lt-999) | [Input controls restoration protocol](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-1000 | P2 | **FIXED IN SOURCE 2026-11-14 (extension 0.2.60, unit-tested at zoom 2 and 1.25 and with a negative case; live recheck on a deployed 0.2.60 still to do).** The viewport size check now compares against the emulated size divided by the tab's zoom factor. Reproduced live before the fix: 2026-11-07 on the Windows worker (0.2.50), 2026-11-11 on ct-test-mac (0.2.51) and 2026-11-14 on the Windows worker (0.2.51). With 200% browser zoom and a 768×1024 tab emulation active, viewport reads and sets fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct. Cause confirmed in source and by the live behaviour. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-1060 | P3 | **OPEN, reproduced 2026-11-12.** Every desktop start-up prints three Node `MaxListenersExceededWarning` lines: 11 `instance:removed` and 11 `provider:normalized-event` listeners on `InstanceManager`, and 11 `setting-changed` listeners on `SettingsManager`. Seen on all four dev-app launches on an empty profile; it is noise today but means a listener count already at the limit, so one more subscriber would be unreported. | [LT-1060 detail](#lt-1060) | [MiMo migration live acceptance](2026-10-27-mimo-check-migration-race_livetest.md) |
 | LT-1067 | P2 | **OPEN — reproduced live 2026-11-10 (renumbered from LT-1029 on 2026-11-13 because main uses LT-1029 for the worker-spawn defect).** After a delegated OpenCode task expires (`acp-prompt-timeout`), the late `Task cancelled` tool result puts the stuck-process detector back into `generating` although the instance is already `idle`. Nothing clears it, so about eight minutes later the detector's hard timeout respawns the idle session and the crash-turn auto-continue re-sends the work, which starts the same delegation again, contradicting the notice that told the user to check the child before resuming. | [LT-1067 detail](#lt-1067) | [Provider hardening check 2](2026-10-02-provider-hardening_livetest.md) |
 | LT-1025 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race; renumbered again from LT-728 on 2026-11-09 because LT-728 is the typed-messages defect).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-1025 detail](#lt-1025) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
@@ -14560,6 +14561,42 @@ the dev app) killed with `kill -9`; the automatic restart began 21 s later (03:4
 03:48:12.5Z, mid-restart. The log shows `INSTANCE_SEND_INPUT` at 03:48:12.487, the replay fallback succeeding at
 03:48:12.873 and `sendInput called` at 03:48:12.880 with `adapterExists: true`. The single bubble went `sending` then
 `accepted`, the model answered "LT-RETRY-OK2" once, no error row appeared and the composer was empty.
+
+## LT-1060
+
+### LT-1060 — start-up listener-limit warnings on `InstanceManager` and `SettingsManager`
+
+Source: [MiMo migration live acceptance](2026-10-27-mimo-check-migration-race_livetest.md), evidence run 12 November 2026
+(logs kept in `docs/plans/evidence/2026-11-12-mimo-check-migration-livetest/`, `dev-app-launch1-3.log` and
+`rerun2/dev-app-launch4.log`). The number is above the highest id on any queue branch seen on 12 November
+(LT-1051); `node scripts/next-lt-id.mjs` reports LT-1018 in this tree, which other branches already use.
+
+### Observed behaviour
+
+On each of four launches of the dev app on an empty profile, the main process wrote three
+`MaxListenersExceededWarning: Possible EventEmitter memory leak detected` warnings during initialisation, each saying
+"11 ... listeners added ... MaxListeners is 10":
+
+- `instance:removed` on `InstanceManager`, added by `InstanceReasoningCollapseContinuation.start`
+  (`dist/main/instance/instance-reasoning-collapse-continuation.js:146`, reached from
+  `initializeInstanceContinuationRuntime`).
+- `provider:normalized-event` on `InstanceManager`, added from `OrchestratorPluginManager.initialize`
+  (`dist/main/plugins/plugin-manager.js:900`).
+- `setting-changed` on `SettingsManager`, added by `watchVaultAutoUnlockSetting`
+  (`dist/main/browser-gateway/browser-unattended-services.js:319`).
+
+The app starts normally; the warnings do not stop anything.
+
+### Root cause
+
+Not yet investigated beyond the stack frames above. Each frame is the eleventh subscriber added to a shared emitter at
+start-up, so the emitters hold more subscribers than Node's default of 10 by design or by drift; nothing records which.
+
+### Required behaviour and acceptance
+
+Decide per emitter whether eleven or more start-up subscribers is intended. If it is, raise that emitter's limit
+(`setMaxListeners`) at its construction, as `file-edit-bus.ts:39` does, with a comment giving the expected count. If not,
+remove the extra subscriber. Acceptance: a dev-app start on an empty profile logs no `MaxListenersExceededWarning`.
 
 <a id="lt-1110"></a>
 
