@@ -82,6 +82,12 @@ const WORKING_STATUSES: ReadonlySet<string> = new Set([
   'busy', 'processing', 'thinking_deeply', 'waiting_for_permission',
   'interrupting', 'cancelling', 'interrupt-escalating', 'respawning',
 ]);
+/** Output that shows the provider has started answering the turn (the input echo and system notices do not). */
+const ANSWER_MESSAGE_TYPES: ReadonlySet<string> = new Set(['assistant', 'tool_use', 'tool_result']);
+/** Stopped statuses a send can bounce through before the provider starts. A failure or cancellation never is one. */
+const QUIET_STOP_STATUSES: ReadonlySet<string> = new Set(['idle', 'ready', 'waiting_for_input']);
+/** Working statuses that are not an interrupt or restart in progress. */
+const PLAIN_WORKING_STATUSES: ReadonlySet<string> = new Set(['busy', 'processing', 'thinking_deeply', 'waiting_for_permission']);
 /** Statuses that mean the session has stopped working on its turn. */
 const STOPPED_STATUSES: ReadonlySet<string> = new Set([
   'idle', 'ready', 'waiting_for_input', 'cancelled', 'error', 'failed',
@@ -111,6 +117,8 @@ interface Segment {
   settled: boolean;
   /** A later input has arrived; this segment is final. */
   closed: boolean;
+  /** The provider has started answering: an assistant message or a tool call has arrived for this turn. */
+  answered: boolean;
 }
 
 interface InstanceState {
@@ -178,7 +186,7 @@ export class TurnFileBaselineService {
     if (previous?.settled) state.lastStatus = undefined; // a delayed old idle cannot settle the new input
     const start = state.prepared ?? this.capture(instanceId, state, info);
     state.prepared = undefined;
-    const segment: Segment = { turnKey, start, result: { state: 'running' }, settled: false, closed: false };
+    const segment: Segment = { turnKey, start, result: { state: 'running' }, settled: false, closed: false, answered: false };
     void start.then((outcome) => {
       if (typeof outcome === 'string') segment.result = { state: 'unavailable', reason: outcome };
     });
@@ -305,6 +313,10 @@ export class TurnFileBaselineService {
           payload as Parameters<typeof toOutputMessageFromProviderEnvelope>[0],
         );
         if (message && turnStartKind(message)) this.beginTurn(instanceId, message.id);
+        else if (message && ANSWER_MESSAGE_TYPES.has(message.type)) {
+          const segment = this.instances.get(instanceId)?.segments.at(-1);
+          if (segment) segment.answered = true;
+        }
       }
     } catch (error) {
       logger.warn('Turn baseline could not read a provider event', { error: String(error) });
@@ -318,6 +330,11 @@ export class TurnFileBaselineService {
     const previous = state.lastStatus;
     state.lastStatus = update.status;
     if (previous && WORKING_STATUSES.has(previous) && STOPPED_STATUSES.has(update.status)) {
+      // The session bounces busy, ready, busy within a few milliseconds of a send, before the provider has
+      // started: that is not the end of the turn (LT-1154). Until the provider has answered, a plain quiet
+      // stop is ignored and only its completion event can end it. An error, a cancellation or a stop that
+      // follows an interrupt is real even when the provider never answered, so it still ends the turn.
+      if (state.segments.at(-1)?.answered === false && PLAIN_WORKING_STATUSES.has(previous) && QUIET_STOP_STATUSES.has(update.status)) return;
       this.settleTurn(update.instanceId);
     }
   }

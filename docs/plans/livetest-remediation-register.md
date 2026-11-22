@@ -469,6 +469,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-1096 | P3 | **OPEN — reproduced live 2026-11-11.** When the profile folder sits behind a symlink (macOS `/tmp`), the storage card reports "Total: 0 B" and 0 B for every store with no explanation, while the conversation history row still shows its real size. | [LT-1096 detail](#lt-1096) | [Oct-2 housekeeping check 1](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1097 | P3 | **OPEN — reproduced live 2026-11-11.** Opening the Wake screen records every displayed note as "shown", so one visit inflates "shown this week" and un-hides legacy notes. | [LT-1097 detail](#lt-1097) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1098 | P3 | **OPEN — reproduced live 2026-11-11.** Removing a Wake note deletes only that one row; a duplicate copy of the same text stays and becomes the visible note, although the prompt says the note is removed. | [LT-1098 detail](#lt-1098) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1154 | P2 | **SOURCE FIX IMPLEMENTED 2026-11-11; dev-app proof recorded.** "Changed N files while this reply ran" never showed: the session bounces busy, ready, busy within milliseconds of a send, and the baseline service took that `ready` as the end of the turn, so every real turn's end snapshot was taken at once and read as zero changes. A stopped status now ends a turn only after the provider has started answering (an assistant message or tool call); until then only the completion event can. A real Claude edit turn then reported both changed files and the button opened the Review panel. | [LT-1154 detail](#lt-1154) | [Phase E live checks](2026-10-20-oct2-phaseE-calm-screen_livetest.md) |
+| LT-1155 | P2 | **SOURCE FIX IMPLEMENTED 2026-11-14; dev-app proof recorded.** After a session was stopped once, every later Claude turn still counted as stopped: the failed-edit warning never showed (the turn read "1 failed" with no warning even though it ended in a normal reply) and the composer kept offering Continue after a finished reply. Claude reports no turn id, so nothing recorded the outcome of an ordinary turn and the stop's outcome stayed; a finished stop's leftover state could also be read as the next turn's own. An ordinary busy-to-idle turn now records a completed outcome (passed on to the screen), and a new send clears the finished stop. | [LT-1155 detail](#lt-1155) | [Phase E live checks](2026-10-20-oct2-phaseE-calm-screen_livetest.md) |
+| LT-1201 | P2 | **SOURCE FIX IMPLEMENTED 2026-11-22; live proof recorded.** A tool server that failed to start in a normal Codex session (app-server mode, the default) produced no message in Harness at all: the plain tool-server message (Phase E, section 7) was only produced from `codex exec` stderr lines, which a normal session never uses. The app-server's `mcpServer/startupStatus/updated` notification is now turned into the same message (`codex/tool-server-startup-notice.ts`), held until the thread id is known because it usually arrives while the thread is being created. In a dev app on the test Mac the overlay's `broken_probe` server produced exactly one message before the first turn, with the provider text only under Details, and no repeat after a normal turn. | [Phase E live check, 21 November](2026-10-20-oct2-phaseE-calm-screen_livetest.md#evidence-run--2026-11-21-resume-after-the-codex-overlay-landed) | [LT-1201 detail](#lt-1201) |
 | LT-1090 | P3 | **SOURCE FIX PRESENT; live re-checks passed 2026-11-11, 2026-11-12 and 2026-11-14 (18 of 18 steps each on the last two); independent verification pending.** Opening Settings from the dashboard threw `Cannot read properties of undefined (reading 'data')` in the shared page shell (`findActiveSurfaceId`) while the page still rendered. Reported during the 2026-10-27 MiMo live test as LT-711 (a number the register gives to the unrelated Cursor report) and by other campaigns as LT-723 and LT-790 (neither has a section here); LT-1090 is the register entry for this defect (the MiMo navigation queue branch briefly filed it as LT-1018, an id main gave to the unrelated cost-event defect; merged here 2026-11-14). | [LT-1090 detail](#lt-1090) | [MiMo saved usage live test](2026-10-11-mimo-saved-usage-session_livetest.md#evidence-run--2026-11-11) |
 | LT-1161 | P2 | **SOURCE FIX APPLIED 10 NOVEMBER 2026; rebuilt-app light-theme check passed in a hidden off-screen window, Windows check pending.** The transcript jump-rail preview card used a colour variable that no stylesheet defines, so it was always dark while its text followed the theme: in the light theme the prompt line was near-black on dark grey (contrast 1.06:1). | [LT-1161 detail](#lt-1161) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--10-november-2026-hidden-window-on-the-coordinator-mac) |
 | LT-1162 | P3 | **SOURCE FIX APPLIED 11 NOVEMBER 2026; screen-reader check pending.** The sort drop-down on the Memory screen had no accessible name (the visible "Sort:" text was a separate span, not a label), so a screen reader announced an unnamed combo box. Found by the 10 November Tab sweep of the tooltip work; it predates that work. | [LT-1162 detail](#lt-1162) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--10-november-2026-hidden-window-on-the-coordinator-mac) |
@@ -14855,6 +14858,92 @@ normalised text in the same room are left (`wake-context-builder.ts:137`).
 
 Removing a note removes every copy with the same normalised text in that room (the prompt says "Removes 1 note"; it should state the true count).
 Acceptance: with a duplicate fixture, one confirmed removal leaves no row with that text and the summary falls by the number of copies.
+## LT-1154
+
+### LT-1154 — the per-turn file comparison always reads zero
+
+**Status: source fix implemented 11 November 2026; verified in the dev app (Phase E live checks, section 3).**
+
+### Observed behaviour
+
+In the dev app, five real Claude turns that edited files in a disposable git folder (a shell `sed`, the Edit tool and
+the Write tool) all showed the one-line summary ("8 s · edited 2 files · read 1 file · ran 1 command") but never the
+"Changed N files while this reply ran" line. The renderer's answer for each turn was `state: ready, total: 0,
+files: []`, with `baselineCompletedAt` and `endedAt` 43 to 800 ms apart for turns that ran 4 to 8 s. For the fourth
+turn the page recorded the send at epoch 1794430647719; the baseline finished at ...647782 and the end snapshot at
+...647827, while the turn ended at about ...650400.
+
+### Root cause
+
+A temporary log line in `TurnFileBaselineService` (removed again) showed the first settlement came from `onStatus`,
+not from a provider `complete` event. On a fresh send the instance status went `busy` (while the session still read
+`idle`), then `ready` (the session itself now `ready`), then `busy` again, all within 4 ms (21:52:06.635 to .639Z,
+instance `c1fd3hsnf`), just before "Message sent to adapter". `onStatus` settles a turn on any working to stopped
+transition, so the blip closed the segment at once; the genuine `complete` event arrived 14 s later and was
+deduplicated away (`segment.settled`). A first attempt that ignored a stopped update while the session's own status
+was still working did not help, because the session status really was `ready` for those milliseconds.
+
+### Fix and acceptance
+
+`Segment.answered` is set when an assistant message, tool call or tool result arrives for the turn; a stopped-status
+update ends the turn only once it is set (`src/main/vcs/turn-file-baseline.ts`). `turn-file-baseline.spec.ts` gained
+`is not ended by a stopped status before the provider has started answering` (failed before the change with
+`unavailable git-error`, passes now); the three status-driven specs now send an assistant message first, as a real turn
+does. On the dev app a real Claude turn that edited `notes.txt` and wrote `extra6.txt` returned `ready, total 2` with
+both paths, `baselineCompletedAt` and `endedAt` 20.8 s apart, and showed "Changed 2 files while this reply ran"; the
+button opened the Review panel. Caveat: that run used a temporary 20 s snapshot limit because the host load average
+was above 50 and snapshots took 170 to 400 ms, over the app's 300 ms send limit, which leaves a turn without a count
+(`unavailable git-error`, by design). On a busy machine the count will therefore often be missing; whether 300 ms
+should be longer is a separate decision.
+
+Follow-up 14 November 2026 (verifier finding): the first version of the guard also ignored a provider error that came
+before any assistant or tool output, which left that turn's comparison running for good. Only a plain stop to a quiet
+status (`idle`, `ready`, `waiting_for_input`) from a plain working status is now ignored before the provider answers;
+an error, a cancellation, or a stop that follows an interrupt still ends the turn. `turn-file-baseline.spec.ts` gained
+`settles a turn whose provider failed before it produced any output` (fails without the narrowing, passes now); the
+interrupt spec no longer sends an assistant message first, so it covers the stop-before-answer case too.
+
+## LT-1155
+
+### LT-1155 — a stopped turn's outcome stuck to every later turn
+
+**Status: source fix implemented 14 November 2026; verified in the dev app (Phase E live checks, section 3).**
+
+### Observed behaviour
+
+In the dev app (Claude, disposable git folder with a file locked by `chflags uchg`), a turn that was stopped while
+writing a long reply, after a genuinely failed Edit, read "N s · 1 failed" with no warning. That one is as the plan
+specifies (no warning on a stopped turn). The next turn in the same session, an ordinary one that ended in a text
+reply after the same failed Edit, also read "N s · 1 failed" with no warning, and the composer still showed Continue
+under a finished reply. Without a stop in the session the same turn shows "Warning: 1 edit failed and was not retried:
+locked.txt (Harness was not allowed to change the file). Check before trusting the summary." The main process's own
+instance list reported `lastTurnOutcome: interrupted` after the ordinary turn. This also explains the older session in
+the 11 November evidence whose failed edits showed no warning.
+
+### Root cause
+
+Two things in `src/main/instance/instance-communication.ts` and `instance-state.ts`:
+
+1. `markTurnInactiveIfSettled` only recorded an outcome when `instance.activeTurnId` was set. Claude reports no turn id,
+   so an ordinary Claude turn never recorded one and `lastTurnOutcome` stayed on the `interrupted` that the stop had
+   written directly. `queueUpdate` also carried the outcome from a stored copy, and the renderer keeps the old value
+   when an update has none, so the screen never heard of a change.
+2. The stop marks `interruptPhase` as `completed` after its turn's idle, and that leftover was only cleared at the next
+   idle. `resolveSettledTurnOutcome` reads `completed` as "this turn was stopped", so for providers that do report turn
+   ids (Codex) the next turn also settled as interrupted.
+
+Server-side uses of the same field were affected as well: the Continue guard (`instance-send-continuation.ts`) accepts
+any session whose outcome is interrupted, and the loop runner pauses a borrowed session whose outcome is interrupted.
+
+### Fix and acceptance
+
+A turn that ends from a busy status now records its outcome even when there is no turn id; a committed send clears a
+finished stop (phase, request id, time); `queueUpdate` now sends the live outcome. Specs in
+`instance-communication.spec.ts`: `records a completed outcome when a turn without a turn id settles after an earlier
+stop` and `does not read a finished stop as the next turn's own stop` (both fail without the change, pass with it).
+Dev app on the test Mac: after a stop the outcome read `interrupted`; after the next ordinary failed-edit turn it read
+`completed`, the warning named locked.txt, and Continue was gone.
+
 ## LT-1090
 
 ### LT-1090 — opening Settings threw a route-snapshot exception in the page shell
@@ -17712,3 +17801,26 @@ The command's printed output did not appear in the card, in the "ran N commands"
 A result card shows the result's text (the command output or `Exited with status N`) as its main content, with status and exit code as readable labels rather than raw JSON. Acceptance: a component test with a `tool_result` that has both content and metadata asserts the content is rendered and the metadata JSON is not the card body; in the dev app, the Codex session above shows `Progress check complete` in its result card.
 
 Related observation, not filed as a defect: an ordinary non-zero exit (`process.exitCode = 2`) is `status: "failed"`, `exitCode: 2`, `is_error: false`, and the "Tool calls" header shows no "1 failed" badge. This follows the written rule in `tool-group.component.ts` (only an edit or write that errored, a command that could not run, or a failed check counts as failed), so it is a product decision, not a regression.
+
+
+## LT-1201
+
+### LT-1201 — a broken tool server in a normal Codex session is never reported
+
+**Status: reproduced 21 November 2026; source fix implemented and proven live 22 November 2026.**
+
+### Observed behaviour
+
+Dev app on the test Mac (tree `d4280898…`, main merged in the working tree only), Codex signed in. The Codex live-test overlay (`codex-config-overlay.toml` in the copy's data folder, one `[mcp_servers.broken_probe]` table with a missing binary) was applied: `app.log` shows "Applying the Codex live-test tool-server overlay" with server `broken_probe`, and the session's isolated Codex home config contains the table. A non-YOLO Codex session (`createInstance` provider `codex`) answered "pong" normally, and its output held only the user and assistant rows: no tool-server message, no notice, nothing under Details. Codex's own log (`logs_2.sqlite` in that session's home) did record `MCP server startup failed server_name="broken_probe" error=No such file or directory (os error 2)`, so the provider reported the failure and Harness showed nothing. `~/.codex/config.toml` was byte-identical before and after.
+
+### Root cause
+
+`classifyCodexDiagnostic` / `matchToolServerFailure` (`src/main/cli/adapters/codex/exec-diagnostics.ts`) are called only from `processStderrLine` in `exec-process-runner.ts`, the `codex exec` fallback ("Codex adapter using app-server mode" in the log is the normal path). App-server sessions receive tool-server start-up failures as the `mcpServer/startupStatus/updated` notification (listed in `generated/app-server-protocol.gen.ts`); nothing under `src/main` handles it. I did not capture that notification's payload on 21 November. Codex 0.171's own generated type for it (`McpServerStatusUpdatedNotification`) is `{ threadId: string | null, name, environmentId, status: 'starting' | 'ready' | 'failed' | 'cancelled', error: string | null, failureReason: 'reauthenticationRequired' | null }`.
+
+### Required behaviour and acceptance
+
+An app-server Codex session whose tool server fails to start shows the same single plain tool-server message per turn/category as the exec path (the server's safe display name where available, raw detail only under Details), through the same slot and presenter. Acceptance: with the overlay above in a live-test copy, a Codex session's first turn shows one such message; a second turn in the same session shows none again unless the failure repeats per the existing slot rule; with the overlay removed, no message.
+
+### Fix and proof (22 November 2026)
+
+`CodexToolServerStartupNotice` (`src/main/cli/adapters/codex/tool-server-startup-notice.ts`) is subscribed on the app-server client in `initAppServerMode` before the thread is created, holds failed starts until the thread id is known, then shows each through `claimCodexDiagnosticSlot` and `codexDiagnosticOutput`, the same slot and presenter as the exec path (one message per category per turn; outside a turn, one per connection). It reports only `status: failed` for a null or this session's thread, and only a name from the closed character set reaches the sentence. `mcpServer/startupStatus/updated` was added to `AppServerNotificationMethod`. Tests: `codex-cli-adapter.tool-server-notice.spec.ts` (6, three fail without the subscription). Live: dev app on the test Mac, overlay `broken_probe`, non-YOLO Codex session: one system message "A tool server didn't start for this Codex session: broken_probe." present at creation, Details closed, a normal turn answered `pong` with no second message; with the overlay removed a fresh session showed one message for `stripe`, a tool server in that copy's own Codex setup whose handshake really fails.

@@ -773,6 +773,22 @@ describe('renderer event validation', () => {
     })).toBe(true);
   });
 
+  // LT-1018: the main process stamps each entry with the session's origin; the strict schema
+  // rejected it, so the cost page never heard about the entry.
+  it('accepts a cost-recorded payload that carries the session origin (LT-1018)', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
+      id: 'entry-3',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+      sessionId: 'sess-1',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 40,
+      outputTokens: 60,
+      cost: 0.002,
+      origin: 'user',
+    })).toBe(true);
+  });
+
   // LT-1173: the tracker stores `origin` with each entry and publishes the whole
   // entry, so the strict schema must know the key or every priced turn is dropped.
   it('accepts a cost-recorded payload that carries origin (LT-1173)', () => {

@@ -411,19 +411,25 @@ export class InstanceCommunicationManager extends EventEmitter {
       return;
     }
 
+    const wasWorking = ACTIVE_CHILD_TURN_STATUSES.has(instance.status);
     if (this.deps.transitionState) {
       this.deps.transitionState(instance, status);
-      this.markTurnInactiveIfSettled(instance, status);
+      this.markTurnInactiveIfSettled(instance, status, wasWorking);
       return;
     }
 
     instance.status = status;
-    this.markTurnInactiveIfSettled(instance, status);
+    this.markTurnInactiveIfSettled(instance, status, wasWorking);
   }
 
-  private markTurnInactiveIfSettled(instance: Instance, status: InstanceStatus): void {
+  /**
+   * `wasWorking`: the session was busy just before this status. Providers that report no turn id (Claude)
+   * never have an `activeTurnId`, so that is the only sign a turn just ended; without it their last
+   * outcome stayed on whatever an earlier interrupt set (LT-1155).
+   */
+  private markTurnInactiveIfSettled(instance: Instance, status: InstanceStatus, wasWorking = false): void {
     const isReadyForInput = CHILD_TURN_COMPLETE_STATUSES.has(status);
-    const turnWasActive = Boolean(instance.activeTurnId);
+    const turnWasActive = Boolean(instance.activeTurnId) || wasWorking;
 
     if (isReadyForInput || isInstanceSettledStatus(status)) {
       instance.activeTurnId = undefined;
@@ -889,6 +895,13 @@ export class InstanceCommunicationManager extends EventEmitter {
       receipt.record();
       throwIfInstanceInputAborted(options?.signal);
       committed = true;
+      // A finished interrupt belongs to the turn it stopped. It is marked 'completed' after that turn's idle,
+      // so it would still be there when this new turn settles and be read as this turn's own stop (LT-1155).
+      if (instance.interruptPhase === 'completed') {
+        instance.interruptPhase = undefined;
+        instance.interruptRequestId = undefined;
+        instance.interruptRequestedAt = undefined;
+      }
       preparedContext.commit();
       this.overflow.rememberLastSent(instanceId, { message, attachments, contextBlock: finalContextBlock, internalSource: options?.internalSource, inputMessageId: options?.inputMessageId, inputContextDelivery }, !isAutomaticInstanceInput(options) ? instance.requestCount : undefined);
       this.overflow.rememberDispatch(instanceId, inputDispatch, finalMessage);

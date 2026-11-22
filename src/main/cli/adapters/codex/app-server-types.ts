@@ -481,6 +481,7 @@ export type AppServerNotificationMethod =
   | 'item/reasoning/textDelta'
   | 'serverRequest/resolved'
   | 'account/rateLimits/updated'
+  | 'mcpServer/startupStatus/updated'
   | 'thread/goal/updated'
   | 'thread/goal/cleared'
   | 'error';

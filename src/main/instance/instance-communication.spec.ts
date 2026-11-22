@@ -2111,6 +2111,38 @@ describe('InstanceCommunicationManager', () => {
     });
   });
 
+  // LT-1155: Claude reports no turn id, so no `activeTurnId` marks its turn. Its outcome stayed on whatever an
+  // earlier stop set, which hid the failed-edit warning and kept offering Continue after a normal reply.
+  it('records a completed outcome when a turn without a turn id settles after an earlier stop', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'busy';
+    instance.lastTurnOutcome = 'interrupted';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+
+    expect(instance.lastTurnOutcome).toBe('completed');
+  });
+
+  it('does not read a finished stop as the next turn\'s own stop', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.status = 'idle';
+    instance.interruptPhase = 'completed';
+    instance.interruptRequestId = 'stop-1';
+    instance.lastTurnOutcome = 'interrupted';
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    await manager.sendInput(instance.id, 'next request');
+    expect(instance.interruptPhase).toBeUndefined();
+    expect(instance.interruptRequestId).toBeUndefined();
+
+    instance.status = 'busy';
+    (adapter as unknown as EventEmitter).emit('status', 'idle');
+    expect(instance.lastTurnOutcome).toBe('completed');
+  });
+
   it('gives adapter output that arrives without an id or time both before buffering it', async () => {
     const adapter = new FakeAdapter('codex-cli');
     adapters.set(instance.id, adapter as unknown as CliAdapter);

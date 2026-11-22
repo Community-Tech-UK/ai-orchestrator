@@ -167,6 +167,14 @@ describe('TurnFileBaselineService', () => {
       timestamp: Date.now(),
       event: { kind: 'output', content: 'do the thing', messageType, messageId: id, timestamp: Date.now(), metadata },
     });
+  /** The provider starts answering: an assistant message, which the input echo and system notices are not. */
+  const answer = (id = 'answer-1') =>
+    events.emit('provider:normalized-event', {
+      instanceId: 'inst-1',
+      eventId: `ev-${id}`,
+      timestamp: Date.now(),
+      event: { kind: 'output', content: 'on it', messageType: 'assistant', messageId: id, timestamp: Date.now() },
+    });
   const emitComplete = () =>
     events.emit('provider:normalized-event', { instanceId: 'inst-1', timestamp: Date.now(), event: { kind: 'complete' } });
   /** The agent's last write comes well before the turn ends, as it does in real use. */
@@ -243,9 +251,24 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     await service.getResult('inst-1', 'u1');
     status('busy');
+    answer();
     await fs.writeFile(path.join(repo, 'b.txt'), 'bee changed\n');
     await letFileTimesClearBoundary();
     status('idle');
+    expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['b.txt']);
+  });
+
+  // LT-1154: the session bounced busy, ready, busy a few milliseconds after every send, before the provider
+  // had started. That closed each real turn at once, so its count was always zero.
+  it('is not ended by a stopped status before the provider has started answering', async () => {
+    userInput('u1');
+    await service.getResult('inst-1', 'u1');
+    status('busy');
+    status('ready');
+    status('busy');
+    answer();
+    await fs.writeFile(path.join(repo, 'b.txt'), 'bee changed after the bounce\n');
+    await complete();
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['b.txt']);
   });
 
@@ -302,7 +325,20 @@ describe('TurnFileBaselineService', () => {
     userInput('u1');
     status('busy');
     await service.getResult('inst-1', 'u1');
+    answer();
     await fs.writeFile(path.join(repo, 'a.txt'), 'edited before the crash\n');
+    await letFileTimesClearBoundary();
+    status('error');
+    expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);
+  });
+
+  // A provider error before its first assistant or tool output (the real adapter error path moves the
+  // session busy -> error) must settle the turn, not leave its comparison running.
+  it('settles a turn whose provider failed before it produced any output', async () => {
+    userInput('u1');
+    status('busy');
+    await service.getResult('inst-1', 'u1');
+    await fs.writeFile(path.join(repo, 'a.txt'), 'edited before the provider failed\n');
     await letFileTimesClearBoundary();
     status('error');
     expect(ready(await service.getResult('inst-1', 'u1')).files.map((file) => file.path)).toEqual(['a.txt']);

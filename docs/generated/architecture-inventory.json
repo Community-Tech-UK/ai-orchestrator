@@ -6416,7 +6416,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 17715
+      "lines": 17827
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6440,7 +6440,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 4634
+      "lines": 4666
     },
     {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
@@ -6552,7 +6552,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2554
+      "lines": 2567
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -7679,6 +7679,10 @@
       "lines": 874
     },
     {
+      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
+      "lines": 872
+    },
+    {
       "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
       "lines": 871
     },
@@ -7717,10 +7721,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design_completed.md",
       "lines": 857
-    },
-    {
-      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
-      "lines": 856
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",

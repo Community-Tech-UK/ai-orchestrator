@@ -58,6 +58,7 @@ import { runCodexInputSend } from './codex/input-send-lifecycle';
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { CodexProviderCompactionPresentation } from './codex/provider-compaction-presentation';
 import { handleCodexIdleUsage, seedCodexIdleUsage } from './codex/idle-usage';
+import { CodexToolServerStartupNotice } from './codex/tool-server-startup-notice';
 import { buildObservedCompactionEvents } from './codex/compaction-presentation';
 import type {
   ProviderContextActionHandlerResult,
@@ -101,6 +102,11 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     hasActiveTurn: () => this.appServerRuntime.hasActiveTurn() || this.hasPendingProviderWork(),
     hasPendingHandoff: () => this.contextCostController.hasPendingCompactionHandoff(),
     emitStatus: (status) => this.emit('status', status),
+    emitOutput: (message) => this.emit('output', message),
+  });
+  private readonly toolServerNotice = new CodexToolServerStartupNotice({
+    threadId: () => this.getAppServerThreadId(),
+    activeTurn: () => this.appServerRuntime.getActiveTurnState(),
     emitOutput: (message) => this.emit('output', message),
   });
   private readonly requestQueue = new SerializedCodexRequestQueue();
@@ -177,6 +183,9 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const unsubscribeUsage = client.subscribeNotifications?.((notification) => this.seedIdleUsage(notification));
     // Account-pool quota bridge: sparse rate-limit updates arrive outside turn routing.
     client.subscribeNotifications?.((n) => { if (n.method === 'account/rateLimits/updated') this.emit('account-rate-limits', n.params['rateLimits']); });
+    // Tool servers start with the thread, so failures can arrive before the thread id is known.
+    this.toolServerNotice.begin();
+    client.subscribeNotifications?.((n) => this.toolServerNotice.observe(n));
     const result = await initializeCodexAppServer({
       client,
       config: this.cliConfig,
@@ -201,6 +210,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     this.appServerThreadId = result.threadId;
     if (!result.threadId) return;
     this.ephemeralUsage.bind(result.threadId);
+    this.toolServerNotice.release();
 
     this.backgroundTerminals.bind(result.client, result.threadId);
     this.sessionId = result.threadId;

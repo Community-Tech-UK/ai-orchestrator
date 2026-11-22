@@ -402,7 +402,7 @@ export class InstanceStateManager extends EventEmitter {
       interruptRequestId: sessionState?.interruptRequestId ?? existing?.interruptRequestId,
       interruptRequestedAt: sessionState?.interruptRequestedAt ?? existing?.interruptRequestedAt,
       interruptPhase: sessionState?.interruptPhase ?? existing?.interruptPhase,
-      lastTurnOutcome: sessionState?.lastTurnOutcome ?? existing?.lastTurnOutcome,
+      lastTurnOutcome: sessionState?.lastTurnOutcome ?? (runtimeInstance ? runtimeInstance.lastTurnOutcome : existing?.lastTurnOutcome),
       supersededBy: sessionState?.supersededBy ?? existing?.supersededBy,
       cancelledForEdit: sessionState?.cancelledForEdit ?? existing?.cancelledForEdit,
       recoveryMethod: sessionState?.recoveryMethod ?? existing?.recoveryMethod,
