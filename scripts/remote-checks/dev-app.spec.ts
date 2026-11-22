@@ -1292,7 +1292,19 @@ esac
       }
       return dir;
     };
-    return { ...far, copy, mount, run, read, scenario: (value: string) => writeFileSync(join(mount, 'scenario'), value) };
+    // The copy's remote nodes server, as far as the start's check can tell: something here accepting on the port.
+    const servers: ReturnType<typeof createServer>[] = [];
+    const listen = () => new Promise<string>((resolve, reject) => {
+      const server = createServer(socket => socket.destroy());
+      servers.push(server);
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => resolve(String((server.address() as { port: number }).port)));
+    });
+    const endAll = () => {
+      far.endAll();
+      for (const server of servers) server.close();
+    };
+    return { ...far, copy, endAll, listen, mount, run, read, scenario: (value: string) => writeFileSync(join(mount, 'scenario'), value) };
   }
 
   it('refuses a bad port, the installed Harness\'s port or a token that is not one word, before anything else', () => {
@@ -1304,6 +1316,21 @@ esac
       expect(far.run(['devapp-worker-start', '9444', '49791'], '\n').status).toBe(4);
       expect(far.run(['devapp-worker-start', '9444', '49791'], `${'x'.repeat(4097)}\n`).status).toBe(4);
       expect(far.read('calls.log')).toBe('');
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('gives Windows this Linux space\'s address as a second way to reach the coordinator, for a start only', async () => {
+    const far = farWithWindows();
+    const coordinator = await far.listen();
+    try {
+      far.copy(9444, '/tmp/aio-lt-w');
+      far.run(['devapp-worker-start', '9444', coordinator], 'placeholder-token\n');
+      far.run(['devapp-worker-stop', '9444']);
+      const calls = far.read('calls.log').split('\n');
+      expect(calls.find((line) => line.includes('-Action start'))).toMatch(new RegExp(`-CoordinatorPort ${coordinator} -LinuxAddress (none|(?!127\\.)\\d{1,3}(\\.\\d{1,3}){3})$`));
+      expect(calls.find((line) => line.includes('-Action stop'))).toMatch(/-LinuxAddress none$/);
     } finally {
       far.endAll();
     }
@@ -1325,42 +1352,63 @@ esac
     }
   }, LIMIT);
 
-  it('passes the token to Windows through the environment only, and leaves no script behind', () => {
+  it('starts no worker when nothing listens on the coordinator port, saying the copy needs a restart', async () => {
     const far = farWithWindows();
+    // A port that was listening a moment ago and is now free, as when a running copy was told to use it.
+    const closed = createServer();
+    const port = await new Promise<string>(resolve => closed.listen(0, '127.0.0.1', () => resolve(String((closed.address() as { port: number }).port))));
+    await new Promise(resolve => closed.close(resolve));
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
-      const started = far.run(['devapp-worker-start', '9444', '49791'], 'placeholder-token\n');
-      expect(started.stdout).toContain('AIO_REMOTE_RESULT {"status":"ready"');
-      expect(far.read('token-seen')).toBe('placeholder-token');
-      expect(far.read('wslenv-seen')).toContain('AIO_WORKER_TOKEN');
-      expect(far.read('calls.log')).not.toContain('placeholder-token');
-      expect(far.read('calls.log')).toContain('-Action start -Port 9444 -CoordinatorPort 49791');
-      expect(far.read('temp-during')).toContain('aio-lt-winworker-9444.ps1');
-      expect(readdirSync(join(far.mount, 'c/Temp'))).toEqual([]);
-      expect(readFileSync(join(dir, 'winworker'), 'utf8').trim()).toBe('49791');
+      const started = far.run(['devapp-worker-start', '9444', port], 'token\n');
+      expect(started.stdout).toContain(`"reason":"nothing listens on port ${port} here`);
+      expect(started.stdout).toContain('restart the copy');
+      expect(far.read('calls.log')).toBe('');
+      expect(existsSync(join(dir, 'winworker'))).toBe(false);
     } finally {
       far.endAll();
     }
   }, LIMIT);
 
-  it('says so when Windows gives no answer, keeping the mark so the copy\'s stop still cleans up', () => {
+  it('passes the token to Windows through the environment only, and leaves no script behind', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
+    try {
+      const dir = far.copy(9444, '/tmp/aio-lt-w');
+      const started = far.run(['devapp-worker-start', '9444', coordinator], 'placeholder-token\n');
+      expect(started.stdout).toContain('AIO_REMOTE_RESULT {"status":"ready"');
+      expect(far.read('token-seen')).toBe('placeholder-token');
+      expect(far.read('wslenv-seen')).toContain('AIO_WORKER_TOKEN');
+      expect(far.read('calls.log')).not.toContain('placeholder-token');
+      expect(far.read('calls.log')).toContain(`-Action start -Port 9444 -CoordinatorPort ${coordinator}`);
+      expect(far.read('temp-during')).toContain('aio-lt-winworker-9444.ps1');
+      expect(readdirSync(join(far.mount, 'c/Temp'))).toEqual([]);
+      expect(readFileSync(join(dir, 'winworker'), 'utf8').trim()).toBe(coordinator);
+    } finally {
+      far.endAll();
+    }
+  }, LIMIT);
+
+  it('says so when Windows gives no answer, keeping the mark so the copy\'s stop still cleans up', async () => {
+    const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
       far.scenario('silent');
-      expect(far.run(['devapp-worker-start', '9444', '49791'], 'token\n').stdout).toContain('"reason":"the Windows side gave no answer"');
+      expect(far.run(['devapp-worker-start', '9444', coordinator], 'token\n').stdout).toContain('"reason":"the Windows side gave no answer"');
       expect(existsSync(join(dir, 'winworker'))).toBe(true);
     } finally {
       far.endAll();
     }
   }, LIMIT);
 
-  it('removes a worker whose start runs past its bound, and drops the mark once that is confirmed', () => {
+  it('removes a worker whose start runs past its bound, and drops the mark once that is confirmed', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
       far.scenario('hang');
-      const started = spawnSync('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', '49791'], {
+      const started = spawnSync('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', coordinator], {
         input: 'token\n', encoding: 'utf8', env: { ...process.env, AIO_WINDOWS_MOUNT: far.mount, AIO_WINWORKER_START_SECONDS: '1' },
       });
       expect(started.stdout, started.stderr).toContain('cut off or ran too long, so it was removed again (cleanup confirmed)');
@@ -1374,10 +1422,11 @@ esac
 
   it('removes a worker when the start is cut off by a signal, as a dropped connection does', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
       far.scenario('hang');
-      const child = spawn('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', '49791'], {
+      const child = spawn('bash', [join(far.base, 'remote-run.sh'), 'devapp-worker-start', '9444', coordinator], {
         env: { ...process.env, AIO_WINDOWS_MOUNT: far.mount }, stdio: ['pipe', 'pipe', 'pipe'],
       });
       let out = '';
@@ -1396,11 +1445,12 @@ esac
     }
   }, LIMIT);
 
-  it('stops the worker and forgets it, and says plainly when it could not be confirmed gone', () => {
+  it('stops the worker and forgets it, and says plainly when it could not be confirmed gone', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
-      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      far.run(['devapp-worker-start', '9444', coordinator], 'token\n');
       expect(far.run(['devapp-status']).stdout).toContain('with a disposable Windows worker');
       const stopped = far.run(['devapp-worker-stop', '9444']);
       expect(stopped.stdout).toContain('"status":"stopped","processGone":true,"folderGone":true');
@@ -1413,12 +1463,13 @@ esac
     }
   }, LIMIT);
 
-  it('remembers the worker\'s node id past its folder, so a later stop can still name the node to revoke', () => {
+  it('remembers the worker\'s node id past its folder, so a later stop can still name the node to revoke', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       far.copy(9444, '/tmp/aio-lt-w');
       far.scenario('node-once');
-      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      far.run(['devapp-worker-start', '9444', coordinator], 'token\n');
       expect(far.run(['devapp-worker-stop', '9444']).stdout).toContain('"nodeId":"aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"');
       // The folder is gone now: Windows has no config left to read, but the id was kept here.
       expect(far.run(['devapp-worker-stop', '9444']).stdout).toContain('"nodeId":"aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"');
@@ -1433,9 +1484,10 @@ esac
 
   it('takes the worker down with its copy, however the copy is stopped', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
-      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      far.run(['devapp-worker-start', '9444', coordinator], 'token\n');
       const stopped = far.run(['devapp-stop', '9444']);
       expect(stopped.stdout).toContain('stopped the disposable Windows worker for the copy on port 9444');
       expect(far.read('calls.log')).toContain('-Action stop -Port 9444');
@@ -1452,11 +1504,12 @@ esac
     }
   }, LIMIT);
 
-  it('reports a worker it could not stop when the copy goes, and removes the copy anyway', () => {
+  it('reports a worker it could not stop when the copy goes, and removes the copy anyway', async () => {
     const far = farWithWindows();
+    const coordinator = await far.listen();
     try {
       const dir = far.copy(9444, '/tmp/aio-lt-w');
-      far.run(['devapp-worker-start', '9444', '49791'], 'token\n');
+      far.run(['devapp-worker-start', '9444', coordinator], 'token\n');
       far.scenario('unclean');
       expect(far.run(['devapp-stop', '9444']).stdout).toContain('could not be confirmed stopped');
       expect(existsSync(dir)).toBe(false);

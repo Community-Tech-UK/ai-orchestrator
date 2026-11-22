@@ -291,7 +291,10 @@ installed but stopped is the safe case, and it is the normal state on this Mac.
 
 A worker that must really be **Windows** (a check of Windows paths, such as sidechat LT-SC-7) comes from the PC
 instead. `dev-app.js start --pc ...` puts the copy on the PC's Linux space (never this Mac), and the same two settings
-apply there (a free port, not 4878; on at launch). Issue the pairing token in the copy, then:
+apply there (a free port, not 4878; on at launch): save the settings, then `stop` and `start` the copy with the same
+data folder. Do not use `remoteNodeStartServer` to move a running server to another port: it reports the new port but
+keeps listening on the old one, and `worker-start` then says nothing listens on the port. Windows reaches the copy's
+server by the Linux space's own address (its loopback does not forward it). Issue the pairing token in the copy, then:
 
 ```bash
 printf '%s\n' "$TOKEN" | node "$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js" \

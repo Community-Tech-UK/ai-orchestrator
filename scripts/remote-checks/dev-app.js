@@ -107,7 +107,8 @@ const USAGE = `dev-app: a live test's Harness copy, run on another computer and 
       Stops the copy and closes the connection.
   worker-start --port <debugging port> --coordinator-port <port>
       Starts a disposable Windows worker on the PC for the copy there and joins it to that copy's coordinator on
-      127.0.0.1:<coordinator port> (not 4878, the installed Harness's). The copy needs its remote nodes server on, from
+      <coordinator port> (not 4878, the installed Harness's), by Windows's loopback or, when that cannot reach it, by the
+      Linux space's own address. The copy needs its remote nodes server on, from
       launch, and a pairing token from it: pipe the token in on stdin, never on the command line. The worker has a
       folder, home, node id and workspace of its own in Windows's temp folder and never touches the installed worker.
   worker-stop --port <debugging port>

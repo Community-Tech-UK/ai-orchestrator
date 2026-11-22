@@ -1425,7 +1425,7 @@ WINWORKER_START_SECONDS="${AIO_WINWORKER_START_SECONDS:-240}"
 # The Windows side's script, sent whole to PowerShell as a file in Windows's temp folder. It sits in a single-quoted
 # string here, so it can hold no single quote.
 WINWORKER_PS='
-param([string]$Action, [int]$Port, [int]$CoordinatorPort)
+param([string]$Action, [int]$Port, [int]$CoordinatorPort, [string]$LinuxAddress = "none")
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $root = Join-Path ([IO.Path]::GetTempPath()) "aio-lt-winworker-$Port"
@@ -1470,7 +1470,7 @@ $config = Join-Path $root "home\worker-node.json"
 if ((OwnProcesses).Count -gt 0 -and (Test-Path -LiteralPath $config)) {
   $existing = Get-Content -Raw -LiteralPath $config | ConvertFrom-Json
   $registered = (Test-Path -LiteralPath "$root\worker.out") -and (Select-String -Path "$root\worker.out" -Pattern "Registration accepted" -Quiet)
-  if ($registered -and $existing.coordinatorUrl -eq "ws://127.0.0.1:$CoordinatorPort") {
+  if ($registered -and $existing.coordinatorUrl -match "^ws://[0-9.]+:$CoordinatorPort$") {
     Say ([ordered]@{ status = "ready"; joined = $true; nodeId = $existing.nodeId; name = $existing.name; folder = $root; workspace = "$root\work" })
     exit 0
   }
@@ -1504,20 +1504,29 @@ $null = New-Item -ItemType Directory -Force -Path "$root\node_modules\electron"
 [IO.File]::WriteAllText("$root\node_modules\electron\package.json", "{`"name`":`"electron`",`"version`":`"0.0.0`",`"main`":`"index.js`"}", $utf8)
 [IO.File]::WriteAllText("$root\node_modules\electron\index.js", "module.exports = " + ("$installed\node_modules\electron\dist\electron.exe" | ConvertTo-Json) + ";", $utf8)
 [IO.File]::WriteAllText("$root\.aio-worker-home", "$root\home", $utf8)
+# The copy runs in the Linux space on this PC. Windows normally reaches a port there on its own loopback (WSL copies the
+# listener over). When that forwarding is off or does not cover the port, the Linux address given in LinuxAddress (the
+# copy listens on every address) is the other way in; the worker is pointed at whichever answers.
+function Test-Reach($address) {
+  $probe = New-Object Net.Sockets.TcpClient
+  try {
+    $connecting = $probe.BeginConnect($address, $CoordinatorPort, $null, $null)
+    return ($connecting.AsyncWaitHandle.WaitOne(3000) -and $probe.Connected)
+  } catch { return $false } finally { $probe.Close() }
+}
+$tried = @("127.0.0.1")
+if ($LinuxAddress -match "^[0-9]{1,3}(\.[0-9]{1,3}){3}$" -and $LinuxAddress -notlike "127.*") { $tried += $LinuxAddress }
+$coordinatorHost = $tried | Where-Object { Test-Reach $_ } | Select-Object -First 1
+if (-not $coordinatorHost) { Fail ("Windows cannot reach the coordinator on port $CoordinatorPort (tried " + ($tried -join ", ") + ")") }
+
 $nodeId = [guid]::NewGuid().ToString()
 # Room for a forced parent session plus its side chat and a spare: with one slot the side chat is refused as "at capacity".
 $settings = [ordered]@{
-  nodeId = $nodeId; name = "lt-disposable-windows-worker"; coordinatorUrl = "ws://127.0.0.1:$CoordinatorPort"; namespace = "default"
+  nodeId = $nodeId; name = "lt-disposable-windows-worker"; coordinatorUrl = "ws://${coordinatorHost}:$CoordinatorPort"; namespace = "default"
   maxConcurrentInstances = 4; workingDirectories = @("$root\work"); reconnectIntervalMs = 5000; heartbeatIntervalMs = 10000
   fileTransfer = @{ enabled = $false }; autoUpdate = @{ enabled = $false }
 }
 [IO.File]::WriteAllText($config, ($settings | ConvertTo-Json -Depth 5), $utf8)
-
-$probe = New-Object Net.Sockets.TcpClient
-$connecting = $probe.BeginConnect("127.0.0.1", $CoordinatorPort, $null, $null)
-$reachable = $connecting.AsyncWaitHandle.WaitOne(3000) -and $probe.Connected
-$probe.Close()
-if (-not $reachable) { Fail "Windows cannot reach the coordinator on port $CoordinatorPort" }
 
 $entry = "$root\dist\worker-agent\index.js"
 # A native program writing to stderr is an error to PowerShell while it is set to stop; here the text is wanted.
@@ -1548,7 +1557,7 @@ Fail ("the worker did not register with the coordinator: " + $tail)
 # Runs the Windows script for one action and prints its result as this file's own result line. The token reaches Windows
 # only as an environment variable (WSLENV), never in a command line or a file.
 winworker_ps() {
-  local action="$1" port="$2" coordinator="${3:-0}" temp temp_here script out line
+  local action="$1" port="$2" coordinator="${3:-0}" temp temp_here script out line linux_address
   cd "$WINDOWS_MOUNT/c" 2>/dev/null || true
   temp="$("$WINDOWS_POWERSHELL" -NoProfile -NonInteractive -Command '[IO.Path]::GetTempPath()' 2>/dev/null < /dev/null | tr -d '\r')"
   case "$temp" in [A-Za-z]:\\*) ;; *) devapp_result failed 'Windows did not say where its temp folder is'; return 0 ;; esac
@@ -1556,9 +1565,11 @@ winworker_ps() {
   temp_here="$WINDOWS_MOUNT/$(printf '%s' "${temp:0:1}" | tr '[:upper:]' '[:lower:]')/$(printf '%s' "${temp:3}" | tr '\\' '/')"
   [ -n "$temp_here" ] && [ -d "$temp_here" ] || { devapp_result failed 'the Windows temp folder is not reachable from here'; return 0; }
   script="aio-lt-winworker-$port.ps1"
+  # This Linux space's own address, the second way for Windows to reach the coordinator; a stop needs none.
+  [ "$action" != start ] || linux_address="$(linux_space_address)"
   printf '%s\n' "$WINWORKER_PS" > "$temp_here/$script"
   out="$("$WINDOWS_POWERSHELL" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$temp$script" \
-    -Action "$action" -Port "$port" -CoordinatorPort "$coordinator" 2>&1 < /dev/null | tr -d '\r')"
+    -Action "$action" -Port "$port" -CoordinatorPort "$coordinator" -LinuxAddress "${linux_address:-none}" 2>&1 < /dev/null | tr -d '\r')"
   rm -f -- "$temp_here/$script"
   line="$(printf '%s\n' "$out" | grep '^AIO_WINWORKER_RESULT ' | tail -n 1)"
   if [ -n "$line" ]; then
@@ -1572,6 +1583,21 @@ winworker_ps() {
 
 # Whether this computer has a Windows side to run a worker on.
 winworker_available() { [ -x "$WINDOWS_POWERSHELL" ]; }
+
+# This computer's first IPv4 address that is not loopback, or nothing.
+linux_space_address() {
+  hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' | grep -v '^127\.' | head -n 1
+}
+
+# Whether something here accepts connections on <port>, on loopback or on this computer's own address (a server set to
+# listen on that address only). Both are this computer's own, so a connection is accepted or refused at once.
+port_listens_here() {
+  local address
+  for address in 127.0.0.1 $(linux_space_address); do
+    (exec 3<>"/dev/tcp/$address/$1") 2>/dev/null && return 0
+  done
+  return 1
+}
 
 # Removes a copy's Windows worker as the copy goes, if it made one. Says so plainly when that could not be confirmed.
 winworker_stop_for_copy() {
@@ -1607,7 +1633,7 @@ cmd_devapp_worker_do() {
 }
 
 # devapp-worker-start <port> <coordinator port>, with the pairing token on stdin (one line). The copy on <port> must be
-# running here, and the coordinator is always this computer's own 127.0.0.1 (the installed Harness's port is refused).
+# running here, and the coordinator is always this computer's own (the installed Harness's port is refused).
 cmd_devapp_worker_start() {
   local port="${1:-}" coordinator="${2:-}" token dir code
   { devapp_port_ok "$port" && devapp_port_ok "$coordinator"; } || { echo 'remote-run.sh: the ports must be numbers from 1024 to 65535' >&2; exit 4; }
@@ -1621,6 +1647,13 @@ cmd_devapp_worker_start() {
     return 0
   fi
   winworker_available || { devapp_result failed 'this computer has no Windows side to run a worker on'; return 0; }
+  # A copy in this Linux space must already listen on the port. The setting saved in a running copy starts nothing, and
+  # a running server asked to start on another port says it did but stays on its old one; Windows could then only report
+  # that it cannot reach the port. A copy on the Windows desktop listens on Windows, where this cannot look.
+  if [ "$(cat "$dir/mode" 2>/dev/null)" != windows ] && ! port_listens_here "$coordinator"; then
+    devapp_result failed "nothing listens on port $coordinator here: save the copy's remote nodes port and turn the server on, then restart the copy (stop and start it with the same data folder)"
+    return 0
+  fi
   mkdir -p "$DEVAPPS"
   # Marked before anything is made, so a start cut off part-way is still cleaned up when the copy stops.
   echo "$coordinator" > "$dir/winworker"
