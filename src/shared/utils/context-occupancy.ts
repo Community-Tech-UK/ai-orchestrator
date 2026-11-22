@@ -18,12 +18,21 @@ import type { ContextUsage } from '../types/instance.types';
  * be found and fixed independently, and the ones that were missed silently
  * degraded behaviour. New consumers of `percentage` should call this rather
  * than re-deriving the condition.
+ *
+ * A compaction that brings back no fresh reading keeps the old one for display only
+ * ({@link POST_COMPACTION_ESTIMATE_SOURCE}). It describes the context before compaction, so no
+ * decision may act on it: occupancy is unknown until the next measured reply (Phase D, section 4).
  */
 export function isOccupancyPressureReading(
   usage: ContextUsage | undefined,
 ): usage is ContextUsage {
-  return usage?.occupancyReported === true && usage.occupancyIsAggregate !== true;
+  return usage?.occupancyReported === true
+    && usage.occupancyIsAggregate !== true
+    && usage.source !== POST_COMPACTION_ESTIMATE_SOURCE;
 }
+
+/** `ContextUsage.source` of the pre-compaction reading kept after a compaction until a measured reply. */
+export const POST_COMPACTION_ESTIMATE_SOURCE = 'awaiting-post-compaction-usage';
 
 /** Claude's auto-compaction trigger, shared with the renderer's near-limit note. */
 export function selfCompactThreshold(modelWindow: number, ceiling?: number): number {

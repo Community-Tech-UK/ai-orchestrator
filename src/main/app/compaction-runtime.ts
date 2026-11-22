@@ -31,6 +31,7 @@ import { internalInputMetadata } from '../instance/internal-input-provenance';
 import type { WindowManager } from '../window-manager';
 import type { ContextUsage, Instance } from '../../shared/types/instance.types';
 import type { CompactionBoundaryOptions } from '../../shared/types/compaction-preview.types';
+import { POST_COMPACTION_ESTIMATE_SOURCE } from '../../shared/utils/context-occupancy';
 import type { CompactionExecutionOptions } from '../context/compaction-execution-options';
 import { getConversationLedgerService } from '../conversation-ledger';
 import {
@@ -145,8 +146,9 @@ async function getContextRecoveryMessageCount(
 }
 
 function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
-  // No fresh occupancy came back. Keep the last real reading as an estimate
-  // rather than presenting a fabricated 0% (LT-681).
+  // No fresh occupancy came back. Keep the last real reading as an estimate for display
+  // rather than presenting a fabricated 0% (LT-681); `isOccupancyPressureReading` keeps
+  // every decision from acting on it until a measured reply arrives.
   return {
     used: previousUsage.used,
     total: previousUsage.total,
@@ -168,7 +170,7 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
     // shape that silently dropped `occupancyReported` and would have regressed
     // LT-018 — so the flag has to be carried explicitly here too.
     ...(previousUsage.occupancyIsAggregate ? { occupancyIsAggregate: true } : {}),
-    source: 'awaiting-post-compaction-usage',
+    source: POST_COMPACTION_ESTIMATE_SOURCE,
     isEstimated: true,
   };
 }
