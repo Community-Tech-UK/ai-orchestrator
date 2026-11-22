@@ -3673,6 +3673,9 @@ function withDebugger(tabId, callback) {
 }
 
 const DEBUGGER_BUSY_PATTERN = /already attached/i;
+// LT-1174: while a text field is focused on some pages Chrome refuses every
+// new attach with this message (cause unproven; see the register entry).
+const DEBUGGER_ATTACH_REFUSED_PATTERN = /Cannot access a chrome-extension:\/\/ URL of different extension/i;
 const DEBUGGER_ATTACH_RETRIES = 2;
 const DEBUGGER_ATTACH_RETRY_DELAY_MS = 300;
 
@@ -3817,6 +3820,38 @@ async function applyDebuggerKeepAlive(debuggee) {
   ).catch(() => undefined);
 }
 
+// Evidence for LT-1174, whose cause is unproven: what Chrome's tab and debugger
+// target list say at the moment an attach is refused (origins only, never a
+// path or query). Best-effort; a failed read must not hide the refusal.
+function originOnly(url) {
+  try {
+    // Not URL.origin: that is "null" for a chrome-extension:// URL in Node.
+    const { protocol, host } = new URL(url);
+    return `${protocol}//${host}`;
+  } catch {
+    return 'none';
+  }
+}
+
+async function describeTabAttachContext(tabId) {
+  const parts = [];
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    parts.push(`page ${originOnly(tab?.url)}, pending ${originOnly(tab?.pendingUrl)}`);
+  } catch {
+    parts.push('tab unreadable');
+  }
+  try {
+    const targets = await chrome.debugger.getTargets();
+    const own = targets.filter((target) => target?.tabId === tabId)
+      .map((target) => `${target.type}@${originOnly(target.url)}`);
+    parts.push(`debugger targets [${own.join(', ')}]`);
+  } catch {
+    parts.push('debugger targets unreadable');
+  }
+  return parts.join('; ');
+}
+
 // Attach with a short retry: the detach of a just-finished session can still
 // be settling in the browser process. If the tab stays held by an external
 // client (a DevTools window open on the tab, or another CDP-based tool), fail
@@ -3843,6 +3878,14 @@ async function attachDebugger(debuggee) {
       if (!DEBUGGER_BUSY_PATTERN.test(message)) {
         if (debuggerAttachments.get(debuggee.tabId) === attachment) {
           debuggerAttachments.delete(debuggee.tabId);
+        }
+        if (DEBUGGER_ATTACH_REFUSED_PATTERN.test(message)) {
+          throw new Error(
+            'browser_tab_debugger_attach_refused: Chrome refused to attach its debugger to this '
+            + `tab (${message}). The attach failed before anything was sent, so no key or other `
+            + 'input reached the page. Chrome keeps refusing until the page is reloaded, '
+            + `so retrying will not help. Tab state: ${await describeTabAttachContext(debuggee.tabId)}`,
+          );
         }
         throw error;
       }
@@ -4018,7 +4061,7 @@ function createDialogWatch(tabId) {
     if (desired) {
       try {
         await applyTabViewportOverride(watch.debuggee, desired);
-        assertTabViewportDimensions(await readTabViewportMetrics(tabId), desired);
+        await assertTabViewportDimensions(tabId, await readTabViewportMetrics(tabId), desired);
       } catch (error) {
         if (dialogWatches.get(tabId) === watch) {
           dialogWatches.delete(tabId);
@@ -4622,8 +4665,15 @@ function applyTabViewportOverride(debuggee, size) {
   );
 }
 
-function assertTabViewportDimensions(actual, desired) {
-  if (actual.innerWidth !== desired.width || actual.innerHeight !== desired.height) {
+// window.innerWidth/innerHeight are CSS pixels, and Chrome's browser zoom
+// divides them: 768x1024 emulation at 200% reads back as 384x512. Compare
+// against the emulated size divided by the tab's zoom factor (LT-1000). The
+// result is rounded by Chrome and fractional factors (125%) do not divide
+// evenly, so one pixel of slack is allowed on each axis.
+async function assertTabViewportDimensions(tabId, actual, desired) {
+  const zoomFactor = await chrome.tabs.getZoom(tabId);
+  if (Math.abs(actual.innerWidth - desired.width / zoomFactor) > 1
+    || Math.abs(actual.innerHeight - desired.height / zoomFactor) > 1) {
     throw new Error('browser_tab_viewport_dimensions_mismatch');
   }
 }
@@ -4644,10 +4694,20 @@ async function setTabViewportState(tabId, payload) {
     // Use the existing owned session/watch lifecycle. It can be kept for
     // emulation, a waiting dialog, or both, without double-attaching.
     watch = await acquireDialogWatch(tabId);
-    if (!watch) {
+    if (!watch && !reset) {
       throw new Error('browser_tab_debugger_busy: viewport session is unavailable.');
     }
-    result = await withDebugger(tabId, async (debuggee) => {
+    // A reset with no session of ours to use: Chrome has already dropped our
+    // emulation (it ends with the session that set it) and the recorded intent
+    // was cleared above, so there is nothing left to clear in the page.
+    // Without this a refused attach (LT-1174) left the reset failing until a
+    // reload.
+    result = !watch ? {
+      mode: 'reset',
+      scope: 'tab',
+      emulation: { width: 0, height: 0, deviceScaleFactor: 1 },
+      previous,
+    } : await withDebugger(tabId, async (debuggee) => {
       let mode = 'read';
       if (reset) {
         await withCdpDeadline(
@@ -4691,7 +4751,7 @@ async function setTabViewportState(tabId, payload) {
   const actual = await readTabViewportMetrics(tabId);
   const desired = tabViewportOverrides.get(tabId);
   if (desired) {
-    assertTabViewportDimensions(actual, desired);
+    await assertTabViewportDimensions(tabId, actual, desired);
   }
   return { ...result, actual };
 }

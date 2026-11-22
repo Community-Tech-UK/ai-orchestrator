@@ -352,6 +352,10 @@ describe('browser extension assets', () => {
     // error page loaded, and http_auth_challenge reports its origin on a tab
     // the protected-site check cannot read (LT-1197).
     '0.2.59': 'f078b7964bd2',
+    // LT-1000: the viewport size check allows for browser zoom. LT-1174: a refused
+    // debugger attach says nothing was sent, and a viewport reset still succeeds
+    // when the lost session cannot be re-attached.
+    '0.2.60': 'c57ab669e6d1',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -5094,6 +5098,93 @@ describe('browser extension assets', () => {
       expect(reset?.['ok']).toBe(true);
       expect(reset?.['result']).toMatchObject({ actual: { innerWidth: 1280, innerHeight: 800 } });
       expect(dimensions()).toEqual({ innerWidth: 1280, innerHeight: 800 });
+    });
+
+    // LT-1000: Chrome zoom divides the CSS-pixel window size, so the emulated
+    // 768x1024 reads back as 384x512 at 200%.
+    function zoomTab(fixture: Awaited<ReturnType<typeof viewportHarness>>, factor: number) {
+      const { harness, dimensions } = fixture;
+      harness.chrome.tabs.getZoom.mockResolvedValue(factor);
+      const unzoomed = harness.chrome.scripting.executeScript.getMockImplementation()!;
+      harness.chrome.scripting.executeScript.mockImplementation(async (input) => {
+        if (!String(input.func).includes('innerWidth')) return unzoomed(input);
+        const raw = dimensions();
+        return [{ result: {
+          innerWidth: Math.round(raw.innerWidth / factor),
+          innerHeight: Math.round(raw.innerHeight / factor),
+        } }];
+      });
+    }
+
+    it.each([2, 1.25])('reads and sets emulated dimensions at browser zoom %s', async (factor) => {
+      const fixture = await viewportHarness();
+      const { harness } = fixture;
+      await dispatchControlCommand(harness, `zoom-${factor}-set`, 'set_viewport', { width: 768, height: 1024 });
+      zoomTab(fixture, factor);
+      const read = await dispatchControlCommand(harness, `zoom-${factor}-read`, 'set_viewport');
+      expect(read?.['ok']).toBe(true);
+      expect(read?.['result']).toMatchObject({
+        actual: { innerWidth: Math.round(768 / factor), innerHeight: Math.round(1024 / factor) },
+      });
+      const again = await dispatchControlCommand(harness, `zoom-${factor}-again`, 'set_viewport', { width: 768, height: 1024 });
+      expect(again?.['ok']).toBe(true);
+    });
+
+    it('still reports a mismatch at browser zoom 2 when Chrome ignores the emulation', async () => {
+      const fixture = await viewportHarness();
+      zoomTab(fixture, 2);
+      fixture.ignoreMetrics();
+      const set = await dispatchControlCommand(fixture.harness, 'zoom-ignored-set', 'set_viewport', { width: 768, height: 1024 });
+      expect(set?.['ok']).toBe(false);
+      expect(String(set?.['error'])).toContain('browser_tab_viewport_dimensions_mismatch');
+    });
+
+    // LT-1174: Chrome can refuse every new attach while a text field is focused.
+    const ATTACH_REFUSED = 'Cannot access a chrome-extension:// URL of different extension';
+
+    it('says plainly that nothing was sent when Chrome refuses the debugger attach', async () => {
+      const { harness } = await viewportHarness();
+      harness.chrome.debugger.attach.mockRejectedValue(new Error(ATTACH_REFUSED));
+      (harness.chrome.debugger as unknown as { getTargets: unknown }).getTargets = vi.fn(async () => [
+        { tabId: 42, type: 'page', url: 'http://fixture.test/a?x=1' },
+        { tabId: 42, type: 'iframe', url: 'chrome-extension://other/menu.html?secret=1' },
+        { tabId: 7, type: 'page', url: 'http://elsewhere.test/' },
+      ]);
+      const result = await dispatchControlCommand(harness, 'refused-key', 'press_key', { key: 'Tab' });
+      expect(result?.['ok']).toBe(false);
+      expect(String(result?.['error'])).toContain('browser_tab_debugger_attach_refused');
+      expect(String(result?.['error'])).toContain('no key or other input reached the page');
+      // Evidence for the unproven cause: origins only, never a path or query.
+      expect(String(result?.['error'])).toContain('Tab state: page ');
+      expect(String(result?.['error'])).toContain(
+        'debugger targets [page@http://fixture.test, iframe@chrome-extension://other]',
+      );
+      expect(String(result?.['error'])).not.toContain('secret');
+      expect(String(result?.['error'])).not.toContain('elsewhere');
+      expect(harness.chrome.debugger.sendCommand.mock.calls.filter(
+        (call: unknown[]) => call[1] === 'Input.dispatchKeyEvent',
+      )).toHaveLength(0);
+    });
+
+    it('lets the viewport reset succeed when the lost session cannot be re-attached', async () => {
+      const fixture = await viewportHarness();
+      const { harness } = fixture;
+      await dispatchControlCommand(harness, 'stranded-set', 'set_viewport', { width: 768, height: 1024 });
+      fixture.detach();
+      harness.chrome.debugger.attach.mockRejectedValue(new Error(ATTACH_REFUSED));
+      const key = await dispatchControlCommand(harness, 'stranded-key', 'press_key', { key: 'Tab' });
+      expect(key?.['ok']).toBe(false);
+      const reset = await dispatchControlCommand(harness, 'stranded-reset', 'set_viewport', { reset: true });
+      expect(reset?.['ok']).toBe(true);
+      expect(reset?.['result']).toMatchObject({
+        mode: 'reset',
+        previous: { emulationActive: true, emulationWidth: 768, emulationHeight: 1024 },
+        actual: { innerWidth: 1280, innerHeight: 800 },
+      });
+      // Nothing is recorded any more, and a plain read still needs a session.
+      const read = await dispatchControlCommand(harness, 'stranded-read', 'set_viewport');
+      expect(read?.['ok']).toBe(false);
+      expect(String(read?.['error'])).toContain('browser_tab_debugger_busy');
     });
 
     it.each(['chrome-detach', 'forced-cleanup'])(

@@ -484,6 +484,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
+| LT-1174 | P2 | **PARTLY REPAIRED IN SOURCE 2026-11-14 (extension 0.2.60, unit-tested, not yet live); the refusal itself is NOT fixed because its cause is unproven.** What changed: a refused attach now fails as `browser_tab_debugger_attach_refused`, says no key or input was sent, and carries the tab's pending-URL and debugger-target origins to settle the cause on the next live run; a viewport reset now succeeds when our session is already gone, so the emulation is no longer stranded until a reload. Still open: ten consecutive Tabs through a page with text fields. Live observation on 0.2.51: While a text field holds focus, Chrome refuses every debugger attach on the tab with `Cannot access a chrome-extension:// URL of different extension`: `press_key`, `evaluate` and `screenshot` all fail, and they keep failing after a pause or a new key. A reload clears it. With emulation active, the same situation leaves the emulation dropped and the viewport reset refused (`browser_tab_debugger_busy`) until the page is reloaded. A page with no text fields took ten Tabs in a row with no failure. Cause still not proven; the password-manager-ignore hints on the fields did not help. | [LT-1174 detail](#lt-1174) | [Input controls check 1](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-1104 | P2 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED AND CHECKED ON A REBUILT RENDERER.** The Session status dialog opened in the top-left corner of the window instead of the centre, because the global `* { margin: 0 }` reset removed the browser margin that centres a modal dialog. The fix gives the dialog `margin: auto`. | [LT-1104 detail](#lt-1104) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
 | LT-1105 | P1 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A RUNNING DEV APP 2026-11-14** (a saved "Always" rule landed in the dev profile, none in `~/.orchestrator`). A dev app started with `AIO_DEV_USER_DATA_PATH` still read, listed and could remove James's real saved permission rules (`~/.orchestrator/permissions.json`) from Settings > Permissions > Rules. The saved-rules file now lives in the dev profile whenever an unpackaged app has that variable set. | [LT-1105 detail](#lt-1105) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
 | LT-1106 | P3 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A RUNNING DEV APP 2026-11-14** (a Stop with a card up reads "Cancelled because the turn was stopped (Write)"). Stopping a turn while a permission card was up left the receipt "Cancelled when the session was stopped"; the plan and live check 9 require "Cancelled because the turn was stopped". The wording now matches. | [LT-1106 detail](#lt-1106) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
@@ -551,7 +552,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-997 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Native Tab/Shift+Tab do not move focus and Enter does not activate a harmless link; trusted events have empty key/code. Effect-checked Enter fails honestly; unverified focus keys report applied success. | [LT-997 detail](#lt-997) | [Input controls checks 1/4](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-998 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Tab-scoped 768×1024 emulation disappears when the command ends; subsequent page reads remain desktop-sized. A repeated set reports tab_emulation despite mismatched actual dimensions. | [LT-998 detail](#lt-998) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-999 | P2 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Window read mode returns zero width/height for the live Chrome window, preventing a usable original-bounds capture. Optional shared-window resizing was not attempted. | [LT-999 detail](#lt-999) | [Input controls restoration protocol](2026-10-14-browser-gateway-input-controls_livetest.md) |
-| LT-1000 | P2 | **OPEN — observed on the Windows worker (extension 0.2.50).** With 200% browser zoom and a 768×1024 tab emulation active, viewport reads fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct and the page is laid out at the expected width. Cause not proven. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-1000 | P2 | **FIXED IN SOURCE 2026-11-14 (extension 0.2.60, unit-tested at zoom 2 and 1.25 and with a negative case; live recheck on a deployed 0.2.60 still to do).** The viewport size check now compares against the emulated size divided by the tab's zoom factor. Reproduced live before the fix: 2026-11-07 on the Windows worker (0.2.50), 2026-11-11 on ct-test-mac (0.2.51) and 2026-11-14 on the Windows worker (0.2.51). With 200% browser zoom and a 768×1024 tab emulation active, viewport reads and sets fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct. Cause confirmed in source and by the live behaviour. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-1067 | P2 | **OPEN — reproduced live 2026-11-10 (renumbered from LT-1029 on 2026-11-13 because main uses LT-1029 for the worker-spawn defect).** After a delegated OpenCode task expires (`acp-prompt-timeout`), the late `Task cancelled` tool result puts the stuck-process detector back into `generating` although the instance is already `idle`. Nothing clears it, so about eight minutes later the detector's hard timeout respawns the idle session and the crash-turn auto-continue re-sends the work, which starts the same delegation again, contradicting the notice that told the user to check the child before resuming. | [LT-1067 detail](#lt-1067) | [Provider hardening check 2](2026-10-02-provider-hardening_livetest.md) |
 | LT-1025 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race; renumbered again from LT-728 on 2026-11-09 because LT-728 is the typed-messages defect).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-1025 detail](#lt-1025) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
@@ -13486,6 +13487,26 @@ emulation is correct.
 - Under 768×1024 emulation at zoom 2, a read returns the emulated mode without a mismatch error.
 - A set at zoom 2 either succeeds with the same check or fails with a reason that explains the zoom.
 - Reset still restores the original zoom and viewport.
+### Live confirmation, 11 November 2026
+
+Run on ct-test-mac, extension 0.2.51; `background.js` is byte-identical to this checkout's (SHA-256 `bf8a3312…3735`).
+With the harmless fixture open: set 768×1024 (succeeded, actual 768×1024), set browser zoom 2 (succeeded, viewport
+384×512 CSS), then read the viewport: `browser_tab_viewport_dimensions_mismatch` (audit `81d3895a-1d45-49e2-a307-7fe49dfbd699`).
+A second set of 768×1024 at zoom 2 failed the same way (`a59295b8-3b24-4b18-b7e7-c56fbd2f2d17`). A page read at that
+moment reported `innerWidth` 384, `innerHeight` 512, `devicePixelRatio` 2, so the emulation was in effect. Zoom reset
+then returned a 768×1024 viewport, and the viewport reset returned the original 1512×691. The cause stands as written
+above, and the same comparison also runs when a lost debugger session is re-established (`background.js:3160`), so a
+recovery at zoom 2 would fail too. The fix must compare against the zoom-adjusted size (requested ÷ zoom factor) or
+skip the comparison when the factor is not 1.
+
+### Live confirmation, 14 November 2026 (Windows worker)
+
+windows-pc, extension 0.2.51, fixture tab opened through the gateway. Set 768×1024 (succeeded, actual 768×1024), set zoom 2
+(succeeded, viewport 384×512 CSS), then a viewport read failed `browser_tab_viewport_dimensions_mismatch` (audit
+`f506fbfc-00c0-43bb-8185-718b99dbb937`). Zoom reset returned zoom 1/per-origin with a 768×1024 viewport, a viewport read then
+succeeded (`51f8f2b3-cd72-4e98-a045-3f1d969a777c`), and the viewport reset returned the original 2032×919. The fix is still the
+one described above. Receipts: [round-six receipts](2026-10-27-browser-input-controls_evidence/round6/receipts.json).
+
 <a id="lt-1006"></a>
 
 ## LT-1006 — archived benchmark tasks use an incompatible test installation
@@ -14073,6 +14094,71 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1174"></a>
+
+## LT-1174 — `press_key` is refused by Chrome on a quick second press
+
+**Status: OPEN; reproduced 11 November 2026 on ct-test-mac (extension 0.2.51); seen earlier on the Windows worker (0.2.50, 7 November).**
+Origin: input controls check 1. Evidence: [round-five receipts](2026-10-27-browser-input-controls_evidence/round5/receipts.json).
+*Renumbered 2026-11-16: first filed as LT-1018, then LT-1091, but main already uses LT-1091 for two unrelated defects (worker auto-update stall, helper-agent token undercount). Its identifier is now LT-1174 (reserved). Older dated notes in the input-controls livetest that say LT-1091 for `press_key` mean this item.*
+
+### Observed behaviour
+
+On the harmless fixture, after loading the page, the first Tab (focus into the first text field) succeeds. The next
+Tab, sent straight afterwards, fails with `Cannot access a chrome-extension:// URL of different extension` (audits
+`7ff63496-f6da-4f03-ad10-1e07e3e49677` and `d7c2799e-9c93-4c1a-915f-c89cd3b60d34`), 2 of 2 times. Focus does not move.
+A retry with the same key returns `deduplicated:true`, `applied:false`, `press_key_prior_attempt_outcome_unknown`
+(correct, the key is burned). A new key then succeeds. In one trial a 6-second pause before the second Tab let it
+succeed first time. Later presses in the same sequence (Shift+Tab, Tab, Tab, Enter) all succeeded.
+
+### Root cause
+
+Not established. The text is Chrome's own message; `pressKeyCommand` (`background.js:3622`) reaches it through
+`withDebugger` → `attachDebugger` (`2968`), which retries only on "already attached". Two candidates, neither tested:
+(a) the previous session's detach is still settling; (b) another installed extension (a password manager draws an icon
+inside the text field in the screenshot) adds a `chrome-extension://` frame once a field has focus, and Chrome refuses
+the attach. A page scan found no foreign iframe in the document, which does not rule out a shadow-root frame.
+
+### Required behaviour
+
+A second key press soon after the first succeeds, or the attach is retried for this error, or the failure says plainly
+that it is transient and the key was not dispatched, so a caller can retry with a new key.
+
+### Acceptance
+
+- Ten consecutive Tab presses on the fixture, with no pause, all return `applied:true`.
+- The same on a page whose text fields carry a password-manager icon.
+- If the error can still occur, the result states the key was not sent.
+
+### Further evidence and a narrower trigger, 14 November 2026 (Windows worker, extension 0.2.51)
+
+Fixture served from this Mac to windows-pc. Receipts: [round-six receipts](2026-10-27-browser-input-controls_evidence/round6/receipts.json).
+
+- **The failure is not specific to `press_key`.** On the fixture, Tab, then Tab put focus in `#first`; the next Tab failed with the
+  attach error (`47b16708-3d9b-4a51-99af-e22025040b69`), a new key failed too (`21891e10-6141-40cf-bf88-ccd237c967c2`), and then
+  `evaluate` (`47688fdc-251f-4e36-b036-295474466294`) and `screenshot` (`d8e29d6d-72d0-49fa-b609-bc279e3b30e3`) failed the same way.
+  `query_elements` still worked. A DOM `click` on the heading did not clear it. A reload did: the next screenshot succeeded.
+- **A pause does not help.** Tab into `#first`, wait 8 seconds, Tab: failed (`54d18ea2-79b1-44f3-9629-d1f8a6f0c4c3`). The earlier
+  "6 second pause worked" observation was therefore luck or something else, not a fix.
+- **Password-manager ignore hints did not help.** A variant page with `autocomplete=off` and the Bitwarden, LastPass and 1Password
+  ignore attributes on both fields failed on the second Tab in the same way (`424b9715-1c98-4dd6-90a6-6251050cc77e`).
+- **A page with no text fields is clean.** Twelve links, ten consecutive Tab presses with no pause, all `applied:true`, focus read-back
+  correct each time. This ties the failure to a focused text field, which is also what the earlier 0.2.50 and ct-test-mac runs showed.
+- **Consequence with emulation active.** With 768×1024 emulation and zoom 2 set, then focus put in `#first` by `browser.type`, a Tab
+  failed `browser_tab_debugger_busy: viewport session could not be restored` (`a686d0ce-4f6a-45f1-9afb-22617f0b98a0`). A read then
+  showed zoom still 2 but the viewport 1016×459, which is the whole window at zoom 2: Chrome had dropped the emulation while the
+  extension still recorded it. A viewport reset was refused twice (`5b53ba6e-f7ef-45a2-91f1-259e3200368f`,
+  `ac3f487c-9d36-48f5-8c13-6fa84b9732c7`, `browser_tab_debugger_busy: viewport session is unavailable`). The zoom reset worked, and the
+  viewport reset worked only after a page reload, returning 2032×919. The failures were reported honestly and nothing claimed a
+  restore that did not happen, but the user-visible state was wrong until reload.
+
+**Refined candidate cause (not proven).** Something on the Windows Chrome adds or attaches an extension-owned frame or target once a
+text field is focused, and `chrome.debugger.attach` on the tab is then refused for as long as it is there. Test to separate it from the
+alternatives: repeat the Tab/Tab/Tab sequence in a Chrome profile with every other extension disabled; if it passes, enable them one by one.
+
+**Refined required behaviour.** In addition to the above: when the attach is refused while an emulation is recorded, the result says the
+emulation was lost and a reset must still succeed (clear the recorded state) rather than report `browser_tab_debugger_busy`.
 
 ## LT-1195
 
