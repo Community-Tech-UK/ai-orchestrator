@@ -322,16 +322,15 @@ export class ProviderAccountStore {
   }
 
   /**
-   * Remove a profile. Refused for the legacy profile (disable it instead) and
-   * while a live instance uses it: that conversation belongs to this account
-   * and would have nowhere to resume.
+   * Remove a profile, the legacy one included: that only stops Harness using
+   * the provider's own sign-in. The legacy migrations are marked done, so it is
+   * never re-created. Refused while a live instance uses the profile (that
+   * conversation belongs to this account and would have nowhere to resume) and
+   * when it would leave the provider with no enabled account.
    */
   removeProfile(provider: PooledProvider, profileId: string, profilesInUse: readonly string[] = []): void {
     const { profiles } = this.read();
     const target = this.requireProfile(profiles, provider, profileId);
-    if (target.isLegacy) {
-      throw new Error('The existing account cannot be removed. Disable it instead.');
-    }
     if (profilesInUse.includes(profileId)) {
       throw new Error('That account is in use by a running session. End or switch that session first.');
     }

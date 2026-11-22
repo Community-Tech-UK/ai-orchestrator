@@ -12,7 +12,7 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueRun } from './plan-queue.types';
 
-// A Set aside agent skips a fresh attempt that blocks an older one only in its reply to James's typed message.
+// A Set aside agent skips a job that has not started, such as a fresh attempt that blocks an older one, without waiting for James.
 let db: SqliteDriver;
 let store: PlanQueueStore;
 let coordinator: PlanQueueCoordinator;
@@ -52,33 +52,15 @@ function queued(id: string) {
   return id;
 }
 
-function jamesTyped(at: Date): void {
-  personTurns.setReportsTurnStarts('agent', () => true);
-  personTurns.noteInput('agent', { messageId: 'm1', personTypedAt: at.getTime() });
-  personTurns.noteTurnStarted('agent', 'harness-send');
-}
-
-it("skips a job that has not started in its reply to James's typed message, and names that message", async () => {
+it('skips a job that has not started without a message from James, and names itself', async () => {
   const itemId = queued('fresh');
-  jamesTyped(new Date(2026, 10, 10, 17, 5));
   await coordinator.control({ action: 'skip-item', itemId }, 'agent');
-  expect(store.getItem(itemId)).toMatchObject({ state: 'skipped', detail: "Skipped by the Set aside agent (session agent), after James's message at 17:05." });
-});
-
-it('refuses without a message from James, and when the latest input is a Harness notice', async () => {
-  const itemId = queued('fresh');
-  personTurns.setReportsTurnStarts('agent', () => true);
-  await expect(coordinator.control({ action: 'skip-item', itemId }, 'agent')).rejects.toThrow('in its reply to a message James typed');
-  jamesTyped(new Date());
-  personTurns.noteInput('agent', { messageId: 'notice', personTypedAt: null });
-  await expect(coordinator.control({ action: 'skip-item', itemId }, 'agent')).rejects.toThrow('in its reply to a message James typed');
-  expect(store.getItem(itemId)!.state).toBe('queued');
+  expect(store.getItem(itemId)).toMatchObject({ state: 'skipped', detail: 'Skipped by the Set aside agent (session agent).' });
 });
 
 it('still cannot skip a job that has started or been set aside', async () => {
   const itemId = 'parked';
   store.upsertItem(newPlanQueueItem(itemId, run.id, '/repo/docs/plans/parked_plan.md', 1, { state: 'parked', parkReason: 'round-limit', branchName: 'queue/parked' }));
-  jamesTyped(new Date());
   await expect(coordinator.control({ action: 'skip-item', itemId }, 'agent')).rejects.toThrow('only an item that has not started can be skipped');
 });
 

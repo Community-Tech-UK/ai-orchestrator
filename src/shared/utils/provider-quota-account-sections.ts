@@ -16,6 +16,8 @@
  * - A disabled account is still shown (its quota is what you check before
  *   re-enabling it) and is labelled as disabled.
  * - Once the account list has loaded, accounts no longer in it are dropped.
+ *   That includes the existing sign-in: a pooled provider whose accounts no
+ *   longer include it (the user removed it) shows only its added accounts.
  */
 
 import { POOLED_PROVIDERS, type ProviderAccountProfile } from '../types/provider-account.types';
@@ -57,8 +59,9 @@ export function quotaAccountSections(
       || a.snap.accountProfileId.localeCompare(b.snap.accountProfileId));
 
   const labelled = extras.length > 0;
+  const legacyRemoved = filterByProfiles && ownProfiles !== null && ownProfiles.length > 0 && !ownProfiles.some((profile) => profile.isLegacy);
   const sections: QuotaAccountSection[] = [];
-  if (providerSnapshot) {
+  if (providerSnapshot && !legacyRemoved) {
     const legacyLabel = ownProfiles?.find((profile) => profile.isLegacy)?.label.trim();
     sections.push({
       id: LEGACY_SECTION_ID,

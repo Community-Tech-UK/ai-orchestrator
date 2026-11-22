@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderAccountProfile } from '../../../shared/types/provider-account.types';
+import type { Instance } from '../../../shared/types/instance.types';
 import { defaultProviderAccountPools } from '../../../shared/types/provider-account.types';
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ success: boolean; data?: unknown; error?: { code: string; message: string } }>>();
@@ -64,6 +65,8 @@ function legacy(provider: 'claude' | 'codex'): ProviderAccountProfile {
 }
 
 let state: { profiles: ProviderAccountProfile[]; pools: ReturnType<typeof defaultProviderAccountPools> };
+type TestInstance = Pick<Instance, 'id' | 'provider' | 'accountProfileId' | 'status' | 'currentModel'>;
+let instances: TestInstance[];
 const requestRuntimeChange = vi.fn(async () => undefined);
 const quotaLogin = { connect: vi.fn(async () => undefined), disconnect: vi.fn(async () => undefined) };
 const usageSessions = { exists: vi.fn(() => false) };
@@ -80,6 +83,7 @@ beforeEach(() => {
   usageSessions.exists.mockReset().mockReturnValue(false);
   bindingState.state = 'authenticated';
   state = { profiles: [legacy('claude'), legacy('codex')], pools: defaultProviderAccountPools() };
+  instances = [{ id: 'inst-1', provider: 'claude', status: 'idle', accountProfileId: 'max-b-ab12' }];
   const store = new ProviderAccountStore({
     read: () => ({ profiles: state.profiles, pools: state.pools }),
     write: (update) => {
@@ -90,7 +94,7 @@ beforeEach(() => {
   });
   registerProviderAccountHandlers({
     store,
-    getInstances: () => [{ id: 'inst-1', provider: 'claude', status: 'idle', accountProfileId: 'max-b-ab12' }],
+    getInstances: () => instances,
     requestRuntimeChange,
     quotaLogin,
     usageSessions,
@@ -122,6 +126,22 @@ describe('provider-account IPC handlers', () => {
     expect(quotaLogin.disconnect).toHaveBeenCalledWith(id);
     expect(await call(IPC_CHANNELS.PROVIDER_ACCOUNT_REMOVE, { ...token, provider: 'opencode', profileId: id })).toMatchObject({ success: true });
     expect(quotaLogin.disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts only MiMo sessions with no account recorded as using the existing MiMo sign-in', async () => {
+    state.profiles.push({ ...legacy('claude'), provider: 'opencode', label: 'SuasMimo', region: 'ams' });
+    state.pools = { ...state.pools, opencode: { ...state.pools.opencode, acknowledgedOwnershipAt: 1 } };
+    await call(IPC_CHANNELS.PROVIDER_ACCOUNT_CREATE, { ...token, provider: 'opencode', label: 'ComTechMimo', region: 'ams' });
+    const remove = () => call(IPC_CHANNELS.PROVIDER_ACCOUNT_REMOVE, { ...token, provider: 'opencode', profileId: 'legacy' });
+
+    instances = [{ id: 'mimo', provider: 'opencode', status: 'idle', currentModel: 'xiaomi-token-plan-ams/mimo-v2.5-pro' }];
+    expect(await remove()).toMatchObject({ success: false, error: { message: expect.stringMatching(/in use/) } });
+    instances = [{ id: 'unknown-model', provider: 'opencode', status: 'idle' }];
+    expect(await remove()).toMatchObject({ success: false, error: { message: expect.stringMatching(/in use/) } });
+
+    instances = [{ id: 'other-backend', provider: 'opencode', status: 'busy', currentModel: 'anthropic/claude-sonnet' }];
+    expect(await remove()).toMatchObject({ success: true });
+    expect(state.profiles.some((profile) => profile.provider === 'opencode' && profile.isLegacy)).toBe(false);
   });
 
   it('rejects non-MiMo and missing accounts for usage login', async () => {

@@ -238,15 +238,6 @@ export class ProviderAccountsTabComponent implements OnInit {
       && this.byProvider()[account.provider].some((entry) => entry.enabled);
   }
 
-  /** What to do instead of removing the existing sign-in; nothing once it is already off. */
-  legacyNextStep(account: ProviderAccountView): string | null {
-    if (!account.enabled) return null;
-    if (!this.isOnlyEnabled(account)) return 'Untick Enabled to stop Harness using it.';
-    return this.poolsSignal()?.[account.provider]?.acknowledgedOwnershipAt === null
-      ? 'Confirm below that these are your own accounts, switch on another account, then switch this one off.'
-      : 'Switch on another account first, then switch this one off.';
-  }
-
   doctorWarnings(provider: PooledProvider): string[] {
     return this.doctorSignal()[provider]?.warnings ?? [];
   }
@@ -440,7 +431,8 @@ export class ProviderAccountsTabComponent implements OnInit {
   }
 
   async remove(account: ProviderAccountView): Promise<void> {
-    const confirmed = await this.confirmService.confirm({ message: `Remove "${account.label}"? Conversations that last ran on it will continue on another account. ` + 'This does not sign the account out or cancel the subscription.', confirmLabel: 'Remove account', danger: true });
+    const comeBack = account.isLegacy ? ' To use it again later, add it as a new account and sign in to it.' : '';
+    const confirmed = await this.confirmService.confirm({ message: `Remove "${account.label}"? Conversations that last ran on it will continue on another account. ` + `This does not sign the account out or cancel the subscription.${comeBack}`, confirmLabel: 'Remove account', danger: true });
     if (!confirmed) return;
     await this.mutate(() => this.ipc.remove(account.provider, account.id), account);
   }

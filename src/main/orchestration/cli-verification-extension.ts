@@ -29,6 +29,7 @@ import {
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getProviderInstanceManager } from '../providers/provider-instance-manager';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
+import { canChooseProviderHere } from '../providers/gemini-retirement-record';
 import { createVerificationModelAssigner } from './verification-checking-policy';
 import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 import type { ProviderAdapter } from '@sdk/provider-adapter';
@@ -279,8 +280,8 @@ export class CliVerificationCoordinator extends EventEmitter {
         }
       }
     } else {
-      // Auto-select available CLIs
-      for (const cli of [...availableClis].sort((a, b) => rankCliForVerification(a) - rankCliForVerification(b))) {
+      // Auto-select available CLIs. Gemini is left out once Google has retired its sign-in here.
+      for (const cli of availableClis.filter((c) => canChooseProviderHere(c.name)).sort((a, b) => rankCliForVerification(a) - rankCliForVerification(b))) {
         if (agents.length >= targetAgentCount) break;
 
         try {

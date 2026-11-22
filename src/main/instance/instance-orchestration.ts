@@ -56,6 +56,7 @@ import { errorFromIdentity, errorMessageText } from '../util/error-utils';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { runHelperStartup } from '../work-admission/helper-startup';
 import { ownedByEngine } from '../work-admission/engine-ownership';
+import { geminiHelperRefusal } from '../providers/gemini-retirement-record';
 import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import {
   routeRole,
@@ -261,9 +262,10 @@ export class InstanceOrchestrationManager {
           return;
         }
 
-        // A hardened request that cannot be honoured is refused before anything is created.
-        const hardenedRefusal = hardenedChildRefusal(command, parent);
-        if (hardenedRefusal) { this.orchestration.notifyError(parentId, `Cannot spawn child: ${hardenedRefusal}`); return; }
+        // A request that cannot be honoured (hardened mode it cannot have, or Gemini after Google retired the sign-in
+        // here) is refused before anything is created.
+        const refusal = hardenedChildRefusal(command, parent) ?? geminiHelperRefusal(command, parent);
+        if (refusal) { this.orchestration.notifyError(parentId, `Cannot spawn child: ${refusal}`); return; }
 
         // Check max total instances limit
         if (

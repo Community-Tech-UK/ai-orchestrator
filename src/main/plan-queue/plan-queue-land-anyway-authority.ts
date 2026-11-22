@@ -3,7 +3,7 @@
  *
  * Allowed, and nothing else (Decision 6 of the Plan Queue autonomy plan):
  *   - James on the Plan Queue page (no caller);
- *   - the Set aside agent in its own folder, which the control check authorises (see plan-queue-control-authority.ts);
+ *   - the Set aside agent, on any run, which the control check authorises (see plan-queue-control-authority.ts);
  *   - the session that started the run, in the turn a person's message began,
  *     when that message is the latest input the session has had, no other turn
  *     has started since, and the person typed it after the item parked.

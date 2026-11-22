@@ -151,7 +151,7 @@ describe('owner-approved Plan Queue handover', () => {
   });
   it('keeps a sleeping owner protected from unilateral adoption', () => {
     const { run, deps } = fixture();
-    const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined, checkPersonTurn: () => ({ ok: false as const, reason: 'no-input' as const }) };
+    const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined };
     expect(() => authorizePlanQueueControl(run, 'adopt', 'target', lookup)).toThrow('live parent');
     expect(authorizePlanQueueControl(run, 'request-handover', 'target', lookup)).toBe('session target');
     expect(() => authorizePlanQueueControl(run, 'handover', 'target', lookup)).toThrow('Only the session that started');
@@ -257,7 +257,7 @@ it('transfers a real parked flow despite its retained historical worker ID, incl
 it('allows the notified owner to hand over within the same awaited input turn', async () => {
   const { run, deps, stored } = fixture();
   const control = new PlanQueueRunControl();
-  const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined, checkPersonTurn: () => ({ ok: false as const, reason: 'no-input' as const }) };
+  const lookup = { instanceExists: (id: string) => !!deps.instances.getInstance(id), isQueueInstance: deps.isQueueInstance, setAsideFolder: () => undefined };
   const host = {
     getRun: deps.getRun, authorize: (current: PlanQueueRun, action: Parameters<typeof authorizePlanQueueControl>[1], caller?: string) => authorizePlanQueueControl(current, action, caller, lookup),
     requestHandover: (current: PlanQueueRun, caller?: string) => requestRunHandover(current, caller, deps),

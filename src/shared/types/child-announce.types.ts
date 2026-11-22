@@ -47,6 +47,7 @@ export type ChildErrorCategory =
   | 'process_crash'     // Child process died unexpectedly
   | 'rate_limited'      // Provider rate limited the child
   | 'auth_failure'      // Authentication/authorization issue
+  | 'gemini_retired'    // Google switched off the Gemini CLI's personal sign-in
   | 'network_error'     // Network connectivity issue
   | 'task_failure'      // Child reported task failure (not a system error)
   | 'stuck'             // Child detected as stuck by StuckProcessDetector

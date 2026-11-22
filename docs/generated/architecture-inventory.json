@@ -7176,7 +7176,7 @@
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1149
+      "lines": 1151
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
@@ -7396,7 +7396,7 @@
     },
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 986
+      "lines": 987
     },
     {
       "path": "src/main/rlm/context-residency-controller.spec.ts",
@@ -7547,10 +7547,6 @@
       "lines": 915
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 913
-    },
-    {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
       "lines": 913
     },
@@ -7560,6 +7556,10 @@
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
+      "lines": 911
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 911
     },
     {
@@ -7719,6 +7719,10 @@
       "lines": 858
     },
     {
+      "path": "src/renderer/app/features/settings/provider-accounts-tab.component.spec.ts",
+      "lines": 858
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design_completed.md",
       "lines": 857
     },
@@ -7729,10 +7733,6 @@
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",
       "lines": 855
-    },
-    {
-      "path": "src/renderer/app/features/settings/provider-accounts-tab.component.spec.ts",
-      "lines": 854
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
@@ -7749,6 +7749,10 @@
     {
       "path": "src/main/remote-node/__tests__/worker-node-registry.spec.ts",
       "lines": 850
+    },
+    {
+      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
+      "lines": 849
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
@@ -7813,10 +7817,6 @@
     {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
       "lines": 829
-    },
-    {
-      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
-      "lines": 827
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-back-navigation-hotfix-plan_completed.md",

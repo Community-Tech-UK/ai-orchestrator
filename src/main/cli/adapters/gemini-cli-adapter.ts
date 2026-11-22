@@ -50,6 +50,7 @@ import {
   parseGeminiStreamingEvent,
 } from './gemini-json';
 import { probeVersionStatus } from './cli-status-probe';
+import { GeminiClientRetiredError, isGeminiClientRetiredText, reportGeminiSignInOutcome } from './gemini-client-retired';
 import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
@@ -206,6 +207,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     const startTime = Date.now();
     this.outputBuffer = '';
     let turnFailed = false;
+    let retiredError: GeminiClientRetiredError | null = null;
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
@@ -320,6 +322,12 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         const trimmed = errorStr.trim();
         if (!trimmed) return;
 
+        // Google retired this sign-in: the turn ends with one plain error when the CLI exits, not the raw line here too.
+        if (isGeminiClientRetiredText(trimmed)) {
+          retiredError ??= new GeminiClientRetiredError(trimmed);
+          return;
+        }
+
         // Surface stderr as a visible error message in the buffer so the
         // parent instance (and handleChildExit's summary fallback) can see
         // why the child failed. Without this, Gemini tool errors written to
@@ -347,6 +355,14 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         for (const line of ndjson.push('\n')) handleLine(line);
         const duration = Date.now() - startTime;
 
+        if (retiredError) {
+          turnFailed = true;
+          this.process = null;
+          reportGeminiSignInOutcome('retired');
+          reject(retiredError);
+          return;
+        }
+
         // Check for API error in stream-json output (e.g., ModelNotFoundError)
         const apiError = this.extractApiError(this.outputBuffer);
         if (apiError) {
@@ -366,7 +382,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             duration
           };
           this.completeResponse(response);
-          if (code === 0 && !turnFailed) this.advisoryMemoryDelivered = true;
+          if (code === 0 && !turnFailed) {
+            this.advisoryMemoryDelivered = true;
+            reportGeminiSignInOutcome('replied');
+          }
           resolve(response);
         } else {
           reject(new Error(`Gemini exited with code ${code}`));
@@ -792,10 +811,13 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     } catch (error) {
       assertAdapterInputCurrent(admission);
       if (error instanceof Error && error.name === 'AbortError') throw error;
-      this.emit('output', createOutputMessage(
-        'error',
-        error instanceof Error ? error.message : String(error),
-      ));
+      // A retired sign-in reaches the transcript once, in plain words, through the error event below.
+      if (!(error instanceof GeminiClientRetiredError)) {
+        this.emit('output', createOutputMessage(
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ));
+      }
       this.emit('status', 'error' as InstanceStatus);
       this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
       throw error;

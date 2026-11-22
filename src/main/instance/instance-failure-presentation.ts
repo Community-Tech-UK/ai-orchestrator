@@ -10,6 +10,7 @@
 
 import type { Instance } from '../../shared/types/instance.types';
 import { presentError, type PresentedError } from '../../shared/present-error';
+import { isGeminiClientRetiredText } from '../cli/adapters/gemini-client-retired';
 import { isProviderAuthenticationError } from '../cli/adapters/provider-authentication-error';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 import { ProviderConcurrencyTimeoutError } from '../cli/provider-concurrency-limiter';
@@ -45,9 +46,11 @@ export interface UserFacingFailure {
  */
 const LOST_SESSION = 'That session does not exist any more.';
 
-/** What the presenter can tell from the error itself: a stop, a sign-out, or a code it knows. */
+/** What the presenter can tell from the error itself: a stop, a retired or signed-out provider, or a code it knows. */
 function codeOf(error: unknown, detail: string): string | undefined {
   if (isAbortError(error)) return 'cancelled';
+  // Read from the words, not the error's class: the text also arrives from a worker computer or the spawn worker.
+  if (isGeminiClientRetiredText(detail)) return 'gemini-retired';
   if (isProviderAuthenticationError(error) || detectAuthFailureSignal(detail)) return 'auth';
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === 'string' ? code : undefined;

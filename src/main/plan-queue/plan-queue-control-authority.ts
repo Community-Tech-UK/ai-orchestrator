@@ -16,20 +16,15 @@
  * A sleeping, idle or failed retained owner keeps the run; handover requires
  * that owner's explicit control or the operator panel.
  *
- * Set aside agent: the session James starts from the Set aside tab may discard or
- * restore any job, and retry a merge, resume a job or merge one without checks in
- * its own folder. When James asks, it may also skip a job there that has not
- * started, such as a fresh attempt that stops an older one from merging: only in
- * its reply to a message James typed, using the same check of who sent the latest
- * message as Land anyway (plan-queue-land-anyway-authority.ts). Like any other session,
- * it may adopt a run whose parent session is gone, and a run it owns it controls as
- * its owner. It clears empty jobs through plan-queue-set-aside.ts.
+ * Set aside agent: the session James starts from the Set aside tab may also skip,
+ * resume, retry the merge of, or merge without checks any job, in any folder.
+ * Otherwise it is an ordinary session: it may start runs, adopt a run whose parent
+ * session is gone, ask for a handover, and control a run it owns as its owner. It
+ * clears empty jobs through plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
-import type { PersonTurnCheck } from '../instance/input-turn-registry';
 import { getLogger } from '../logging/logger';
-import { clockTime } from './plan-queue-land-anyway-authority';
 import type { PlanQueueRun } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueControlAuthority');
@@ -50,8 +45,10 @@ const DISCARD_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueCo
   'restore-discarded',
 ]);
 
-/** Besides discarding, the only control actions the Set aside agent may take, and only in its own folder. */
-export const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
+/** Control actions the Set aside agent may take on any run, besides those every session may take. */
+const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
+  ...DISCARD_ACTIONS,
+  'skip-item',
   'resume-item',
   'retry-landing',
   'land-anyway',
@@ -60,10 +57,8 @@ export const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new 
 export interface PlanQueueCallerLookup {
   instanceExists(instanceId: string): boolean;
   isQueueInstance(instanceId: string): boolean;
-  /** The folder a Set aside agent may sort out; undefined for every other session. */
+  /** The folder a Set aside agent was started for; undefined for every other session. */
   setAsideFolder(instanceId: string): string | undefined;
-  /** Whether the caller is answering a message James typed (`InputTurnRegistry`). */
-  checkPersonTurn(instanceId: string): PersonTurnCheck;
 }
 
 /** @param callerInstanceId set for MCP callers, who must be the run's parent session. */
@@ -83,18 +78,6 @@ export function authorizePlanQueueControl(
   callerInstanceId: string | undefined,
   lookup: PlanQueueCallerLookup,
 ): string {
-  const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
-  if (setAsideFolder !== undefined && action !== 'adopt' && callerInstanceId !== run.parentInstanceId) {
-    const agent = `the Set aside agent (session ${callerInstanceId})`;
-    const ownFolder = setAsideFolder === run.workspaceCwd;
-    if (DISCARD_ACTIONS.has(action) || (ownFolder && SET_ASIDE_AGENT_ACTIONS.has(action))) return agent;
-    const turn = ownFolder && action === 'skip-item' ? lookup.checkPersonTurn(callerInstanceId!) : null;
-    if (turn?.ok) return `${agent}, after James's message at ${clockTime(turn.typedAt)}`;
-    const providerNote = turn?.reason === 'provider-cannot-report'
-      ? " This session's provider can't report when a turn starts, so Harness can't tell it is answering James; he can skip the job on the Plan Queue page."
-      : '';
-    throw new Error(`The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, skip a job there that has not started in its reply to a message James typed, discard or restore a job, or adopt a run whose owner has gone. List this for James.${providerNote}`);
-  }
   if (action === 'request-handover') {
     if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {
       throw new Error('A handover request requires a live session that the queue did not spawn');
@@ -107,7 +90,12 @@ export function authorizePlanQueueControl(
       throw new Error('Adopt requires a live session that the queue did not spawn');
     }
   }
-  if (callerInstanceId === undefined || callerInstanceId === run.parentInstanceId) return 'James';
+  if (callerInstanceId === undefined) return 'James';
+  // Checked before ownership so the audit trail names the agent, not James, on runs it started or adopted too.
+  if (SET_ASIDE_AGENT_ACTIONS.has(action) && lookup.setAsideFolder(callerInstanceId) !== undefined) {
+    return `the Set aside agent (session ${callerInstanceId})`;
+  }
+  if (callerInstanceId === run.parentInstanceId) return 'James';
   if (DISCARD_ACTIONS.has(action) && !lookup.isQueueInstance(callerInstanceId)) {
     logger.info('Plan queue: a session other than the owner discarded or restored a job', { runId: run.id, action, callerInstanceId });
     return `session ${callerInstanceId}`;

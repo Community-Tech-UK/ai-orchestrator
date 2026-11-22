@@ -34,7 +34,7 @@ import type {
   PooledProvider,
   ProviderAccountProfile,
 } from '../../../shared/types/provider-account.types';
-import { POOLED_PROVIDERS, isPooledProvider } from '../../../shared/types/provider-account.types';
+import { LEGACY_ACCOUNT_PROFILE_ID, POOLED_PROVIDERS, isLogicalMiMoModel, isPooledProvider } from '../../../shared/types/provider-account.types';
 import type { Instance, RuntimeChangeRequest } from '../../../shared/types/instance.types';
 import {
   CLAUDE_PROFILES_ROOT_DIR,
@@ -58,7 +58,7 @@ export interface RegisterProviderAccountHandlersDeps {
   ensureTrustedSender?: (event: IpcMainInvokeEvent, channel: string) => IpcResponse | null;
   store?: ProviderAccountStore;
   /** Live instances, for the in-use guard and the explicit session switch. */
-  getInstances?: () => Pick<Instance, 'id' | 'provider' | 'accountProfileId' | 'status'>[];
+  getInstances?: () => Pick<Instance, 'id' | 'provider' | 'accountProfileId' | 'status' | 'currentModel'>[];
   requestRuntimeChange?: (instanceId: string, request: RuntimeChangeRequest) => Promise<unknown>;
   quotaLogin?: Pick<MimoUsageLogin, 'connect' | 'disconnect'>;
   usageSessions?: Pick<MimoSavedSessionStore, 'exists'>;
@@ -189,10 +189,15 @@ export function registerProviderAccountHandlers(deps: RegisterProviderAccountHan
     return status;
   };
 
+  // A session with no account recorded runs on the existing sign-in, except an
+  // OpenCode session on a non-MiMo model, which never gets an account at all.
+  // An OpenCode session whose model is unknown counts, to be safe.
   const inUse = (provider: PooledProvider): string[] =>
     (deps.getInstances?.() ?? [])
       .filter((instance) => instance.provider === provider && instance.status !== 'terminated')
-      .map((instance) => instance.accountProfileId ?? 'legacy');
+      .filter((instance) => instance.accountProfileId || provider !== 'opencode'
+        || !instance.currentModel || isLogicalMiMoModel(instance.currentModel))
+      .map((instance) => instance.accountProfileId ?? LEGACY_ACCOUNT_PROFILE_ID);
 
   handle(
     IPC_CHANNELS.PROVIDER_ACCOUNT_LIST,

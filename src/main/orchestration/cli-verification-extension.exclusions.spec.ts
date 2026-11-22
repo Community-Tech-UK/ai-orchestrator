@@ -23,6 +23,7 @@ vi.mock('../providers/provider-instance-manager', () => ({
 
 import { CliVerificationCoordinator } from './cli-verification-extension';
 import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
+import { GeminiRetirementRecord, getGeminiRetirementRecord } from '../providers/gemini-retirement-record';
 
 function cli(name: string): CliInfo {
   return { name, displayName: name, command: name, installed: true } as CliInfo;
@@ -48,6 +49,7 @@ describe('CLI verification panel — automation provider exclusions', () => {
   beforeEach(() => {
     state.excluded = [];
     _resetAutomationProviderExclusionsForTesting();
+    GeminiRetirementRecord._resetForTesting();
     createCliProvider.mockClear();
     createProvider.mockClear();
     CliVerificationCoordinator._resetForTesting();
@@ -64,6 +66,12 @@ describe('CLI verification panel — automation provider exclusions', () => {
       state.excluded = ['copilot'];
       await selectAgents(coordinator, { agentCount: 3 }, available);
       expect(createCliProvider.mock.calls.map(([n]) => n)).toEqual(['gemini', 'codex', 'cursor']);
+    });
+
+    it('leaves Gemini out once Google has retired its sign-in here', async () => {
+      getGeminiRetirementRecord().recordRetired();
+      await selectAgents(coordinator, { agentCount: 3 }, available);
+      expect(createCliProvider.mock.calls.map(([n]) => n)).toEqual(['codex', 'copilot', 'cursor']);
     });
 
     it('builds an empty panel when every available provider is excluded', async () => {

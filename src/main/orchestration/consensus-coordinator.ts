@@ -40,6 +40,7 @@ import {
   isProviderExcludedFromAutomation,
 } from '../providers/automation-provider-exclusions';
 import { applyConsensusCheckingPolicy } from './consensus-checking-policy';
+import { canChooseProviderHere } from '../providers/gemini-retirement-record';
 import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
 import {
   synthesizeConsensus,
@@ -482,9 +483,10 @@ export class ConsensusCoordinator extends EventEmitter {
       // "requested" list comes from an orchestrator agent's consensus_query
       // command, not from a human picking a session provider, so the automation
       // exclusions apply to it just as they do to the default fan-out.
+      // Gemini still detects as installed after Google retired its sign-in here; asking it again is a certain failure.
       return requested.filter(spec => {
         const cliType = toCliType(spec.provider);
-        return availableNames.has(cliType) && !isProviderExcludedFromAutomation(cliType);
+        return availableNames.has(cliType) && !isProviderExcludedFromAutomation(cliType) && canChooseProviderHere(cliType);
       });
     }
 

@@ -445,7 +445,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // Public API (MCP tools and IPC)
   // ---------------------------------------------------------------------------
   private runCreateHost() {
-    return { ...this.requireDeps(), isQueueInstance: (id: string) => this.isQueueInstance(id), isSetAsideInstance: (id: string) => this.setAside?.folderOf(id) !== undefined,
+    return { ...this.requireDeps(), isQueueInstance: (id: string) => this.isQueueInstance(id),
       selectVerifier: (input: VerifierSelectInput) => this.selectVerifier(input), applyRelaxation: (run: PlanQueueRun) => this.applyRelaxation(run) };
   }
   private startedRun({ run, ...details }: Omit<StartRunResult, 'run'> & { run: PlanQueueRun }): StartRunResult {
@@ -612,9 +612,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (CONTROLS_THAT_START_WORK.has(payload.action)) refuseWhileTicketAskOpen(item);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     // Land anyway has its own, stricter rule; it runs first so its plain reasons win over the general refusal.
-    // A Set aside agent on a run it doesn't own is authorised by the general check below (its own folder only), so it
-    // skips the person-message rule; on a run it owns it follows the owner's rule.
-    const setAsideCaller = callerInstanceId !== undefined && callerInstanceId !== run.parentInstanceId && this.setAside?.folderOf(callerInstanceId) !== undefined;
+    // The Set aside agent skips the person-message rule on every run, its own included: James pressed Sort out to have it act.
+    const setAsideCaller = callerInstanceId !== undefined && this.setAside?.folderOf(callerInstanceId) !== undefined;
     // No session, the starting one and the Set aside agent included, may take a job's version over a direct change.
     if (payload.action === 'land-anyway' && item.parkReason === 'undoes-direct-change' && callerInstanceId !== undefined) throw new Error(UNDO_DIRECT_CHANGE_REFUSAL);
     let landAnyway = payload.action === 'land-anyway' && !setAsideCaller
@@ -841,7 +840,6 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       },
       isQueueInstance: (id) => this.isQueueInstance(id),
       setAsideFolder: (id) => this.setAside?.folderOf(id),
-      checkPersonTurn: (id) => this.requireDeps().personTurns.checkPersonTurn(id),
     });
   }
   private authorizeLandAnyway(run: PlanQueueRun, item: PlanQueueItem, caller: string | undefined) {

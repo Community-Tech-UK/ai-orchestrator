@@ -21,6 +21,7 @@ vi.mock('../cli/cli-detection', () => ({
 import { ConsensusCoordinator } from './consensus-coordinator';
 import type { ConsensusProviderSpec } from './consensus.types';
 import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
+import { GeminiRetirementRecord, getGeminiRetirementRecord } from '../providers/gemini-retirement-record';
 
 /** `resolveProviders` is private; the fan-out list it returns is the behaviour under test. */
 function resolveProviders(
@@ -41,6 +42,7 @@ describe('consensus provider fan-out — automation exclusions', () => {
     state.excluded = [];
     state.available = ['claude', 'codex', 'copilot', 'cursor'];
     _resetAutomationProviderExclusionsForTesting();
+    GeminiRetirementRecord._resetForTesting();
     ConsensusCoordinator._resetForTesting();
     coordinator = ConsensusCoordinator.getInstance();
   });
@@ -68,6 +70,16 @@ describe('consensus provider fan-out — automation exclusions', () => {
         { provider: 'codex' },
       ] as ConsensusProviderSpec[]);
       expect(resolved.map((p) => p.provider)).toEqual(['codex']);
+    });
+
+    it('drops Gemini once Google has retired its sign-in here, and keeps it until then', async () => {
+      state.available = ['claude', 'gemini'];
+      const requested = [{ provider: 'gemini' }, { provider: 'claude' }] as ConsensusProviderSpec[];
+      expect((await resolveProviders(coordinator, requested)).map((p) => p.provider)).toEqual(['gemini', 'claude']);
+
+      getGeminiRetirementRecord().recordRetired();
+
+      expect((await resolveProviders(coordinator, requested)).map((p) => p.provider)).toEqual(['claude']);
     });
 
     it('leaves a requested non-excluded provider alone', async () => {

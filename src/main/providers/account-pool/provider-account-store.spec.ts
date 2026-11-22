@@ -105,13 +105,29 @@ describe('ProviderAccountStore', () => {
     expect(ordered.map((profile) => [profile.id, profile.priority])).toEqual([[b.id, 0], ['legacy', 1]]);
   });
 
-  it('refuses to remove the legacy profile or one in use', () => {
+  it('refuses to remove an account in use', () => {
     const { store, state } = makeStore();
     const b = store.createProfile({ provider: 'codex', label: 'Pro B' });
-    expect(() => store.removeProfile('codex', 'legacy')).toThrow(/cannot be removed/);
     expect(() => store.removeProfile('codex', b.id, [b.id])).toThrow(/in use/);
     store.removeProfile('codex', b.id);
     expect(state.profiles.some((profile) => profile.id === b.id)).toBe(false);
+  });
+
+  it('removes the existing sign-in once another account is on, with the same guards as any account', () => {
+    const { store, state } = makeStore({ profiles: [legacy('claude'), legacy('codex'), legacy('opencode')] });
+    store.acknowledgeOwnership('opencode');
+    const b = store.createProfile({ provider: 'opencode', label: 'MiMo B', region: 'ams' });
+    expect(b.enabled).toBe(true);
+    expect(() => store.removeProfile('opencode', 'legacy', ['legacy'])).toThrow(/in use/);
+    store.updateProfile('opencode', b.id, { enabled: false });
+    expect(() => store.removeProfile('opencode', 'legacy')).toThrow(/must stay enabled/);
+    store.updateProfile('opencode', b.id, { enabled: true });
+
+    store.removeProfile('opencode', 'legacy');
+    expect(store.listProfiles('opencode').map((profile) => profile.id)).toEqual([b.id]);
+    expect(store.hasNonLegacyProfiles('opencode')).toBe(true);
+    // Other providers keep their existing sign-in.
+    expect(state.profiles.filter((profile) => profile.isLegacy).map((profile) => profile.provider)).toEqual(['claude', 'codex']);
   });
 
   it('adopts an observed identity', () => {

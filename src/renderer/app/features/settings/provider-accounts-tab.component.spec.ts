@@ -15,6 +15,7 @@ import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service
 import { defaultProviderAccountPools, type ProviderAccountPools } from '../../../../shared/types/provider-account.types';
 import { ProviderAccountsTabComponent } from './provider-accounts-tab.component';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
 
 const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), './provider-accounts-tab.component.html'), 'utf8');
 
@@ -408,37 +409,40 @@ describe('ProviderAccountsTabComponent', () => {
     expect(ipc.update).toHaveBeenCalledExactlyOnceWith({ provider: 'claude', profileId: 'max-b-1a2b', enabled: true });
   });
 
-  it('explains why the existing sign-in has no Remove button once there is another account', async () => {
+  it('offers Remove on the existing sign-in once there is another account, and on no lone account', async () => {
     const original = ipc.list.getMockImplementation();
     const second = account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false, enabled: true });
+    const hasRemove = (card: HTMLElement) =>
+      Array.from(card.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Remove');
     try {
-      ipc.list.mockImplementation(async () => ({ profiles: [account(), second], pools }));
-      let legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
-      expect(legacyCard.textContent).toContain('so it can’t be removed. Untick Enabled to stop Harness using it.');
-      expect(Array.from(legacyCard.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Remove')).toBe(false);
+      ipc.list.mockImplementation(async () => ({ profiles: [account({ enabled: false }), second], pools }));
+      const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(true);
+      const fixture = await render();
+      const legacyCard = claudeSection(fixture).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.textContent).not.toContain('can’t be removed');
+      expect(hasRemove(legacyCard)).toBe(true);
+      Array.from(legacyCard.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Remove')!.click();
+      await settle(fixture);
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('To use it again later, add it as a new account and sign in to it.'),
+      }));
+      expect(ipc.remove).toHaveBeenCalledExactlyOnceWith('claude', 'legacy');
 
-      // The only account on, before ownership is confirmed: the other account cannot be switched on yet.
+      // The only account switched on: Remove says why it is blocked instead of failing after the dialog.
       ipc.list.mockImplementation(async () => ({ profiles: [account(), { ...second, enabled: false }], pools }));
-      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
-      expect(legacyCard.textContent).toContain(
-        'so it can’t be removed. Confirm below that these are your own accounts, switch on another account, then switch this one off.',
-      );
-
-      const confirmed = { ...pools, claude: { ...pools.claude, acknowledgedOwnershipAt: 1 } };
-      ipc.list.mockImplementation(async () => ({ profiles: [account(), { ...second, enabled: false }], pools: confirmed }));
-      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
-      expect(legacyCard.textContent).toContain('so it can’t be removed. Switch on another account first, then switch this one off.');
-
-      // Already off: nothing more to do, so no instruction follows.
-      ipc.list.mockImplementation(async () => ({ profiles: [account({ enabled: false }), second], pools: confirmed }));
-      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
-      expect(legacyCard.querySelector('.hint')?.textContent?.trim()).toBe(
-        'This is the sign-in that was set up before you added accounts here, so it can’t be removed.',
-      );
+      confirm.mockClear();
+      const onlyOn = await render();
+      const onlyOnRemove = Array.from(claudeSection(onlyOn).querySelector<HTMLElement>('.account-card')!.querySelectorAll('button'))
+        .find((button) => button.textContent?.trim() === 'Remove')!;
+      expect(onlyOnRemove.getAttribute('aria-disabled')).toBe('true');
+      onlyOnRemove.click();
+      await settle(onlyOn);
+      expect(confirm).not.toHaveBeenCalled();
 
       ipc.list.mockImplementation(async () => ({ profiles: [account()], pools }));
-      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
-      expect(legacyCard.textContent).not.toContain('can’t be removed');
+      expect(hasRemove(claudeSection(await render()).querySelector<HTMLElement>('.account-card')!)).toBe(false);
+      ipc.list.mockImplementation(async () => ({ profiles: [second], pools }));
+      expect(hasRemove(claudeSection(await render()).querySelector<HTMLElement>('.account-card')!)).toBe(false);
     } finally {
       if (original) ipc.list.mockImplementation(original);
     }

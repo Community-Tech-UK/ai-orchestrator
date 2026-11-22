@@ -75,9 +75,6 @@
             @if (waitsForOwnership(account)) {
               <p class="hint">This account stays switched off until you confirm below that these are your own accounts.</p>
             }
-            @if (account.isLegacy && count > 1) {
-              <p class="hint">This is the sign-in that was set up before you added accounts here, so it can’t be removed. {{ legacyNextStep(account) }}</p>
-            }
 
             @if (account.binding?.state === 'identity-mismatch' && account.binding?.observedIdentity) {
               <p class="mismatch">
@@ -166,8 +163,9 @@
                     [attr.aria-label]="'Move ' + account.label + ' down'" appTooltip="Move down">↓</button>
                 }
                 <button type="button" class="btn btn-secondary" (click)="rename(account)" [disabled]="busy()">Rename</button>
-                @if (!account.isLegacy) {
-                  <button type="button" class="btn btn-danger" (click)="remove(account)" [disabled]="busy()">Remove</button>
+                @if (count > 1) {
+                  <button type="button" class="btn btn-danger" (click)="remove(account)" [disabled]="busy()"
+                    [appTooltipDisabledReason]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null">Remove</button>
                 }
               </div>
             </div>

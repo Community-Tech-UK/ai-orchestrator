@@ -34,6 +34,18 @@ describe('ChildErrorClassifier', () => {
     expect(result.suggestedAction).toBe('retry_different_model');
   });
 
+  it('tells the parent to use another provider when Google has retired the Gemini sign-in, not to retry', () => {
+    const result = classifier.classify(
+      'An unexpected critical error occurred: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google',
+      'error',
+    );
+
+    expect(result.category).toBe('gemini_retired');
+    expect(result.retryable).toBe(false);
+    expect(result.suggestedAction).toBe('retry_different_provider');
+    expect(result.userMessage).toContain('"antigravity"');
+  });
+
   it('keeps generic crashes as crashes without token evidence', () => {
     const result = classifier.classify('process exited with code 1', 'busy');
 

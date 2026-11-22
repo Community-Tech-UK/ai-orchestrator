@@ -1,7 +1,7 @@
 import { accountFamilyName, providerName } from './display-names';
 
 export type ErrorCategory = 'quota' | 'auth' | 'network' | 'provider-crash' | 'concurrency' | 'tool-server' | 'cancelled'
-  | 'permission-refused' | 'unknown';
+  | 'permission-refused' | 'gemini-retired' | 'unknown';
 
 export interface ErrorPresentationContext {
   provider?: string;
@@ -23,7 +23,7 @@ export interface PresentedError {
   rawDetail: string;
 }
 
-const CATEGORIES = new Set<string>(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'unknown']);
+const CATEGORIES = new Set<string>(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'gemini-retired', 'unknown']);
 const PROVIDERS = new Set(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode', 'ollama']);
 
 /** Raw diagnostics stay in Details; closed copy may include the supplied account and server labels. */
@@ -89,6 +89,11 @@ export function presentError(codeOrError: unknown, context: ErrorPresentationCon
       // No retry action: resending the same request is refused again.
       headline = 'This turn ended because a tool call was refused. Your message and the work above are kept.';
       advice = 'Tell the agent how to carry on another way.';
+      break;
+    case 'gemini-retired':
+      // No retry action: Google has switched this sign-in off, so every attempt fails the same way.
+      headline = "Google has retired Gemini for personal Google accounts, so it can't run here any more.";
+      advice = "Start a new session with Antigravity, Google's replacement.";
       break;
     default:
       headline = `${provider} couldn't finish this request.`;

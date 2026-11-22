@@ -9,6 +9,8 @@
 
 import { registerBootstrapModule } from './index';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
+// Loaded directly: the record does nothing until asked, so it has no import-time side effects to defer.
+import { observeGeminiSignIn } from '../providers/gemini-retirement-record';
 
 export function registerOrchestrationBootstrap(): void {
   registerBootstrapModule({
@@ -32,6 +34,17 @@ export function registerOrchestrationBootstrap(): void {
       getCompactionCoordinator().on('post-compact-hook', (payload: { instanceId: string }) => {
         getDoomLoopDetector().notifyCompaction(payload.instanceId);
       });
+    },
+  });
+
+  registerBootstrapModule({
+    name: 'Gemini sign-in record',
+    domain: 'orchestration',
+    failureMode: 'degraded',
+    init: () => {
+      // Gemini runs on this computer report Google's retirement message or a reply; the record decides whether
+      // Harness may choose Gemini itself. A worker computer never starts this, so its Gemini set-up stays its own.
+      observeGeminiSignIn();
     },
   });
 

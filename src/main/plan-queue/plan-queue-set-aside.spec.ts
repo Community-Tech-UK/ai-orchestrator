@@ -275,6 +275,12 @@ describe('PlanQueueSetAsideAgents', () => {
     expect(() => agents.checkRestart(AGENT, 'land-anyway', blocked())).toThrow('in progress');
   });
 
+  it('applies the same checks on a run it started or adopted', () => {
+    getRun.mockImplementation(() => ({ ...run(), parentInstanceId: AGENT }));
+    inPlay = true;
+    expect(() => agents.checkRestart(AGENT, 'land-anyway', blocked())).toThrow('in progress');
+  });
+
   it('reuses an agent a restart revived, which this launch did not start', async () => {
     jobs = [item()];
     expect(await agents.start(repo)).toBe(AGENT);
@@ -352,6 +358,16 @@ describe('setAsideAgentBrief', () => {
     expect(brief).toContain('$AIO_MCP plan-queue discard <itemId>');
     expect(brief).toContain('When James tells you to do something to a job, such as discard it, do it.');
     expect(brief).not.toContain('delete a branch that holds work');
+  });
+
+  it('lets the agent skip jobs, start repair runs and start sessions without waiting for James', () => {
+    const brief = setAsideAgentBrief('/repo', 12, undefined);
+    expect(brief).toContain('Skip a job that has not started (skip-item)');
+    expect(brief).toContain('Start a Plan Queue run (plan_queue_start)');
+    expect(brief).toContain('in this project or any other');
+    expect(brief).not.toContain('Only when James asks you to');
+    expect(brief).not.toContain('do not start another Harness session');
+    expect(brief).not.toContain('Make no other Plan Queue calls');
   });
 
   it('names only tools that exist', () => {

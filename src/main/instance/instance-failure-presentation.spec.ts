@@ -51,6 +51,16 @@ describe('presentFailure', () => {
       + ' What to do: Tell the agent how to carry on another way.');
   });
 
+  it('says Google retired Gemini and points to Antigravity, with no retry, when the Gemini CLI reports it', () => {
+    const message = 'An unexpected critical error occurred: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google';
+    const failure = presentFailure({ error: new Error(message), message, instance: { provider: 'gemini' } });
+
+    expect(failure.content).toBe("Google has retired Gemini for personal Google accounts, so it can't run here any more."
+      + " What to do: Start a new session with Antigravity, Google's replacement.");
+    expect(failure.metadata['errorPresentation']).toMatchObject({ category: 'gemini-retired', rawDetail: message });
+    expect(failure.metadata['errorPresentation']).not.toHaveProperty('action');
+  });
+
   it('opens with what failed, and does not repeat that the request could not finish', () => {
     const failure = presentFailure({ error: new Error('boom'), message: 'boom', instance: claude, lead: 'This session could not start.' });
     expect(failure.content).toBe('This session could not start. What to do: Check Details, then try again. Your message and the work above are kept.');

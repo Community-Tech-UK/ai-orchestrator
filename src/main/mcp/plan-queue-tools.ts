@@ -142,7 +142,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
   ...CAPABILITY_TOOL_SPECS,
   plan_queue_start: {
     description:
-      'Work through plan or livetest documents in this workspace, one visibly nested worker session per document, each in its own git worktree, judged by an independent verifier on a different provider, and landed on the current branch as one local squash commit per verified document (never pushed). Use it when James asks to "work through the plans" or "run the livetests". This session becomes the parent: evidence-backed technical readiness decisions are selected automatically; questions requiring human authority or facts wait for James on the Plan Queue page (plan_queue_status lists them) unless his settings send them to this session, and you receive a summary when the run ends. Returns the discovered documents before any worker starts.',
+      'Work through plan or livetest documents in this workspace, one visibly nested worker session per document, each in its own git worktree, judged by an independent verifier on a different provider, and landed on the current branch as one local squash commit per verified document (never pushed). Use it when James asks to "work through the plans" or "run the livetests", or as the Set aside agent to run a plan that fixes what keeps jobs failing. This session becomes the parent: evidence-backed technical readiness decisions are selected automatically; questions requiring human authority or facts wait for James on the Plan Queue page (plan_queue_status lists them) unless his settings send them to this session, and you receive a summary when the run ends. Returns the discovered documents before any worker starts.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -29,6 +29,7 @@ import {
   filterProvidersForAutomation,
   isProviderExcludedFromAutomation,
 } from '../providers/automation-provider-exclusions';
+import { canChooseProviderHere } from '../providers/gemini-retirement-record';
 import { extractJson } from '../orchestration/cross-model-review-service.helpers';
 import {
   getMagicPrompt,
@@ -87,12 +88,12 @@ function hasSendMessage(adapter: CliAdapter): adapter is SendMessageAdapter {
  * A legacy provider preference can map to a different runtime CLI (currently
  * `gemini` → `antigravity`). Check both identities before an automatic magic
  * prompt resolves it, so excluding the runtime cannot be bypassed by its
- * legacy preference spelling.
+ * legacy preference spelling. Gemini is also left out once Google has retired its sign-in here.
  */
 function isEligibleForAutomaticMagicPrompt(provider: string): boolean {
   const resolved = mapSettingsToDetectionType(provider as CliType);
   return !isProviderExcludedFromAutomation(provider)
-    && (resolved === 'auto' || !isProviderExcludedFromAutomation(resolved));
+    && (resolved === 'auto' || (!isProviderExcludedFromAutomation(resolved) && canChooseProviderHere(resolved)));
 }
 
 async function defaultResolveProvider(preferred?: string): Promise<CliType | null> {

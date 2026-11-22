@@ -23,12 +23,14 @@ vi.mock('../cli/adapters/adapter-factory', () => ({
 
 import { resolveScaffoldingProvider } from './scaffolding-local-provider';
 import { _resetAutomationProviderExclusionsForTesting } from '../providers/automation-provider-exclusions';
+import { GeminiRetirementRecord, getGeminiRetirementRecord } from '../providers/gemini-retirement-record';
 
 describe('resolveScaffoldingProvider — automation provider exclusions', () => {
   beforeEach(() => {
     state.excluded = [];
     state.resolvable = new Set(['copilot', 'cursor']);
     _resetAutomationProviderExclusionsForTesting();
+    GeminiRetirementRecord._resetForTesting();
   });
 
   it('routes to copilot when nothing is excluded', async () => {
@@ -42,6 +44,15 @@ describe('resolveScaffoldingProvider — automation provider exclusions', () => 
     await expect(resolveScaffoldingProvider('auto', 'workflow')).resolves.toEqual({
       provider: 'cursor',
     });
+  });
+
+  it('passes over Gemini once Google has retired its sign-in here, and picks it until then', async () => {
+    state.resolvable = new Set(['gemini', 'copilot']);
+    await expect(resolveScaffoldingProvider('auto', 'workflow')).resolves.toEqual({ provider: 'gemini' });
+
+    getGeminiRetirementRecord().recordRetired();
+
+    await expect(resolveScaffoldingProvider('auto', 'workflow')).resolves.toEqual({ provider: 'copilot' });
   });
 
   it('returns undefined when every preference-list candidate is excluded', async () => {

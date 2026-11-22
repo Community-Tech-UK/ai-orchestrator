@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import type { ChildErrorClassification, ChildErrorCategory } from '../../shared/types/child-announce.types';
 import { isAbortError, isFsInaccessible } from '../util/error-utils';
 import { classifyContextOverflow } from '../context/ptl-retry';
+import { isGeminiClientRetiredText } from '../cli/adapters/gemini-client-retired';
 
 const logger = getLogger('ChildErrorClassifier');
 
@@ -172,6 +173,17 @@ export class ChildErrorClassifier {
         userMessage: 'Child ran out of context window. Try with a larger-context model.',
         retryable: true,
         suggestedAction: 'retry_different_model',
+        rawError: errorMessage,
+      };
+    }
+
+    // Before the patterns: the CLI also exits with code 1, which would read as a crash worth retrying.
+    if (isGeminiClientRetiredText(errorMessage)) {
+      return {
+        category: 'gemini_retired',
+        userMessage: 'Google has retired Gemini for personal Google accounts. Use provider "antigravity" for a Google model, or another provider.',
+        retryable: false,
+        suggestedAction: 'retry_different_provider',
         rawError: errorMessage,
       };
     }

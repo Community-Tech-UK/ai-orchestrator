@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { presentError } from './present-error';
 
 describe('presentError', () => {
-  it.each(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'unknown'] as const)(
+  it.each(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'gemini-retired', 'unknown'] as const)(
     'gives %s a safe headline and a next step', category => {
       const result = presentError(category, { provider: 'codex', account: 'Work' });
       expect(result.category).toBe(category);
@@ -15,6 +15,13 @@ describe('presentError', () => {
     const result = presentError({ code: 'permission-refused', message: 'rejected permission' }, { provider: 'opencode' });
     expect(result.headline).toBe('This turn ended because a tool call was refused. Your message and the work above are kept.');
     expect(result.whatToDo).toBe('What to do: Tell the agent how to carry on another way.');
+    expect(result.action).toBeUndefined();
+  });
+
+  it('says Google retired Gemini, points to Antigravity, and offers no retry', () => {
+    const result = presentError({ code: 'gemini-retired', message: 'no longer supported' }, { provider: 'gemini' });
+    expect(result.headline).toBe("Google has retired Gemini for personal Google accounts, so it can't run here any more.");
+    expect(result.whatToDo).toBe("What to do: Start a new session with Antigravity, Google's replacement.");
     expect(result.action).toBeUndefined();
   });
 

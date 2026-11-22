@@ -22,7 +22,6 @@ const logger = getLogger('PlanQueueCoordinator');
 export type RunCreateHost = Pick<PlanQueueCoordinatorDeps, 'store' | 'instances' | 'routing'>
   & Required<Pick<PlanQueueCoordinatorDeps, 'folderChecklists' | 'thisRepositoryRootCommit' | 'now' | 'newId'>> & {
     isQueueInstance(instanceId: string): boolean;
-    isSetAsideInstance(instanceId: string): boolean;
     selectVerifier(input: VerifierSelectInput): Promise<VerifierSelection>;
     applyRelaxation(run: PlanQueueRun): void;
   };
@@ -45,8 +44,8 @@ export async function locateRun(
 ): Promise<StartingPlace> {
   const parent = host.instances.getInstance(input.parentInstanceId);
   if (!parent) throw new Error(`Parent session not found: ${input.parentInstanceId}`);
-  if (host.isQueueInstance(input.parentInstanceId) || host.isSetAsideInstance(input.parentInstanceId)) {
-    throw new Error('A Plan Queue worker, verifier, triage or Set aside session cannot start another queue run');
+  if (host.isQueueInstance(input.parentInstanceId)) {
+    throw new Error('A Plan Queue worker, verifier or triage session cannot start another queue run');
   }
   const startFolder = input.workspaceCwd ?? parent.workingDirectory ?? process.cwd();
   const repoRoot = await repositoryRoot(startFolder);

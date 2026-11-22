@@ -58,6 +58,7 @@ const ERROR_CATEGORIES: Readonly<Record<ErrorCategory, true>> = {
   'tool-server': true,
   cancelled: true,
   'permission-refused': true,
+  'gemini-retired': true,
   unknown: true,
 };
 
