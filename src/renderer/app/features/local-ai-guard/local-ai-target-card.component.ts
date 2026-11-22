@@ -23,6 +23,7 @@ import type {
   LocalAiPublicRecoveryAttempt,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LOCAL_AI_OPERATION_ERROR, LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { LOCAL_AI_FAILURE_REASONS } from './local-ai-failure-copy';
 import { LOCAL_AI_GUARD_CLOCK } from './local-ai-guard-clock';
 import { LocalAiModalCoordinator } from './local-ai-modal-coordinator';
@@ -362,6 +363,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
 })
 export class LocalAiTargetCardComponent {
   protected readonly store = inject(LocalAiGuardStore);
+  private readonly showCost = inject(SettingsStore).showCost;
   protected readonly operationErrorText = LOCAL_AI_OPERATION_ERROR;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
@@ -482,6 +484,8 @@ export class LocalAiTargetCardComponent {
     const unpriced = this.incidents()
       .reduce((total, incident) => total + incident.unpricedDispatchCount, 0);
     const suffix = unpriced > 0 ? ` + ${unpriced} unpriced` : '';
+    // Show cost estimates off: no dollar figure, but the spend is not denied.
+    if (!this.showCost() && (known > 0 || estimated > 0)) return `cost hidden${suffix}`;
     if (known > 0) return `$${known.toFixed(2)} measured${suffix}`;
     if (estimated > 0) return `$${estimated.toFixed(2)} estimated${suffix}`;
     if (unpriced > 0) return `cost unknown (${unpriced} unpriced)`;

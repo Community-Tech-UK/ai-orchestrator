@@ -261,7 +261,7 @@ describe('continuation admission through real communication and Codex queues', (
       expect(h.committed()).toBe(1);
       expect(h.instance.requestCount).toBe(4);
       expect(h.inputRequests().map(([method]) => method)).toEqual(['thread/inject_items', 'turn/start']);
-      expect(h.inputRequests()[1][1]).toEqual({ threadId: 'thread-1', input: [] });
+      expect(h.inputRequests()[1][1]).toEqual({ threadId: 'thread-1', input: [], summary: 'auto' });
       expect(h.inputRequests()[0][1]).toEqual({ threadId: 'thread-1', items: [expect.objectContaining({ role: 'developer' })] });
       expect(JSON.stringify(h.requests)).not.toMatch(/signal|beforeProviderDispatch|autoContinuation|dispatch/);
     } finally { await h.close(); }

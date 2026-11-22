@@ -6,9 +6,13 @@
         border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       }
 
-      // One row: the title shrinks first, then the folder, then the chips.
+      // One row while it fits. The pane's own width decides (the session list
+      // takes about half of a 700 px window), so wrapping cannot depend on a
+      // viewport media query: the actions drop under the title instead of
+      // spilling over it and hiding Auto-approve (LT-1109).
       .header-top {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         align-items: center;
         gap: 8px;
@@ -139,7 +143,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         min-width: 0;
         justify-content: flex-end;
         position: relative;
@@ -293,10 +297,6 @@
         .detail-header {
           gap: 8px;
           padding-bottom: 6px;
-        }
-
-        .header-actions {
-          flex-wrap: wrap;
         }
 
         .name-row {

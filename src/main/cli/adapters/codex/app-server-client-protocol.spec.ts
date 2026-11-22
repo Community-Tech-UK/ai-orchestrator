@@ -49,7 +49,7 @@ describe('Harness requests against the generated Codex manifest', () => {
       model_post_turn_compact_threshold_percent: 70,
     });
     expect(requests[1]!.params['excludeTurns']).toBe(true);
-    expect(turnParams).toEqual({ outputSchema: { type: 'object' }, effort: 'high', serviceTier: 'priority' });
+    expect(turnParams).toEqual({ summary: 'auto', outputSchema: { type: 'object' }, effort: 'high', serviceTier: 'priority' });
   });
 
   it('accepts the per-thread config key on thread/start and thread/resume', () => {

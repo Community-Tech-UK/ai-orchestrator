@@ -86,6 +86,12 @@
     flex-direction: column;
   }
 
+  // In a column the flex-basis values above become heights (320px and 360px).
+  .default-model__info,
+  .default-model__control {
+    flex: 0 0 auto;
+  }
+
   .default-model__control {
     justify-content: flex-start;
   }

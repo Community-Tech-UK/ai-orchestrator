@@ -20,6 +20,12 @@ import type { OverlayItem } from '../overlay/overlay.types';
 export class CommandPaletteComponent {
   protected readonly controller = inject(CommandPaletteController);
 
+  constructor() {
+    // The controller is a root singleton, so without this the last search text
+    // (and its filtered list) is still there when the palette opens again.
+    this.controller.setQuery('');
+  }
+
   closeRequested = output<void>();
   commandExecuted = output<{ commandId: string; args: string[] }>();
 

@@ -13,8 +13,11 @@ export class SessionTodoPeekService {
     const value = this.ipc.todoGetList(sessionId).then((result) => {
       const list = result.success ? result.data as TodoList | null : null;
       const items = list?.items?.filter((item) => item.status !== 'cancelled') ?? [];
-      const index = items.findIndex((item) => item.status === 'in_progress');
-      return index < 0 ? null : `Step ${index + 1} of ${items.length}: ${items[index].content}`;
+      const active = items.find((item) => item.status === 'in_progress');
+      // The list comes back sorted by status (active first), so its order is not the plan's order:
+      // the step number is how many steps are done, plus this one.
+      const done = items.filter((item) => item.status === 'completed').length;
+      return active ? `Step ${done + 1} of ${items.length}: ${active.content}` : null;
     }).catch(() => null);
     // Bound the cache to recently hovered sessions, including empty responses.
     for (const [key, entry] of this.cache) if (entry.until <= Date.now()) this.cache.delete(key);

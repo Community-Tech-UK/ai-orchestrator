@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -5,6 +6,7 @@ import type {
   LocalAiTargetStatus,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { LocalAiTargetCardComponent } from './local-ai-target-card.component';
 
 const NOW = 10_000;
@@ -49,17 +51,22 @@ describe('LocalAiTargetCardComponent', () => {
     recoveryAttempts: vi.fn((): unknown[] => []),
     repairFor: vi.fn(() => null),
   };
+  const showCost = signal(true);
   let fixture: ComponentFixture<LocalAiTargetCardComponent>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    showCost.set(true);
     store.operationKey.mockReturnValue(null);
     store.operationError.mockReturnValue(false);
     store.recoveryAttempts.mockReturnValue([]);
     store.repairFor.mockReturnValue(null);
     TestBed.configureTestingModule({
       imports: [LocalAiTargetCardComponent],
-      providers: [{ provide: LocalAiGuardStore, useValue: store }],
+      providers: [
+        { provide: LocalAiGuardStore, useValue: store },
+        { provide: SettingsStore, useValue: { showCost } },
+      ],
     });
     fixture = TestBed.createComponent(LocalAiTargetCardComponent);
     fixture.componentRef.setInput('status', status());
@@ -113,6 +120,21 @@ describe('LocalAiTargetCardComponent', () => {
       incident({ knownCostUsd: 0.75, unpricedDispatchCount: 2 }),
     ]);
     expect(fallbackImpactText()).toBe('2 paid fallbacks · $0.75 measured + 2 unpriced');
+  });
+
+  it('shows no dollar figure while Show cost estimates is off, but keeps the unpriced count', () => {
+    showCost.set(false);
+    fixture.componentRef.setInput('incidents', [
+      incident({ knownCostUsd: 0.75, estimatedCostUsd: 0.02, unpricedDispatchCount: 2 }),
+    ]);
+    expect(fallbackImpactText()).toBe('2 paid fallbacks · cost hidden + 2 unpriced');
+    expect(fixture.nativeElement.textContent).not.toContain('$');
+  });
+
+  it('still says no recorded cost when nothing was recorded and the setting is off', () => {
+    showCost.set(false);
+    fixture.componentRef.setInput('incidents', [incident()]);
+    expect(fallbackImpactText()).toBe('2 paid fallbacks · no recorded cost');
   });
 
   it('renders "no recorded cost" only when nothing at all was unpriced or priced', () => {

@@ -17,7 +17,8 @@ import { SessionStatusCardComponent } from './session-status-card.component';
   template: `<dialog #dialog tabindex="-1" aria-label="Session status" data-ui-hints-exempt="backdrop" (cancel)="status.close()" (click)="onBackdrop($event)" (keydown.escape)="status.close(); $event.stopPropagation()">
     @if (view(); as model) { <app-session-status-card [view]="model" (closed)="status.close()" /> }
   </dialog>`,
-  styles: [`dialog { width:min(680px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:0; border:0;
+  // margin:auto is explicit because the global `* { margin: 0 }` reset removes the user-agent margin that centres a modal dialog.
+  styles: [`dialog { width:min(680px, calc(100vw - 32px)); max-height:calc(100vh - 32px); margin:auto; padding:0; border:0;
     background:transparent; overflow:auto; } dialog::backdrop { background:rgba(0,0,0,.45); }`],
 })
 export class SessionStatusHostComponent {

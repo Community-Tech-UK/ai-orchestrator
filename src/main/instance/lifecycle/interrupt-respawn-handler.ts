@@ -718,6 +718,14 @@ export class InterruptRespawnHandler {
     this.resolveRespawnPromise(instance);
     this.deps.onToolStateChange?.(instanceId, 'idle');
 
+    // The transcript divider only shows a settled boundary (LT-1191); without this one a normal
+    // Stop left only the folded "1 system event" notice below.
+    this.emitInterruptBoundary(instance, {
+      phase: 'completed',
+      requestId: instance.interruptRequestId ?? generateId(),
+      outcome: instance.cancelledForEdit ? 'cancelled-for-edit' : 'cancelled',
+    });
+
     const message: OutputMessage = {
       id: generateId(),
       timestamp: Date.now(),

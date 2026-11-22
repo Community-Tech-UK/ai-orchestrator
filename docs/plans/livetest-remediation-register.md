@@ -484,6 +484,25 @@ sections below. The historical reproduction remains unchanged.
 | LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
+| LT-1104 | P2 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED AND CHECKED ON A REBUILT RENDERER.** The Session status dialog opened in the top-left corner of the window instead of the centre, because the global `* { margin: 0 }` reset removed the browser margin that centres a modal dialog. The fix gives the dialog `margin: auto`. | [LT-1104 detail](#lt-1104) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1105 | P1 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A RUNNING DEV APP 2026-11-14** (a saved "Always" rule landed in the dev profile, none in `~/.orchestrator`). A dev app started with `AIO_DEV_USER_DATA_PATH` still read, listed and could remove James's real saved permission rules (`~/.orchestrator/permissions.json`) from Settings > Permissions > Rules. The saved-rules file now lives in the dev profile whenever an unpackaged app has that variable set. | [LT-1105 detail](#lt-1105) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1106 | P3 | **REPRODUCED LIVE 2026-11-10; SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A RUNNING DEV APP 2026-11-14** (a Stop with a card up reads "Cancelled because the turn was stopped (Write)"). Stopping a turn while a permission card was up left the receipt "Cancelled when the session was stopped"; the plan and live check 9 require "Cancelled because the turn was stopped". The wording now matches. | [LT-1106 detail](#lt-1106) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1107 | P3 | **REPRODUCED LIVE 2026-11-14; SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A REBUILT DEV APP 2026-11-14** (the panel reads "Harness Hidden, Claude Hidden" with the setting off and dollars with it on). With Settings > Display > Show cost estimates OFF, the Costs & Usage page still printed dollar amounts in the "Claude cost check" panel ("Harness $0.00, Claude $0.00", the gap table, and the booked-spend sentences). The panel now follows the setting and shows "Hidden". | [LT-1107 detail](#lt-1107) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1108 | P1 | **REPRODUCED LIVE 2026-11-14 (two sessions); SOURCE FIX APPLIED, UNIT-TESTED, CHECKED ON A REBUILT DEV APP 2026-11-14** (Build to Plan on an idle Claude session now ends idle in Plan, process kept). Switching an idle Claude session between Build and Plan (Session options > Mode) destroyed the session: the old CLI's own exit was read as a crash, an auto-respawn raced the mode change's spawn, and the session ended up terminated and gone from the live list after about 16 seconds. | [LT-1108 detail](#lt-1108) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1109 | P2 | **REPRODUCED LIVE 2026-11-14; SOURCE FIX APPLIED, MEASURED ON A REBUILT DEV APP 2026-11-14.** When the session pane is narrow (a 700 px window leaves it about 258 px), the one-row header spilled over the title and the folder chip covered the Auto-approve chip and the cost; the layout only wrapped below a 640 px viewport width, which a 700 px window never reaches. The header now wraps by the pane's own width. | [LT-1109 detail](#lt-1109) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1151 | P2 | **REPRODUCED LIVE 2026-11-14 (hibernated session woken by a message, twice); NOT FIXED.** Waking a hibernated Claude session discards it as soon as the 5-second resume probe finds no session-id echo (a resumed Claude does not echo one until its first turn), starts a fresh session and sends the transcript replay as a prompt; the model answers that replay ("OK", "Reply with exactly: BETA") before it answers the person's message, so the transcript shows an extra reply and a "Wake resume failed" note on a wake that would have worked. | [LT-1151 detail](#lt-1151) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1111 | P3 | **SEEN 2026-11-14 on the pre-merge build (two sessions, every 60 s until archived); NOT REPRODUCED on the merged build 2026-11-14 (150 s hibernated, no recovery lines).** The idle monitor treated a hibernated session as a crashed process and asked for a restart that the lifecycle refuses (`Illegal lifecycle transition blocked: hibernated -> initializing`), repeating "Recovery attempts exhausted" each minute. The status guards that now stop this arrived with the merge from `main`. A second pair of illegal-transition lines (`terminated -> idle/error`) came from LT-1108 and goes with it. | [LT-1111 detail](#lt-1111) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1112 | P4 | **REPRODUCED LIVE 2026-11-14; NOT FIXED (contract wording).** `loopStart` documents its config as a partial the main process fills with defaults, but `caps` and `completion` are optional only as whole objects: sending `caps: {maxIterations: 1}` is refused with nine "expected number, received undefined" messages naming the other keys. | [LT-1112 detail](#lt-1112) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1175 | P3 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** In a 700 px window the composer's model chip is cut off mid-word ("Thinking: Hig"), so the reasoning level cannot be read without widening the window. | [LT-1175 detail](#lt-1175) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1165 | P3 | **FIXED IN SOURCE 2026-11-16 AND SEEN WORKING ON A REBUILT DEV APP 2026-11-16 (Windows PC, seeded store); shipped build pending.** With Settings > Display > Show cost estimates off, the Local AI page still printed dollar amounts for paid fallbacks ("2 paid fallbacks ... $0.02 estimated"). The target card and incident panel now read the setting and say "cost hidden"; the approval banner keeps its estimate because it is the consent figure. | [LT-1165 detail](#lt-1165) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1176 | P3 | **REPRODUCED LIVE 2026-11-16 (Windows PC dev app, real Ctrl+K key events); SOURCE FIX APPLIED AND UNIT-TESTED; live recheck on the rebuilt app recorded in the Phase 3 live checks.** The global palette (Ctrl+K) kept the last search text when it was opened again, so searching "cost", then "discord" gave "costdiscord" and a list for the wrong words. The palette now starts empty each time it opens. | [LT-1176 detail](#lt-1176) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1186 | P3 | **REPRODUCED LIVE 2026-11-18 (Windows PC dev app, 640 px window); SOURCE FIX APPLIED AND SEEN WORKING ON A REBUILT DEV APP.** In a window narrower than 761 px the two Settings > General cards "Default provider and model" and "Default automation model" were each 722 px tall, with the Auto/Pinned control pushed about 450 px below its description. The cards are now 126 px and 149 px tall. | [LT-1186 detail](#lt-1186) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1189 | P2 | **REPRODUCED LIVE 2026-11-19 (test Mac dev app, signed-in Codex); SOURCE FIX APPLIED AND SEEN WORKING ON A RESTARTED DEV APP THE SAME DAY (busy row and session list read "Thinking · …"); shipped build pending.** Phase 3 step 4's "Thinking · <headline>" line never showed for Codex: four real turns (one of 90 s, 1,040 reasoning tokens) showed only "Working" / "Working quietly", and no activity event was sent. Harness's `turn/start` never asks Codex for a reasoning summary, and Codex then returns an empty one. | [LT-1189 detail](#lt-1189) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1205 | P4 | **FOUND 2026-11-19 BY SOURCE SEARCH WHILE RUNNING CHECK 1; FIXED IN SOURCE; NOT SEEN LIVE BEFORE THE FIX.** The Settings description of "Never choose automatically" still said "cross-model and ping-pong review", the old name that check 1 says must not appear. It now says "second-opinion and ping-pong review". | [LT-1205 detail](#lt-1205) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1191 | P2 | **REPRODUCED LIVE 2026-11-19 (test Mac dev app, signed-in Codex); FIXED IN SOURCE AND SEEN WORKING ON A RESTARTED DEV APP.** After pressing Stop on a normal turn the transcript held only a folded "1 system event" row: no divider, no tooltip, nothing a keyboard could reach. The stop now ends with the settled divider "The agent stopped." whose tooltip ("completed · cancelled") opens on keyboard focus. | [LT-1191 detail](#lt-1191) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1192 | P2 | **REPRODUCED LIVE 2026-11-19 (test Mac dev app); FIXED IN SOURCE AND SEEN WORKING ON A RESTARTED DEV APP.** A session that spawned a child showed no Agents chip in its status strip, because the renderer never added a new child to its parent's own child list (the sidebar still showed the child). Same cause as the set-aside capability repair "a new child session appears in its parent's childrenIds"; this change is independent of that branch. | [LT-1192 detail](#lt-1192) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1193 | P3 | **REPRODUCED LIVE 2026-11-19 (test Mac dev app, seeded to-do list); FIXED IN SOURCE AND SEEN WORKING ON A RESTARTED DEV APP.** The session hover card said "Step 1 of 3" for a plan whose second step was in progress, because the to-do list comes back sorted with the active step first. The number is now the completed steps plus one. | [LT-1193 detail](#lt-1193) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
+| LT-1194 | P3 | **REPRODUCED LIVE 2026-11-19 (test Mac dev app, OpenCode ask left alone for 60 s); FIXED IN SOURCE AND SEEN WORKING ON A RESTARTED DEV APP.** An ACP permission card showed no ticking "Ns left" deadline although the main process sends it and the plan (step 11c, item 3) requires it. The card now shows "1m 00s left" down to "expiring…". | [LT-1194 detail](#lt-1194) | [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md) |
 | LT-1158 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (extension 0.2.57); installed-extension check pending.** Answering "Leave" (`browser.handle_dialog` accept) on the "Leave site?" pop-up that stopped `browser.close_tab` returned success but left the tab open and responding (still there 20 seconds later, twice on windows-pc); only a second `close_tab` closed it. The extension now finishes the close itself after Leave. | [LT-1158 detail](#lt-1158) | [Browser page pop-ups livetest, Check 2b](2026-10-28-browser-page-popups_livetest.md) |
 | LT-1142 | P2 | **OPEN — reproduced live 2026-11-12.** The worker saves its connection config, which holds the node and recovery tokens, with default file permissions, so it is readable by every user account on the computer (mode 644 in a 755 folder). `persistConfig` in `src/worker-agent/worker-config.ts` writes it with no mode. Found while running the agent-issued pairing checks; not caused by that feature. | [LT-1142 detail](#lt-1142) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
 | LT-1143 | P1 | **OPEN — reproduced live 2026-11-12; cause not isolated.** A dev app on the main Mac accepts connections to its worker port (4979) and then drops them for every non-loopback address (LAN, Tailscale name and IPs), so a worker on another address cannot connect, while a plain Node server on the same LAN address answers. The worker's `aio-worker pair` address probe is a bare TCP connect, so it reports those addresses as "answered" and never tries a fallback. Found while running the agent-issued pairing checks, which then needed a loopback edit of the worker config. **Update 2026-11-14: not reproduced from this Mac to a dev app on the test Mac (LAN and Tailscale both answer, pairing works without edits), so it is specific to the main Mac's Electron; the probe weakness stands.** | [LT-1143 detail](#lt-1143) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
@@ -15736,6 +15755,34 @@ completion recorder attaches to every priced turn" (failed before the fix, passe
 Haiku turns each reached the renderer 1.8 to 1.9 seconds after the send with `origin: "user"`, the Costs page changed 0.17
 seconds after the event (not on the poll), and the log held no `Unrecognized key` line.
 
+<a id="lt-1104"></a>
+
+## LT-1104
+
+### LT-1104 — the Session status dialog opens in the top-left corner
+
+**Status:** reproduced 10 November 2026 in the Phase 3 live-check run (check 17). Source fix applied in the
+queue worktree (`session-status-host.component.ts`) and checked live on a rebuilt development renderer.
+
+**Observed behaviour.** Opening "Session status" from a session's header (or from Context details) shows the card
+as a 680 x 582 px box at the window's top-left corner (`left 0, top 0`), covering the page header and the start of the
+session list, on a 1400 x 900 window. `getComputedStyle(dialog).margin` was `0px`, `position: fixed`, `inset: 0`.
+
+**Root cause.** `SessionStatusHostComponent` renders a native `<dialog>` opened with `showModal()`. A browser centres a
+modal dialog only through its user-agent `margin: auto`. The application's global stylesheet has
+`*, ::before, ::after { box-sizing: border-box; margin: 0; padding: 0 }`, and the component's own styles set width,
+padding and border but no margin, so the dialog sits at `inset: 0` with no margin.
+
+**Required behaviour.** The dialog is centred horizontally and vertically in the window, and in a narrow window it
+keeps its 16 px side gap (`width: min(680px, calc(100vw - 32px))`).
+
+**Acceptance.** On a rebuilt renderer the dialog's rectangle is centred (measured: left 360, top 159, width 680,
+height 582 on 1400 x 900; computed margin `159.156px 360px`). Re-check at a narrow window width and with Escape and
+backdrop click closing it.
+
+**Evidence.** [Phase 3 live checks, run of 10 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md),
+check 17.
+
 <a id="lt-1019"></a>
 
 ## LT-1019
@@ -15904,6 +15951,391 @@ A diagnosed cause for the mailbox `unavailable` states, with either a fix or doc
 
 [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
 
+<a id="lt-1105"></a>
+
+## LT-1105
+
+### LT-1105 — an isolated dev app reads and can remove the real saved permission rules
+
+**Status:** reproduced 10 November 2026 in the Phase 3 live-check run. Source fix applied in the queue worktree and
+covered by `src/main/security/user-rules-path.spec.ts`; rebuilt-app recheck pending.
+
+**Observed behaviour.** A dev app launched with `AIO_DEV_USER_DATA_PATH=/tmp/<profile>` (the isolation the runbook and the
+Plan Queue livetest prompt rely on) showed James's real remembered decisions under Settings > Permissions > Rules >
+"Saved decisions", long shell commands included, each with a Remove button. `PermissionManager` always read
+`<home>/.orchestrator/permissions.json` from Electron's home path, which the profile override does not change, and
+`removeUserRule` persists the removal to that same file. Clicking Remove in a livetest would have edited the real file.
+No rule was removed in the run; the real file's rule count was read before and after only as a count.
+
+**Required behaviour.** An unpackaged app with `AIO_DEV_USER_DATA_PATH` set keeps its saved decisions in that profile
+(`<profile>/permissions.json`). A packaged app, and an unpackaged app without the variable, keep using
+`~/.orchestrator/permissions.json`, so no existing user's saved rules move.
+
+**Fix.** New `resolveUserRulesFilePath` (`src/main/security/user-rules-path.ts`), used by
+`PermissionManager.getUserRulesFilePath`. The packaged check mirrors `resolveHarnessUserDataPath`.
+
+**Acceptance.** Unit spec: normal app uses the home file; isolated unpackaged dev profile uses the profile file; packaged
+app ignores the override; no home and no profile gives no path. On the rebuilt app, an isolated dev app's "Saved
+decisions" list starts empty and a decision made there never appears in the real file. Other `~/.orchestrator` folders
+(plugins, tool output, attachments) are still shared with the real home; they hold no decisions that Remove can change.
+
+**Evidence.** [Phase 3 live checks, run of 10 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), check 9.
+
+<a id="lt-1106"></a>
+
+## LT-1106
+
+### LT-1106 — the stop receipt for a withdrawn permission card uses the wrong words
+
+**Status:** reproduced 10 November 2026 (check 9, Stop with a card showing); source wording fixed and unit-tested; on 14 November a Stop with a live Write card up read "Cancelled because the turn was stopped (Write)" in a running dev app.
+
+**Observed behaviour.** Pressing Stop with a live permission card up withdrew it with "Cancelled when the session was
+stopped (Write)". The plan (step 11c) and live check 9 name the receipt "Cancelled because the turn was stopped".
+
+**Required behaviour.** A request closed because its turn was stopped reads "Cancelled because the turn was stopped".
+A request closed because the session closed still reads "Cancelled when the session closed".
+
+**Fix.** `describeRequestOutcome` case `cancelled` in `src/shared/utils/request-outcome.ts`; the six specs that quoted the
+old sentence were updated.
+
+**Acceptance.** `request-outcome.spec.ts`, `input-request-receipts.spec.ts`, `input-request-receipt-wiring.spec.ts`,
+`user-input-request.receipts.spec.ts` and `user-action-request.questions.spec.ts` pass; on the rebuilt app a Stop with a
+card showing leaves the new sentence.
+
+**Evidence.** [Phase 3 live checks, run of 10 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), check 9.
+
+<a id="lt-1107"></a>
+
+## LT-1107
+
+### LT-1107 — the Costs page "Claude cost check" shows dollars while cost figures are hidden
+
+**Status:** reproduced 14 November 2026 (check 17, Show cost OFF); source fixed, unit-tested and re-seen on a rebuilt dev app (panel: "Harness Hidden, Claude Hidden", zero dollar signs; setting back on: "$0.00").
+
+**Observed behaviour.** With Show cost estimates switched off, the Costs & Usage page hid its totals ("Hidden") and said
+"Cost figures are hidden", but the "Claude cost check" panel below still read "Compared 0 sessions: Harness $0.00, Claude
+$0.00." and, when sessions drifted, listed dollar amounts in its sentences and the "Biggest differences" table. Live check 17
+step 2 says no dollars may appear on the Costs page.
+
+**Root cause.** `ClaudeCostDriftComponent` (`src/renderer/app/features/cost/claude-cost-drift.component.ts`) formatted every
+amount with its own `usd()` and never read the `showCost` setting that `CostPageComponent` uses.
+
+**Required behaviour.** While Show cost estimates is off the panel shows "Hidden" for amounts and wording that names no
+dollar figure; percentages and counts stay.
+
+**Fix.** The component injects `SettingsStore.showCost`; `money()` and `signed()` return "Hidden" when it is off, and the
+two booked-spend sentences say "spend" instead of an amount. `describeGroupDrift` takes the flag.
+
+**Acceptance.** `claude-cost-drift.component.spec.ts` (new case "shows no dollar amounts while Show cost estimates is off")
+passes; on a rebuilt app with the setting off, the Costs page contains no "$" in the cost check panel.
+
+**Related (filed as LT-1165).** The Local AI target card and incident panel also showed paid-fallback dollars while the setting was off; fixed there, see [LT-1165](#lt-1165).
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), check 17.
+
+<a id="lt-1108"></a>
+
+## LT-1108
+
+### LT-1108 — changing a session between Build and Plan destroys the session
+
+**Status:** reproduced 14 November 2026 in the Phase 3 live-check run (checks 2 and 3, Session options > Mode); source fixed and unit-tested; on a rebuilt dev app the same click ended with the session idle in Plan mode.
+
+**Observed behaviour.** On an idle Claude session (no pending work), Session options > Mode: Build, one click. The status read
+`initializing/plan` for 16 seconds, then the session vanished from the live list (`listInstances` no longer returned it) while its row stayed
+in the session list. Two different sessions did this (an ordinary session on the first build, then a fresh one with one reply). Log, in order:
+`Changing agent mode`; `Adapter exit event ... code 143`; `Auto-respawning instance after unexpected exit ... previousStatus: idle`;
+`Force-released lock ... agent-mode-change` 15 s later; `Native resume attempted but unconfirmed`; `Failed to spawn with resume, falling
+back to fresh session`; `Archived instance`; `Unregistered instance`; `Respawn aborted ... recovery respawn spawn cancelled`; then
+`Illegal lifecycle transition blocked terminated -> idle` and `terminated -> error`.
+
+**Root cause.** `changeAgentMode` (`src/main/instance/instance-lifecycle.ts`) stops the old CLI with `oldAdapter.terminate(true)` while that
+adapter is still the instance's registered adapter and the instance is `idle`. The exit handler in `instance-communication.ts` (`handleExit`)
+skips only adapters marked as stopping (`isAdapterStopping`) or no longer current, so the exit (143) was handled as an unexpected exit of an
+idle session and started an auto-respawn that fought the mode change's own spawn for the session lock, ending in termination. Every other
+deliberate stop in the lifecycle either marks the adapter or strips its listeners first.
+
+**Required behaviour.** Changing the mode of an idle session keeps the session, in the new mode, with its conversation.
+
+**Fix.** `markAdapterStopping(oldAdapter)` before `terminate` in `changeAgentMode`. New spec
+`instance-lifecycle-agent-mode-stop-fence.spec.ts` (failed without the line, passes with it).
+
+**Acceptance.** Spec passes; on a rebuilt dev app Build to Plan on an idle Claude session ends `idle/plan` (measured: initializing 10 s, busy 4 s,
+idle at 16 s) and the header shows the "Plan" chip and the menu says "read-only".
+Not fixed here: the 16 seconds are spent on the discard-and-replay path described in LT-1151, which this change does not alter.
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), checks 2 and 3.
+
+<a id="lt-1109"></a>
+
+## LT-1109
+
+### LT-1109 — in a narrow pane the session header overlaps itself and hides Auto-approve
+
+**Status:** reproduced 14 November 2026 (check 2 step 7); source fixed; measured on a rebuilt dev app.
+
+**Observed behaviour.** With the window 700 px wide the session list takes about 375 px, leaving a header 258 px wide. The folder chip (154 px)
+sat over the "Open" button, the Auto-approve and Fast chips collapsed to 18 px behind it, the cost label measured 0 px wide and fell outside the
+window, and the title had no room. Check 2 step 7 requires the chips to shorten or wrap "without hiding Auto-approve". The same overlap
+was visible in an 800 px window.
+
+**Root cause.** `.header-actions` was `flex-wrap: nowrap` and only wrapped inside `@media (max-width: 640px)`, a viewport query. The pane is
+much narrower than the viewport whenever the session list is open, so the media query never applied and the row overflowed leftwards over the title.
+
+**Required behaviour.** One row while it fits; otherwise the actions drop under the title, every chip fully visible.
+
+**Fix.** `.header-top` and `.header-actions` wrap in `instance-header.component.scss`, with no viewport dependence; the media-query copy was removed.
+
+**Acceptance.** Measured at 700 x 900 on a rebuilt dev app: header 258 px wide and 100 px tall (two lines), Auto-approve chip fully inside it
+(left 579, right 662) with no overlap; at 1400 px it is still one 37 px row. Not covered by a unit spec (jsdom has no layout).
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), check 2.
+
+<a id="lt-1151"></a>
+
+## LT-1151
+
+### LT-1151 — waking a hibernated session throws it away and the model answers the replay first
+
+**Status:** reproduced 14 November 2026 (an earlier sample the same day and one more on the merged build); not fixed.
+
+**Observed behaviour.** A session was hibernated and then sent a message. The transcript showed "Wake resume failed. Session restarted from the saved
+transcript.", then the person's message, then an assistant reply the person never asked for ("OK" the first time; "Reply with exactly: BETA" the
+second time, when the only earlier prompt had been "Reply with exactly: ALPHA"), then the real answer. Log: `Send targets a hibernated session
+- waking before delivery`; `Native resume attempted but unconfirmed within probe window; treating as inconclusive` (about 5 s later);
+`Wake resume failed, falling back to replay continuity`; `Sending continuity text again because the model never replied to it`; `Model replied
+after continuity text`.
+
+**Root cause (read from source, not yet proved by a fix).** `wakeInstance` calls `waitForResumeHealth` (5 s). That wrapper maps the
+`inconclusive` verdict (resume attempted, process alive, session-id echo not yet seen) to `false`, "preserving historical behaviour", and the
+wake path then terminates the resumed process and replays the transcript into a fresh one. The recovery reconciler consumes the same verdict
+directly and keeps the live session ("Recovery resume health inconclusive after retry; keeping the live session rather than destroying it").
+A resumed Claude does not echo its session id until it receives its first message, so the verdict is inconclusive on every healthy wake. The
+replay body is sent as a prompt, which the model answers, and that answer is shown. Mode change (LT-1108) uses the same wrapper and the same
+fallback.
+
+**Required behaviour.** A wake whose resume is alive but unconfirmed keeps the resumed session (or confirms it with the person's own message),
+shows no "Wake resume failed" note, and adds no unrequested assistant reply.
+
+**Acceptance.** Hibernate an idle Claude session holding one exchange, send a new message: the transcript has the message followed by one reply, no
+system note, and the process id matches the one the wake started. Decide first whether `inconclusive` should keep or retry for each caller of
+`waitForResumeHealth` (wake, restart, mode change, deferred permission).
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), "Other findings".
+
+<a id="lt-1111"></a>
+
+## LT-1111
+
+### LT-1111 — the idle monitor tried to restart hibernated sessions
+
+**Status:** seen 14 November 2026 on the pre-merge build; not reproduced on the merged build.
+
+**Observed behaviour.** Two sessions hibernated for the 30-minute idle rule. About 22 seconds after hibernation the idle monitor raised
+`process_exited_unexpected`, `Recovery action: respawning instance` ran `[RESTART] begin` and the lifecycle refused it
+(`Illegal lifecycle transition blocked: hibernated -> initializing`), once a minute, then `Recovery attempts exhausted ... escalated` every minute
+until the session was archived (a quarter of an hour in the sample).
+
+**Root cause.** A hibernated session has no process by design; the pre-merge idle monitor did not exclude it from exit detection. Source on this
+branch (`idle-monitor.ts`, `RECOVERY_INACTIVE_STATUSES` and the status check before detection) excludes `hibernating` and `hibernated`.
+
+**Required behaviour.** No recovery attempts and no escalation for a hibernated session.
+
+**Acceptance.** Verified on the merged build 14 November 2026: a session hibernated for 150 seconds produced no `Recovery`, `RESTART` or
+`Illegal lifecycle transition` line. The two `terminated -> idle` / `terminated -> error` lines seen the same day belonged to LT-1108.
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), "Other findings".
+
+<a id="lt-1112"></a>
+
+## LT-1112
+
+### LT-1112 — a partial loop config is refused although the contract says defaults are filled in
+
+**Status:** reproduced 14 November 2026; not fixed. Low priority: the renderer always sends whole objects.
+
+**Observed behaviour.** `loopStart(chatId, { initialPrompt, workspaceCwd, caps: { maxIterations: 1 }, completion: { verifyCommand: 'true' } })` returned
+`LOOP_START_FAILED ... IPC validation failed for LOOP_START: config.caps.maxWallTimeMs: expected number, received undefined; config.caps.maxTokens ...;
+config.completion.completedFilenamePattern ...` (nine messages).
+
+**Root cause.** `LoopConfigInputSchema` (`packages/contracts/src/schemas/loop.schemas.ts`) says "Partial config the renderer may submit; main process
+fills defaults" but `.partial({ caps: true, completion: true, ... })` makes each object optional as a whole, not its keys.
+
+**Required behaviour.** Either the schema accepts partial `caps` and `completion` objects (and the main process merges them over its defaults), or
+the comment says that a whole object is required.
+
+**Acceptance.** Decide which, then a spec that submits `{ caps: { maxIterations: 1 } }` and either starts the loop with default other caps or
+expects the stated refusal. Callers other than the renderer (thin client, automations) should be checked first.
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), "Other findings".
+
+## LT-1175
+
+### LT-1175 — the composer's model chip is clipped in a narrow window
+
+(Renumbered 16 November 2026 from a second use of LT-1113, which already belongs to the Codex command-mode skills defect.)
+
+**Status:** reproduced 14 November 2026; not fixed. Cosmetic (the value is still readable by widening the window or opening the picker), so P3.
+
+**Observed behaviour.** With the dev app window at 700 px (the session pane is about 258 px wide, the same width that exposed LT-1109), the model chip in the composer read "... · Thinking: Hig": the text is cut off by the edge of the chip or its container with no ellipsis, so the reasoning level ("High") is unreadable. At 1400 px the chip is whole. This is separate from the header fix in LT-1109.
+
+**Root cause (hypothesis, the clipping ancestor was not isolated live).** In `compact-model-picker.component.ts` the chip is `white-space: nowrap` with `max-width: 100%` of an `inline-block` host (lines 129-151), and only the model label has an ellipsis (`.compact-picker__label`, `max-width: 220px`, lines 167-171). The `Thinking: <level>` suffix span (line 90, styled at line 179) has no `overflow`, `min-width: 0` or ellipsis, so when the host is narrower than the chip, the suffix is cut by whatever ancestor clips overflow instead of shrinking.
+
+**Required behaviour.** In a narrow pane the chip shrinks inside its container: either the model label truncates with an ellipsis before the reasoning level does, or the suffix drops to a shorter form. The reasoning level stays readable (or reachable through the chip's title or the picker) at the narrowest supported window.
+
+**Acceptance.** A spec or measured check at a 700 px window showing the chip's scroll width equals its client width (nothing clipped), and that a long model name truncates with an ellipsis while "Thinking: <level>" is intact. Isolate the clipping ancestor first; the hypothesis above is not proved.
+
+**Evidence.** [Phase 3 live checks, run of 14 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md), "Other findings".
+
+<a id="lt-1165"></a>
+
+## LT-1165
+
+### LT-1165 — dollar amounts on the Local AI page ignore "Show cost estimates"
+
+**Status:** reproduced 14 November 2026; fixed in source 16 November 2026, unit-tested, and re-seen on a rebuilt dev app the same day (Windows PC; the target card and incident panel read "cost hidden" with the setting off and "$0.02 estimated" with it on). P3. (First recorded on 14 November as LT-1114 with "kept visible, no code change"; that id was already used by the Connectors panel defect, and the decision was reversed on 16 November after an independent check read Phase 3 check 17 ("no dollars") as covering these figures.)
+
+**Observed behaviour.** With Settings > Display > Show cost estimates off, the Local AI page's target card read "2 paid fallbacks ... $0.02 estimated". Source: `local-ai-target-card.component.ts` `fallbackCostLabel()`; the incident panel's `costImpact()` (`local-ai-incident-panel.component.ts`) formatted dollars the same way. Neither read `SettingsStore.showCost`.
+
+**Required behaviour.** While the setting is off, the target card and incident panel show "cost hidden" (plus any "+ N unpriced" count) instead of a measured or estimated dollar figure. "no recorded cost" and "cost unknown (N unpriced)" stay, because they contain no amount. The fallback approval banner (`local-ai-fallback-banner.component.ts`) keeps its estimate: it is the figure the user is asked to consent to.
+
+**Fix (16 November 2026).** Both components inject `SettingsStore.showCost`. Specs: "shows no dollar figure while Show cost estimates is off, but keeps the unpriced count" and "still says no recorded cost when nothing was recorded and the setting is off" in `local-ai-target-card.component.spec.ts`; "shows no dollar figure while Show cost estimates is off" in `local-ai-incident-panel.component.spec.ts`. The 8 files under `features/local-ai-guard/` pass (98 tests).
+
+**Not changed (observed).** The Local AI effectiveness panel (`local-ai-effectiveness-panel.component.html`: "estimated cloud cost", "estimated avoided cost") also prints dollars regardless of the setting. It is a separate analytics panel, not the paid-fallback notice, and is left for a follow-up.
+
+**Acceptance.** The three specs above pass (done); on a rebuilt app with the setting off the Local AI target card and incident panel show no "$".
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md), check 17 row.
+
+
+
+<a id="lt-1176"></a>
+
+## LT-1176
+
+### LT-1176 — the command palette keeps the last search text when it is opened again
+
+**Status:** reproduced 16 November 2026; fixed in source and unit-tested the same day. P3.
+
+**Observed behaviour.** On the Windows PC dev app (rebuilt from this branch, no session selected), Ctrl+K, typing "cost", then Escape and Ctrl+K again showed "cost" still in the box with the filtered list. Typing "discord" after that gave "costdiscord"; after three searches the box read "costdiscorddoctorcostdiscord…" and the list matched none of them. The same happened after a row was run with Enter.
+
+**Root cause.** `CommandPaletteController` is `providedIn: 'root'` and holds the `query` signal (`command-palette.controller.ts:47`). The palette component is created and destroyed by the host's `@if`, but nothing ever called `setQuery('')`, and the overlay input is bound to `controller().query()` without selecting its text on focus.
+
+**Required behaviour.** Each time the palette opens its box is empty, so the searches in Phase 3 check 14 step 1 can be run one after another.
+
+**Fix.** `CommandPaletteComponent` clears the query in its constructor (`command-palette.component.ts`). The help overlay has its own controller instance and is not affected. New spec `command-palette.component.spec.ts` fails without the line and passes with it; the `commands/` folder passes 4 files, 14 tests.
+
+**Evidence.** [Phase 3 live checks, run of 16 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md).
+
+## LT-1186
+
+### LT-1186 — Settings default-model cards balloon to 722 px tall in a narrow window
+
+**Status:** reproduced 18 November 2026; fixed in source and seen working on a rebuilt dev app the same day. P3.
+
+**Observed behaviour.** Windows PC dev app (rebuilt from this branch), Settings > General, window 640 px wide (the section list is an icon rail). The cards "Default provider and model" and "Default automation model" measured 538 x 722 px each (`getBoundingClientRect`), and the Auto / Pinned buttons sat at y 827, about 450 px below the two lines of description, with empty card space between. At 1400 px the same cards are 734 x 84 and 734 x 110.
+
+**Root cause.** `.default-model` is a flex row whose children carry `flex: 1 1 320px` (`.default-model__info`) and `flex: 0 1 360px` (`.default-model__control`). Under `@media (max-width: 760px)` the card becomes `flex-direction: column`, so those flex-basis values turn into heights: 320 px and 360 px (`general-settings-tab.component.scss`).
+
+**Required behaviour.** In the narrow layout the description and the control take only the height of their content.
+
+**Fix.** The narrow-window rule sets `flex: 0 0 auto` on `.default-model__info` and `.default-model__control`. Re-measured at 640 px after a rebuild: 538 x 126 and 538 x 149; at 1400 px unchanged (734 x 84, 734 x 110). No unit test: the defect is computed layout, which the headless component tests do not lay out.
+
+**Evidence.** [Phase 3 live checks, run of 18 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md).
+
+## LT-1189
+
+### LT-1189 — Codex never shows "Thinking · …" because turns never ask for a reasoning summary
+
+**Status:** reproduced 19 November 2026; fixed in source; seen working on a restarted dev app the same day (the busy row went "Working" to "Thinking · Planning initial file inspection" and on to "Reading files"; the session list row showed the same line and nothing once idle). Shipped build pending. P2.
+
+**Observed behaviour.** Test Mac dev app (built from this branch), signed-in Codex, model gpt-5.6-sol, effort high. Four real turns, sampled every 2 to 2.5 s: the busy row read "Working" then "Working quietly" and never "Thinking · …"; the session-list row showed no line; a listener on `onOrchestrationActivity` during the fourth turn received no event; the finished transcript held no reasoning section. The 90 s turn used 1,040 reasoning tokens (`ProviderTurnEnding` log line), so the model did reason.
+
+**Root cause.** `buildCodexTurnInputDispatch` (`src/main/cli/adapters/codex/turn-input-dispatch.ts`) sent `effort` and `serviceTier` but never `summary`, and Codex returns an empty reasoning summary unless the turn asks for one. Isolated with a direct `codex app-server` probe (Codex CLI 0.170.0, same account, same prompt): `turn/start` without `summary` gave a completed reasoning item with `summary: []` and no `item/reasoning/summary*` notifications; with `summary: "auto"` it gave `item/reasoning/summaryPartAdded`, `item/reasoning/summaryTextDelta` and a reasoning item whose summary was `["**Calculating primes through 200**"]`. `handleItemCompleted` only emits the headline when the item's summary has text (`codex-notification-item-events.ts:328`), so the line could never appear.
+
+**Required behaviour.** A Codex turn that reasons shows "Thinking · <headline>" in the busy row and the session list before the turn ends, as the Phase 3 plan step 4 says.
+
+**Fix.** `turnParams` now starts as `{ summary: 'auto' }`. `turn-input-effort.spec.ts` gained a case (fails without the line), and `app-server-client-protocol.spec.ts` now expects `summary` and still validates the whole `turn/start` request against the generated schema. `src/main/cli/adapters/codex/`: 69 files, 833 tests pass. Side effect to know about: the full reasoning summary now also reaches the final Codex reply's transcript, which `codex-app-server-turn-adapter.ts:487` already writes whenever a summary exists and which the plan describes ("The final Codex reply still carries the full reasoning summary").
+
+**Evidence.** [Phase 3 live checks, run of 19 November 2026](2026-10-10-oct-phase3-calm-screen_livetest.md).
+
+## LT-1205
+
+### LT-1205 — The "Never choose automatically" setting still used the old "cross-model" name
+
+**Status:** found 19 November 2026 while running check 1; fixed in source. Not seen live before the fix (the text was found by searching the source, and the live copy was rebuilt only after the change). P4.
+
+**Observed behaviour.** `src/shared/types/settings-metadata-review-network.ts` described the provider block list as skipping "cross-model and ping-pong review", while the Settings section and every other label now say "Second opinion" (check 1 step 4).
+
+**Required behaviour.** The user-visible description uses the same name as the rest of the screen.
+
+**Fix.** The description says "second-opinion and ping-pong review". No test: it is a copy change in a settings description.
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md), run of 19 November 2026.
+
+## LT-1191
+
+### LT-1191 — A normal Stop left no divider, so the stop sentence had no tooltip a keyboard could reach
+
+**Status:** reproduced 19 November 2026; fixed in source; seen working on a restarted dev app the same day. P2.
+
+**Observed behaviour.** Test Mac dev app, signed-in Codex. A long turn was stopped with the Stop button. The session went idle and the transcript showed "Stopped. Ready for your next message." only inside a collapsed "1 system event" row (`.seg-header`); there was no `.interrupt-boundary` element, so no divider and no tooltip (check 13 step 2 needs both, reachable with keyboard focus). The 10 and 14 November runs saw the same shape for Claude ("the element has no tabindex or title").
+
+**Root cause.** `InterruptRespawnHandler` emitted the settled divider message (`kind: 'interrupt-boundary'`, phase `completed`) only on the respawn path. The in-place stop path (`interrupt-respawn-handler.ts`, the `idle` transition near line 715) emitted only the routine "Stopped. Ready for your next message." notice, which the transcript folds.
+
+**Required behaviour.** A stop that settles in place also shows the settled divider, a plain sentence, with its raw codes only in a tooltip that opens on keyboard focus.
+
+**Fix.** The in-place path now calls `emitInterruptBoundary` with phase `completed` and outcome `cancelled` (or `cancelled-for-edit`) before the routine notice. `interrupt-respawn-handler.spec.ts` gained an assertion for that message.
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md): after the fix, Stop on a busy Codex session left `.interrupt-boundary` reading "The agent stopped." (tabindex 0); focusing it opened the tooltip "completed · cancelled".
+
+## LT-1192
+
+### LT-1192 — A parent session never learned about its new child, so the Agents chip never appeared
+
+**Status:** reproduced 19 November 2026; fixed in source; seen working on a restarted dev app the same day. P2.
+
+**Observed behaviour.** Test Mac dev app (it builds the Harness tools helper, so a Claude session can send a `spawn_child` command). The main process listed the child on the parent (`childrenIds` held its id) and the sidebar showed the child under the parent, but the parent's status strip had no chip and the renderer's copy of the parent had `childrenIds: []` (read from the detail component's `instance()` and the dock's `childrenIds()`).
+
+**Root cause.** `InstanceStateService.addInstance` stored the child and left its parent untouched; the renderer is sent only the child. The sidebar groups by `parentId`, so it hid the problem, but `instance-detail` passes the stored `childrenIds` to the status dock (`instance-detail.component.html:154`), and the orchestration HUD and the terminate confirmation read the same field.
+
+**Required behaviour.** A new child appears in its parent's own list in the renderer, so the Agents chip shows while it runs.
+
+**Fix.** `addInstance` adds the child's id to its parent's `childrenIds` (once), and `removeInstance` takes it off. `instance-state.service.spec.ts` has three new cases (two fail without the change). The set-aside capability repair `0f3a1c36-…` targets the same symptom on its own branch; it is not in this tree and was not touched, so the two may need reconciling when that branch is resumed.
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md): after the fix a parent with a running child showed "Agents (1)" and its panel ("1 active", the child, Focus, Copy hash, Diagnostics); Escape closed the panel and left focus on the chip.
+
+## LT-1193
+
+### LT-1193 — The hover card's "Step N of M" always said step 1
+
+**Status:** reproduced 19 November 2026; fixed in source; seen working on a restarted dev app the same day. P3.
+
+**Observed behaviour.** On a Codex session with a seeded to-do list of three steps (done, in progress, to do), the session hover card read "Step 1 of 3: Count its lines"; the in-progress step is the second.
+
+**Root cause.** `SessionTodoPeekService.peek` numbered the step by its index in the list returned by `todoGetList`, which is sorted by status (`sortTodos`: active first, completed last), so the active step was always index 0. The existing spec fed an unsorted list, so it never showed this.
+
+**Required behaviour.** "Step N of M" counts the steps done plus the active one.
+
+**Fix.** `session-todo-peek.service.ts` uses completed steps plus one. The spec gained a case with the list in the order the app really returns (fails without the change).
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md): after the fix the same seeded list read "Step 2 of 3: Count its lines".
+
+## LT-1194
+
+### LT-1194 — An ACP permission card showed no ticking deadline
+
+**Status:** reproduced 19 November 2026; fixed in source; seen working on a restarted dev app the same day. P3.
+
+**Observed behaviour.** OpenCode (an ACP provider) asked for permission to write a file; the card was left alone for 60 s. The page text never contained "s left" or "expiring…", the card vanished at the deadline and the receipt "No answer in 1 minute; nothing ran" took over.
+
+**Root cause.** The ACP adapter already sends `permissionMetadata.expiresAt` (`acp-cli-adapter.ts:1859`) and the renderer type carries it, but the card template never rendered it: `formatRemaining` had one caller, the old pending-approvals banner. Plan step 11c item 3 ("the card shows `formatRemaining` ticking every second") was not built.
+
+**Required behaviour.** A card whose request has a deadline shows the time left, ticking each second, ending on "expiring…".
+
+**Fix.** New `request-deadline.component.ts` (one input, a one-second timer cleaned up on destroy, reusing `formatRemaining`), used in the card header. New spec: ticks 42s to 41s to "expiring…", and stops its timer on destroy. Not changed: the receipt wording. The source says "No answer in 1 minute; nothing ran" with the tool shown beside it; the plan and check 9 step 2 still quote "No answer in time, so Harness did not allow: {tool}". `request-outcome.ts` deliberately words a 60 s timeout this way ("so a 60 s timeout never reads 'in time'"), so the plan sentence is stale rather than the code wrong.
+
+**Evidence.** [Phase 3 live checks](2026-10-10-oct-phase3-calm-screen_livetest.md): a 60 s ask read "1m 00s left", "56s left", … "4s left", then the receipt.
 ## LT-1100
 
 ### LT-1100 — a read by exact title with the switch off says "not found" instead of naming the switch

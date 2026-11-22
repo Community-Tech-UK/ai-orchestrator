@@ -11,3 +11,11 @@ describe('Codex effort admission', () => {
       .toMatchObject({ effort: 'ultra' });
   });
 });
+
+describe('Codex reasoning summary request', () => {
+  it('asks for a reasoning summary on every turn, with or without an effort', () => {
+    expect(buildCodexTurnInputDispatch({}, undefined, () => true, () => true).turnParams).toEqual({ summary: 'auto' });
+    expect(buildCodexTurnInputDispatch({ reasoningEffort: 'high' }, undefined, () => true, () => true).turnParams)
+      .toMatchObject({ summary: 'auto', effort: 'high' });
+  });
+});

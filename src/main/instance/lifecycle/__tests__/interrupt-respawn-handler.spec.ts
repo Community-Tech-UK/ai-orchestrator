@@ -239,6 +239,15 @@ describe('InterruptRespawnHandler', () => {
       type: 'system',
       content: 'Stopped. Ready for your next message.',
     }));
+    // LT-1191: the settled boundary is what the transcript shows as the divider.
+    expect(addToOutputBuffer).toHaveBeenCalledWith(
+      instance,
+      expect.objectContaining({
+        type: 'system',
+        content: 'The agent stopped.',
+        metadata: expect.objectContaining({ kind: 'interrupt-boundary', phase: 'completed', outcome: 'cancelled' }),
+      }),
+    );
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
     expect(onToolStateChange).toHaveBeenCalledWith(instance.id, 'idle');
   });

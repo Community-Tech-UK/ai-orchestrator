@@ -22,6 +22,7 @@ import {
   detectShadowedRules,
   type ShadowedRuleFinding,
 } from './shadowed-rule-detector';
+import { resolveUserRulesFilePath } from './user-rules-path';
 import { buildNeverDelegableAskDecision, deriveApprovalCategory, type ApprovalCategory } from './approval-category';
 export type {
   BatchPermissionDecision,
@@ -866,10 +867,17 @@ export class PermissionManager extends EventEmitter {
     }
   }
 
+  private isPackagedApp(): boolean {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports -- lazy electron load; this module must stay importable outside Electron
+      return require('electron').app.isPackaged === true;
+    } catch {
+      return true; // outside Electron there is no dev profile to isolate; keep the real home
+    }
+  }
+
   private getUserRulesFilePath(): string | null {
-    const home = this.getHomeDir();
-    if (!home) return null;
-    return path.join(home, '.orchestrator', 'permissions.json');
+    return resolveUserRulesFilePath({ home: this.getHomeDir(), isPackaged: this.isPackagedApp(), env: process.env });
   }
 
   private loadUserRulesFromDisk(): void {

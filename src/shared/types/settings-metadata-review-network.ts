@@ -71,7 +71,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'providersExcludedFromAutomation',
     label: 'Never auto-pick these providers',
-    description: 'Providers the app must never choose on its own. A ticked provider is skipped by every automatic path — cross-model and ping-pong review, consensus, verification panels, scaffolding, magic prompts, and any "auto" session — but stays available whenever you pick it yourself for a session. Use this for a seat whose licence is limited to certain work, such as a work Copilot subscription that must not touch other repositories. Set only from here — not changeable by agents.',
+    description: 'Providers the app must never choose on its own. A ticked provider is skipped by every automatic path — second-opinion and ping-pong review, consensus, verification panels, scaffolding, magic prompts, and any "auto" session — but stays available whenever you pick it yourself for a session. Use this for a seat whose licence is limited to certain work, such as a work Copilot subscription that must not touch other repositories. Set only from here — not changeable by agents.',
     type: 'multi-select',
     category: 'review',
     options: AUTOMATION_PROVIDER_DEFINITIONS.map(({ id, label }) => ({

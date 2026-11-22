@@ -123,6 +123,7 @@ import { removeInstanceSignalFence, setInstanceSignalFence } from './lifecycle/s
 import { isLiveTestQuestionFolder } from '../cli/adapters/live-test-question-fixtures';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
+import { markAdapterStopping } from '../providers/adapter-stop-state';
 import { getFailoverManager } from '../providers/failover-manager';
 import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
 import { getNotificationService } from '../notifications/notification-service';
@@ -3099,6 +3100,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       const oldAdapter = this.deps.getAdapter(instanceId);
       const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
       if (oldAdapter) {
+        // The stop is ours. Without this fence the old process's exit (143) reads
+        // as an unexpected exit of an idle session, starts an auto-respawn that
+        // races the spawn below, and the session is destroyed (LT-1108).
+        markAdapterStopping(oldAdapter);
         await oldAdapter.terminate(true);
         this.deps.deleteAdapter(instanceId);
       }

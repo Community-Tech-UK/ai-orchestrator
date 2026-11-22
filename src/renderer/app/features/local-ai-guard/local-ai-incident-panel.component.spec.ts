@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -6,6 +7,7 @@ import type {
   LocalAiRepairResult,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { LocalAiIncidentPanelComponent } from './local-ai-incident-panel.component';
 
 function incident(): LocalAiIncident {
@@ -62,13 +64,18 @@ describe('LocalAiIncidentPanelComponent', () => {
     diagnosticFor: vi.fn(() => diagnosis()),
     repairFor: vi.fn(() => null),
   };
+  const showCost = signal(true);
   let fixture: ComponentFixture<LocalAiIncidentPanelComponent>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    showCost.set(true);
     TestBed.configureTestingModule({
       imports: [LocalAiIncidentPanelComponent],
-      providers: [{ provide: LocalAiGuardStore, useValue: store }],
+      providers: [
+        { provide: LocalAiGuardStore, useValue: store },
+        { provide: SettingsStore, useValue: { showCost } },
+      ],
     });
     fixture = TestBed.createComponent(LocalAiIncidentPanelComponent);
     fixture.componentRef.setInput('incident', incident());
@@ -126,6 +133,15 @@ describe('LocalAiIncidentPanelComponent', () => {
     });
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('$0.06 measured + 2 unpriced');
+  });
+
+  it('shows no dollar figure while Show cost estimates is off', () => {
+    showCost.set(false);
+    fixture.componentRef.setInput('incident', { ...incident(), unpricedDispatchCount: 2 });
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('cost hidden + 2 unpriced');
+    expect(text).not.toContain('$');
   });
 
   it('announces unsupported guided recovery without claiming guidance is ready', async () => {

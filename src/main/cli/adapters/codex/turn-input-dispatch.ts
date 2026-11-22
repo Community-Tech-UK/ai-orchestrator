@@ -10,7 +10,9 @@ export function buildCodexTurnInputDispatch(
   hasNativeOwner: () => boolean,
   hasProviderOwner: () => boolean,
 ): Pick<CaptureCodexTurnOptions, 'turnParams' | 'beforeInputDispatch' | 'assertInputCurrent' | 'autoContinuation'> {
-  const turnParams: Record<string, unknown> = {};
+  // Codex returns an empty reasoning summary unless the turn asks for one (LT-1189), and the busy row's
+  // "Thinking · <headline>" line is built from that summary.
+  const turnParams: Record<string, unknown> = { summary: 'auto' };
   if (config.outputSchema) turnParams['outputSchema'] = config.outputSchema;
   if (config.reasoningEffort) {
     const harnessWork = config.sessionKind !== undefined && !['chat', 'child'].includes(config.sessionKind);

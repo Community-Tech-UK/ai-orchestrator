@@ -19,6 +19,14 @@ describe('SessionTodoPeekService', () => {
     await service.peek('s'); expect(todoGetList).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(30_001); await service.peek('s'); expect(todoGetList).toHaveBeenCalledTimes(2);
   });
+  it('numbers the step from the list the app really returns, which is sorted by status with the active step first', async () => {
+    const todoGetList = vi.fn().mockResolvedValue({ success: true, data: { items: [
+      { status: 'in_progress', content: 'Count its lines' }, { status: 'pending', content: 'Summarise it' },
+      { status: 'completed', content: 'Read README' },
+    ] } });
+    TestBed.configureTestingModule({ providers: [{ provide: TodoIpcService, useValue: { todoGetList } }] });
+    expect(await TestBed.inject(SessionTodoPeekService).peek('s')).toBe('Step 2 of 3: Count its lines');
+  });
   it('returns no step for no list or no active step', async () => {
     const todoGetList = vi.fn().mockResolvedValueOnce({ success: true, data: null }).mockResolvedValueOnce({ success: true, data: { items: [] } });
     TestBed.configureTestingModule({ providers: [{ provide: TodoIpcService, useValue: { todoGetList } }] });

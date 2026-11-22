@@ -1,4 +1,4 @@
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -8,6 +8,7 @@ import type {
 } from '../../../../shared/types/claude-cost-reconcile.types';
 import { ClaudeCostReconcileIpcService } from '../../core/services/ipc/claude-cost-reconcile-ipc.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
+import { SettingsStore } from '../../core/state/settings.store';
 import { ClaudeCostDriftComponent, describeDrift } from './claude-cost-drift.component';
 
 const group = (sessions: number, storedUsd: number, cliUsd: number): ClaudeCostReconcileGroup => ({
@@ -46,14 +47,17 @@ describe('ClaudeCostDriftComponent', () => {
     await settle();
   };
 
+  const showCost = signal(true);
   const providers = (): unknown[] => [
     provideZonelessChangeDetection(),
+    { provide: SettingsStore, useValue: { showCost } },
     { provide: ClaudeCostReconcileIpcService, useValue: ipc },
     { provide: RendererPollSchedulerService, useValue: { register: (run: () => unknown, everyMs: number) => { const stop = vi.fn(); polls.push({ run, everyMs, stop }); return stop; } } },
   ];
   beforeEach(() => {
     ipc = { get: vi.fn(), run: vi.fn() };
     polls = [];
+    showCost.set(true);
     TestBed.configureTestingModule({ providers: providers() as never });
   });
   afterEach(() => TestBed.resetTestingModule());
@@ -98,6 +102,20 @@ describe('ClaudeCostDriftComponent', () => {
     expect(text()).toContain('Harness booked $3.00 for sessions where Claude reports no spend.');
     expect(text()).toContain('Booked turn by turn: 2 sessions, booked $3.00 where Claude reports none.');
     expect(text()).not.toContain('NaN');
+  });
+
+  it('shows no dollar amounts while Show cost estimates is off', async () => {
+    showCost.set(false);
+    await mount({ success: true, data: snapshot(report('drift')) });
+    expect(text()).toContain('Compared 4 sessions: Harness Hidden, Claude Hidden.');
+    expect(text()).not.toContain('$');
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: providers() as never });
+    const zero = report('drift', { total: group(2, 3, 0), byEra: { 'per-turn': group(2, 3, 0), repaired: group(0, 0, 0) }, largestGaps: [] });
+    await mount({ success: true, data: snapshot(zero) });
+    expect(text()).toContain('Harness booked spend for sessions where Claude reports no spend.');
+    expect(text()).toContain('booked spend where Claude reports none');
+    expect(text()).not.toContain('$');
   });
 
   it('is calm when the totals agree, and explains too little data', async () => {

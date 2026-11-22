@@ -15,6 +15,7 @@ import type {
   LocalAiRepairResult,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { LOCAL_AI_FAILURE_REASONS } from './local-ai-failure-copy';
 import { LocalAiModalCoordinator } from './local-ai-modal-coordinator';
 
@@ -243,6 +244,7 @@ const ACTION_LABELS: Record<LocalAiRepairAction, string> = {
 })
 export class LocalAiIncidentPanelComponent {
   protected readonly store = inject(LocalAiGuardStore);
+  private readonly showCost = inject(SettingsStore).showCost;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly modal = inject(LocalAiModalCoordinator);
 
@@ -296,6 +298,11 @@ export class LocalAiIncidentPanelComponent {
     // read as "no recorded cost" — that claims zero, not unknown.
     const unpriced = this.incident().unpricedDispatchCount;
     const suffix = unpriced > 0 ? ` + ${unpriced} unpriced` : '';
+    // Show cost estimates off: no dollar figure, but the spend is not denied.
+    if (!this.showCost()
+      && (this.incident().knownCostUsd > 0 || this.incident().estimatedCostUsd > 0)) {
+      return `cost hidden${suffix}`;
+    }
     if (this.incident().knownCostUsd > 0) {
       return `$${this.incident().knownCostUsd.toFixed(2)} measured${suffix}`;
     }

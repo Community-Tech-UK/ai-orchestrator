@@ -11,6 +11,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { presentError } from '../../../../shared/present-error';
 import { ClaudeCostReconcileIpcService } from '../../core/services/ipc/claude-cost-reconcile-ipc.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
+import { SettingsStore } from '../../core/state/settings.store';
 import type {
   ClaudeCostReconcileGroup,
   ClaudeCostReconcileSession,
@@ -27,8 +28,9 @@ export function describeDrift(driftPct: number | null): string {
 }
 
 /** Short phrase for one group; the zero-spend case has no meaningful percentage. */
-export function describeGroupDrift(group: Pick<ClaudeCostReconcileGroup, 'driftPct' | 'cliUsd' | 'storedUsd'>): string {
-  return group.cliUsd <= 0 && group.storedUsd > 0 ? `booked ${usd(group.storedUsd)} where Claude reports none` : describeDrift(group.driftPct);
+export function describeGroupDrift(group: Pick<ClaudeCostReconcileGroup, 'driftPct' | 'cliUsd' | 'storedUsd'>, showCost: boolean): string {
+  if (group.cliUsd <= 0 && group.storedUsd > 0) return `booked ${showCost ? usd(group.storedUsd) : 'spend'} where Claude reports none`;
+  return describeDrift(group.driftPct);
 }
 
 @Component({
@@ -120,6 +122,7 @@ export function describeGroupDrift(group: Pick<ClaudeCostReconcileGroup, 'driftP
 export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
   private readonly ipc = inject(ClaudeCostReconcileIpcService);
   private readonly pollScheduler = inject(RendererPollSchedulerService);
+  private readonly showCost = inject(SettingsStore).showCost;
   private stopPolling: (() => void) | null = null;
   /** Moves when a Check now starts and again when it ends, so a refresh that began earlier knows it is out of date. */
   private checkEpoch = 0;
@@ -163,21 +166,22 @@ export class ClaudeCostDriftComponent implements OnInit, OnDestroy {
   }
 
   driftText(group: ClaudeCostReconcileGroup): string {
-    return describeGroupDrift(group);
+    return describeGroupDrift(group, this.showCost());
   }
 
   verdictSentence(group: ClaudeCostReconcileGroup): string {
     return group.cliUsd <= 0 && group.storedUsd > 0
-      ? `Harness booked ${usd(group.storedUsd)} for sessions where Claude reports no spend.`
+      ? `Harness booked ${this.showCost() ? usd(group.storedUsd) : 'spend'} for sessions where Claude reports no spend.`
       : `Harness's Claude costs are ${describeDrift(group.driftPct)}.`;
   }
 
+  /** Dollar amounts follow Settings > Display > Show cost estimates, like the rest of the Costs page. */
   money(value: number): string {
-    return usd(value);
+    return this.showCost() ? usd(value) : 'Hidden';
   }
 
   signed(value: number): string {
-    return `${value < 0 ? '-' : '+'}${usd(Math.abs(value))}`;
+    return this.showCost() ? `${value < 0 ? '-' : '+'}${usd(Math.abs(value))}` : 'Hidden';
   }
 
   shortId(gap: ClaudeCostReconcileSession): string {
