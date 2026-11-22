@@ -1,4 +1,5 @@
-import { generateStrongPassword, hostOf, originsMatch, safeJson } from './browser-credential-secret-utils';
+import { generateStrongPassword, hostOf, isFolderSummaryArray, originsMatch, safeJson, savedLoginOrigins } from './browser-credential-secret-utils';
+import { organizationPlacement, type VaultOrganization } from './browser-credential-vault-organization';
 import { isStaleSessionFailure } from './browser-credential-stale-session';
 export { generateStrongPassword, secretVerificationDigest, verifyFilledSecret } from './browser-credential-secret-utils';
 export { isStaleSessionFailure } from './browser-credential-stale-session';
@@ -79,6 +80,8 @@ export interface CredentialVaultOptions {
   ) => Promise<CredentialVaultReauthenticationResult>;
   /** Bitwarden folder the vault is jailed to. Default 'AIO-Agent'. */
   folderName?: string;
+  /** Read at each creation; without both ids, creation is refused (never the personal vault). */
+  getOrganization?: () => VaultOrganization;
   /** Override the password generator (tests). Default: crypto-strong. */
   generatePassword?: () => string;
   now?: () => number;
@@ -113,6 +116,8 @@ export type CredentialVaultErrorCode =
   | 'bw_command_failed'
   | 'secret_field_empty'
   | 'custom_field_not_found'
+  | 'vault_organization_not_configured'
+  | 'vault_organization_mismatch'
   | `vault_relock_failed:${CredentialVaultReauthenticationFailureReason}`;
 
 export type CredentialFieldKind = 'username' | 'password' | 'totp';
@@ -231,6 +236,7 @@ interface BwItem {
   id: string;
   name?: string;
   folderId: string | null;
+  organizationId?: string | null;
   login?: {
     username?: string | null;
     password?: string | null;
@@ -252,7 +258,8 @@ export class CredentialVault {
       staleSession: string,
       sessionGeneration: number | undefined,
     ) => Promise<CredentialVaultReauthenticationResult>) | undefined;
-  private readonly folderName: string;
+  readonly folderName: string;
+  private readonly getOrganization: (() => VaultOrganization) | undefined;
   private readonly makePassword: () => string;
   private readonly now: () => number;
   private cachedFolderId: string | null = null;
@@ -264,6 +271,7 @@ export class CredentialVault {
     this.getSessionGeneration = options.getSessionGeneration;
     this.reauthenticate = options.reauthenticate;
     this.folderName = options.folderName ?? DEFAULT_FOLDER;
+    this.getOrganization = options.getOrganization;
     this.makePassword = options.generatePassword ?? generateStrongPassword;
     this.now = options.now ?? (() => Date.now());
   }
@@ -280,17 +288,21 @@ export class CredentialVault {
 
   /**
    * Create a new agent-owned login: generate a strong password, store it to the
-   * jailed folder bound to `origin`, and return only a reference + username.
+   * jailed folder, in the configured organisation and collection, bound to
+   * `origin`, and return only a reference + username.
    */
   async createAgentCredential(
     input: CreateAgentCredentialInput,
   ): Promise<CreateAgentCredentialResult> {
+    const placement = organizationPlacement(this.getOrganization?.());
+    if (!placement) throw new CredentialVaultError('No organisation is set for new logins', 'vault_organization_not_configured');
     const folderId = await this.resolveFolderId();
     const password = this.makePassword();
     const item = {
       type: 1,
       name: input.itemTitle ?? `aio/${hostOf(input.origin)}/${input.username}`,
       folderId,
+      ...placement,
       notes: null,
       login: {
         username: input.username,
@@ -302,6 +314,8 @@ export class CredentialVault {
     const created = await this.bw(['create', 'item'], encoded);
     const parsed = this.parseItem(created);
     await this.bw(['sync']);
+    // Never bound or returned: an item outside the organisation is not handed to an agent.
+    if (parsed.organizationId !== placement.organizationId) throw new CredentialVaultError('The new login is outside the organisation', 'vault_organization_mismatch');
 
     this.bindings.put({
       vaultItemRef: parsed.id,
@@ -392,7 +406,7 @@ export class CredentialVault {
       folderName: this.folderName,
       requiresMoveIntoFolder: folderId === undefined || item.folderId !== folderId,
       ...(binding ? { existingBinding: { origin: binding.origin, createdAt: binding.createdAt } } : {}),
-      savedOrigins: savedOrigins(item),
+      savedOrigins: savedLoginOrigins(item.login?.uris),
     };
   }
 
@@ -663,19 +677,6 @@ export class CredentialVault {
   }
 }
 
-/** Full http(s) URLs only: a bare host has no scheme to match exactly. */
-function savedOrigins(item: BwItem): string[] {
-  const origins = (item.login?.uris ?? []).flatMap((entry) => {
-    try {
-      const url = new URL(typeof entry?.uri === 'string' ? entry.uri : '');
-      return url.protocol === 'https:' || url.protocol === 'http:' ? [url.origin] : [];
-    } catch {
-      return [];
-    }
-  });
-  return [...new Set(origins)];
-}
-
 function recoveryFailure(
   reason: CredentialVaultReauthenticationFailureReason,
 ): CredentialVaultError {
@@ -684,14 +685,4 @@ function recoveryFailure(
     `Credential vault re-lock recovery failed (${code})`,
     code,
   );
-}
-
-function isFolderSummaryArray(value: unknown): value is { id: string; name: string }[] {
-  return Array.isArray(value) && value.every((entry) => (
-    typeof entry === 'object'
-    && entry !== null
-    && typeof entry.id === 'string'
-    && entry.id !== ''
-    && typeof entry.name === 'string'
-  ));
 }

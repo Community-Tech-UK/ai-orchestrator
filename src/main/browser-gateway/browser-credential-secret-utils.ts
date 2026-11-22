@@ -82,3 +82,27 @@ export function hostOf(origin: string): string {
     return origin;
   }
 }
+
+/** A saved login's exact http(s) origins. Full URLs only: a bare host has no scheme to match exactly. */
+export function savedLoginOrigins(uris: readonly { uri?: string | null }[] | null | undefined): string[] {
+  const origins = (uris ?? []).flatMap((entry) => {
+    try {
+      const url = new URL(typeof entry?.uri === 'string' ? entry.uri : '');
+      return url.protocol === 'https:' || url.protocol === 'http:' ? [url.origin] : [];
+    } catch {
+      return [];
+    }
+  });
+  return [...new Set(origins)];
+}
+
+/** Shape check for `bw list folders` output. */
+export function isFolderSummaryArray(value: unknown): value is { id: string; name: string }[] {
+  return Array.isArray(value) && value.every((entry) => (
+    typeof entry === 'object'
+    && entry !== null
+    && typeof entry.id === 'string'
+    && entry.id !== ''
+    && typeof entry.name === 'string'
+  ));
+}

@@ -222,7 +222,7 @@
             </button>
           }
         </div>
-        <div class="draft-posture input-hints">This session will: {{ draftPostureSentence() }}</div>
+        <div class="draft-posture">This session will: {{ draftPostureSentence() }}</div>
       </div>
     </div>
   }
@@ -514,7 +514,7 @@
           </button>
         }
         @if (showStopButton()) {
-          @if (!canSend()) { <span class="hint">Stop current turn</span> }
+          @if (!canSend()) { <span class="hint stop-label">Stop current turn</span> }
           <button
             type="button"
             class="btn-send btn-stop"

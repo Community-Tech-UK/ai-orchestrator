@@ -10,6 +10,7 @@ import type { PlanQueueItem } from './plan-queue.types';
 import { redactValue } from '../diagnostics/redaction';
 import { repositoryRoot } from './plan-queue-git';
 import { preserveRecoveryReceipts } from './plan-queue-store';
+import { hasHarnessRuntimeLauncher } from './plan-queue-capability-prompts';
 
 export interface CapabilityHooks {
   currentTriage(runId: string, instanceId: string, sourceRef: string): boolean;
@@ -109,7 +110,9 @@ export class PlanQueueCapabilityService {
       throw new Error('Report independent evidence for every retried original check at this checkpoint before PASS.');
     }
     const repair = this.host.store.capabilities.forRepairItem(item.id);
-    if (repair && (!repair.probeReceipt || repair.probeCheckedCommit !== item.checkpointCommit)) throw new Error('Report a fresh independent runtime probe for this repair checkpoint before PASS.');
+    // Only a repository with Harness's launcher can produce a probe; elsewhere the review alone decides, like any other job.
+    if (repair && hasHarnessRuntimeLauncher(this.host.getRun(item.runId).workspaceCwd)
+      && (!repair.probeReceipt || repair.probeCheckedCommit !== item.checkpointCommit)) throw new Error('Report a fresh independent runtime probe for this repair checkpoint before PASS.');
   }
 
   summaries(runId: string) {

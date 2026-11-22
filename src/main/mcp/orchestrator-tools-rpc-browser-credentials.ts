@@ -43,7 +43,7 @@ export async function dispatchBrowserCredentialsCliRpc(
   // their own service routes and are not exposed through these agent commands.
   if (context?.instanceId && (method === BROWSER_CREDENTIALS_CLI_METHODS.enrol
     || method === BROWSER_CREDENTIALS_CLI_METHODS.authorize)) {
-    throw new Error('operator_credential_approval_required: use browser.request_credential_access or aio-mcp browser-credentials request and wait for James to approve in Harness');
+    throw new Error('operator_credential_approval_required: use browser.request_credential_access or aio-mcp browser-credentials request (purposes ["register"] for a new login) and wait for James to approve in Harness');
   }
   if (method === BROWSER_CREDENTIALS_CLI_METHODS.request
     || method === BROWSER_CREDENTIALS_CLI_METHODS.status

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const id = z.string().trim().min(1).max(200);
-const purpose = z.enum(['login', 'totp', 'email_code']);
+const purpose = z.enum(['login', 'totp', 'email_code', 'register']);
 /**
  * A domain that sends this website's emailed sign-in codes when it is not the
  * website's own (British Council MyProcurement on tap.tcsapps.com mails from
@@ -20,16 +20,31 @@ const senderDomains = z.array(senderDomain).min(1).max(5);
 export const MAX_REMEMBER_CREDENTIAL_ACCESS_MS = 365 * 86_400_000;
 export const TASK_CREDENTIAL_ACCESS_MS = 8 * 60 * 60 * 1000;
 
+/**
+ * Either one saved login (`item`, purposes login/totp/email_code), or
+ * permission to create a new agent-owned login (`purposes: ['register']`, no
+ * item, `origin` optional and defaulting to the tab's own website).
+ */
 export const BrowserRequestCredentialAccessSchema = z.object({
   profileId: id,
   targetId: id,
-  item: z.string().trim().min(1).max(500),
+  item: z.string().trim().min(1).max(500).optional(),
+  origin: z.string().trim().url().max(2000).optional(),
   reason: z.string().trim().min(1).max(1000),
   purposes: z.array(purpose).min(1).max(3).optional(),
   senderDomains: senderDomains.optional(),
 }).strict().refine((input) => !input.senderDomains || input.purposes?.includes('email_code'), {
   message: 'senderDomains apply only to the email_code purpose',
   path: ['senderDomains'],
+}).refine((input) => !input.purposes?.includes('register') || input.purposes.length === 1, {
+  message: 'register cannot be combined with other purposes',
+  path: ['purposes'],
+}).refine((input) => input.purposes?.includes('register') ? input.item === undefined : input.item !== undefined, {
+  message: 'item is required for a saved login and not allowed with register',
+  path: ['item'],
+}).refine((input) => input.origin === undefined || input.purposes?.includes('register'), {
+  message: 'origin applies only to the register purpose',
+  path: ['origin'],
 });
 
 export const BrowserCredentialAccessLookupSchema = z.object({ requestId: id }).strict();
@@ -50,8 +65,9 @@ export const BrowserCredentialAccessMetadataSchema = z.object({
   computerName: z.string().min(1).max(500),
   computerId: id,
   scope: id,
-  vaultItemRef: id,
-  itemTitle: z.string().min(1).max(500),
+  /** Absent only for a register request, which has no saved login yet. */
+  vaultItemRef: id.optional(),
+  itemTitle: z.string().min(1).max(500).optional(),
   vaultFolder: z.string().min(1).max(500),
   moveIntoFolder: z.boolean(),
   purposes: z.array(purpose).min(1).max(3),

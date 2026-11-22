@@ -21,6 +21,7 @@ import {
   credentialAccessChoice,
   credentialAccessErrorText,
   credentialAccessWords,
+  isNewLoginRequest,
   secretRecoverySites,
 } from '../../core/state/browser-approvals-banner.rules';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
@@ -75,6 +76,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   private readonly credentialChoices = signal<Record<string, CredentialAccessDuration>>({});
   readonly credentialDurations = CREDENTIAL_ACCESS_DURATIONS;
   credentialError = credentialAccessErrorText;
+  newLogin = isNewLoginRequest;
 
   /** What each pending request says, in plain words, and which buttons it can take. */
   readonly views = computed(() => {

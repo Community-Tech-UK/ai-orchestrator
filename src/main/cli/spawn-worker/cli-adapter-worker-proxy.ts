@@ -33,6 +33,7 @@ import { waitForWorkerTurn } from './cli-worker-turn';
 import { formatClaudeWorkerInput } from './cli-adapter-worker-input';
 import { parseWorkerOutput } from './cli-adapter-worker-output';
 import { parseClaudeStreamError } from '../adapters/claude-stream-error';
+import { emitRetiredGeminiTurn, GeminiClientRetiredError, isGeminiClientRetiredText, reportGeminiSignInOutcome } from '../adapters/gemini-client-retired';
 import { resolveClaudeAccountSpawnEnv } from '../adapters/account-pool/account-adapter-guards';
 
 interface CliAdapterWorkerProxyOptions {
@@ -65,6 +66,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
   private deferredToolUse: DeferredToolUse | null = null;
   private geminiAdvisoryDelivered = false;
   private geminiTurnFailed = false;
+  private geminiRetired: GeminiClientRetiredError | null = null;
   private readonly childEnv: Record<string, string>;
   private readonly childEnvRemove: string[];
 
@@ -236,7 +238,7 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     opts: { closeStdin?: boolean; closeStdinAfterWrite?: boolean } = {},
   ): Promise<CliResponse> {
     let inputStarted = this.cliType === 'gemini';
-    this.geminiTurnFailed = false;
+    this.geminiTurnFailed = false; this.geminiRetired = null;
     this.outputBuffer = '';
     this.stdoutLineBuffer = '';
     return waitForWorkerTurn(this, this.getName(),
@@ -600,12 +602,8 @@ export class CliAdapterWorkerProxy extends EventEmitter {
     const trimmed = chunk.trim();
     if (!trimmed) return;
     this.emit('stderr', trimmed);
-    this.emit('output', {
-      id: generateId(),
-      timestamp: Date.now(),
-      type: 'error',
-      content: trimmed.slice(0, 2000),
-    } as OutputMessage);
+    if (this.cliType === 'gemini' && isGeminiClientRetiredText(trimmed)) { this.geminiTurnFailed = true; this.geminiRetired ??= new GeminiClientRetiredError(trimmed); return; }
+    this.emit('output', { id: generateId(), timestamp: Date.now(), type: 'error', content: trimmed.slice(0, 2000) } as OutputMessage);
     const looksLikeError = /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception/i.test(trimmed);
     if (this.cliType === 'gemini' && looksLikeError) {
       this.geminiTurnFailed = true;
@@ -621,13 +619,15 @@ export class CliAdapterWorkerProxy extends EventEmitter {
       this.emitOutputFromLine(this.stdoutLineBuffer);
       this.stdoutLineBuffer = '';
     }
-    if (this.cliType === 'gemini' && wasRunning && !this.workerFailed && !this.geminiTurnFailed && code === 0) this.geminiAdvisoryDelivered = true;
+    if (this.cliType === 'gemini' && wasRunning && !this.workerFailed && !this.geminiTurnFailed && code === 0) { this.geminiAdvisoryDelivered = true; reportGeminiSignInOutcome('replied'); }
     const ownedTurn = this.residentTurnActive; this.residentTurnActive = false;
     if (this.residentSettlement.pending) {
       this.residentSettlement.settle();
       this.outputBuffer = '';
     }
-    if (this.outputBuffer.trim() && (this.cliType !== 'claude' || !this.spawned || ownedTurn)) {
+    if (this.geminiRetired) {
+      emitRetiredGeminiTurn(this, this.geminiRetired);
+    } else if (this.outputBuffer.trim() && (this.cliType !== 'claude' || !this.spawned || ownedTurn)) {
       const response = this.parseOutput(this.outputBuffer);
       if (this.cliType === 'gemini' && response.usage) {
         const inputTokens = response.usage.inputTokens ?? 0;

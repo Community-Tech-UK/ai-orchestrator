@@ -65,8 +65,9 @@ function harness() {
     inspectExistingCredential: vi.fn(async () => ({ vaultItemRef: 'item-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] as string[] })),
     enrolExistingCredential: vi.fn(async () => ({ vaultItemRef: 'item-placeholder', username: 'TEST_ONLY_USERNAME_PLACEHOLDER', movedIntoFolder: true })),
     getSecretForFill: vi.fn(async () => 'TEST_ONLY_PASSWORD_PLACEHOLDER'),
-    createAgentCredential: vi.fn(),
+    createAgentCredential: vi.fn(async (input: { origin: string; username: string }) => ({ vaultItemRef: 'new-item-placeholder', username: input.username })),
     getGenericSecretForFill: vi.fn(),
+    folderName: 'AIO-Agent',
   };
   const gateway = makeService({ credentialVault: vault, credentialAuthorizations: authorizations });
   const recorder = new BrowserGatewayResultRecorder(gateway.auditStore);
@@ -207,5 +208,59 @@ describe('approved credential access reaches the actual secure fill path', () =>
     // The reason names the exact step and the vault's own cause code.
     expect(await h.service.fillCredential(h.fillRequest)).toMatchObject({ decision: 'denied', outcome: 'failed', reason: 'vault_resolve:vault_locked', data: null });
     expect(h.driver.type).not.toHaveBeenCalled();
+  });
+});
+
+describe('an approved register request reaches browser.create_agent_credential', () => {
+  const createRequest = { profileId: 'profile-1', targetId: 'target-1', instanceId: 'instance-1', provider: 'codex', username: 'agent@example.test' };
+  const requestRegister = (h: ReturnType<typeof harness>) => h.access.request(
+    { profileId: 'profile-1', targetId: 'target-1', purposes: ['register'], reason: 'Create a monitoring account' },
+    { instanceId: 'instance-1', provider: 'codex' },
+  );
+
+  it('stays refused with a request hint while pending, then creates the login once approved', async () => {
+    const h = harness();
+    const pending = (await requestRegister(h)).data!;
+    const refused = await h.service.createAgentCredential(createRequest);
+    expect(refused).toMatchObject({ decision: 'denied', outcome: 'not_run' });
+    expect(refused.reason).toContain('browser.request_credential_access');
+    expect(refused.reason).toContain('purposes ["register"]');
+    expect(refused.reason).not.toContain('browser-credentials authorize');
+    expect(h.vault.createAgentCredential).not.toHaveBeenCalled();
+
+    expect((await h.access.approve(pending, { permission: 'task' })).decision).toBe('allowed');
+    const created = await h.service.createAgentCredential(createRequest);
+    expect(created, created.reason).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { vaultItemRef: 'new-item-placeholder', username: 'agent@example.test' } });
+    expect(h.vault.createAgentCredential).toHaveBeenCalledWith({ origin: 'http://localhost:4567', username: 'agent@example.test' });
+    expect(h.vault.inspectExistingCredential).not.toHaveBeenCalled();
+    expect(h.vault.enrolExistingCredential).not.toHaveBeenCalled();
+  });
+
+  it.each(['task', 'computer', 'origin'] as const)('does not cover another %s', async (change) => {
+    const h = harness();
+    expect((await h.access.approve((await requestRegister(h)).data!)).decision).toBe('allowed');
+    const request: typeof createRequest & { loginUri?: string } = { ...createRequest };
+    if (change === 'task') request.instanceId = 'instance-2';
+    if (change === 'computer') computer.id = 'other-computer';
+    if (change === 'origin') request.loginUri = 'https://other.example.test/sign-up';
+    expect((await h.service.createAgentCredential(request)).decision).toBe('denied');
+    expect(h.vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('a denied request creates nothing', async () => {
+    const h = harness();
+    await h.access.deny((await requestRegister(h)).data!);
+    expect((await h.service.createAgentCredential(createRequest)).decision).toBe('denied');
+    expect(h.vault.createAgentCredential).not.toHaveBeenCalled();
+  });
+
+  it('stops working once the task permission expires', async () => {
+    const h = harness();
+    await h.access.approve((await requestRegister(h)).data!);
+    h.advance(9 * 60 * 60_000);
+    const result = await h.service.createAgentCredential(createRequest);
+    expect(result.decision).toBe('denied');
+    expect(result.reason).toMatch(/^credential_not_authorized:authorization_expired/);
+    expect(h.vault.createAgentCredential).not.toHaveBeenCalled();
   });
 });

@@ -35,6 +35,7 @@ import type { StallProcessFacts } from '../../instance/stall-process-facts';
 import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { assertRemoteCodexWorkerSupported } from './remote-codex-helper-policy';
 import { remoteCliCapabilities } from './remote-cli-capabilities';
+import { asShownWorkerGeminiRetirement, isGeminiRetiredLine } from './gemini-client-retired';
 import { observeRemoteCodexUsage } from './remote-codex-usage';
 import { publishRemoteCodexTelemetry } from './codex/codex-session-telemetry';
 const logger = getLogger('RemoteCliAdapter');
@@ -96,6 +97,7 @@ export class RemoteCliAdapter extends EventEmitter {
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   /** Last remote activity; the idle monitor uses it to detect a stale worker. */
   private lastActivityAt: number | null = null;
+  private workerShowsGeminiRetirement = false; // The worker sent Gemini's plain retirement line, so it shows that failure itself.
   private readonly registry = getWorkerNodeRegistry();
   private registryListenersAttached = false;
   private readonly onRemoteOutputEvent = (event: RemoteOutputEvent): void => {
@@ -377,7 +379,7 @@ export class RemoteCliAdapter extends EventEmitter {
         0,
       );
       if (this.contextDispatchPending === owner) this.nextPromptContexts.splice(0, contextCount);
-    } finally {
+    } catch (error) { throw this.workerShowsGeminiRetirement ? asShownWorkerGeminiRetirement(error) : error; } finally {
       if (this.contextDispatchPending === owner) this.contextDispatchPending = null;
     }
   }
@@ -595,7 +597,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteOutput(message: OutputMessage): void {
-    this.markActivity();
+    this.markActivity(); if (isGeminiRetiredLine(message)) this.workerShowsGeminiRetirement = true;
     this.emit('output', message);
   }
 

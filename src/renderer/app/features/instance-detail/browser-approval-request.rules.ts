@@ -261,28 +261,31 @@ function presentSavedLogin(
   const duration = ctx.credentialDuration ?? 'task';
   const site = hostOf(access.origin) ?? access.origin;
   const computer = computerOf(approval, ctx)!;
+  const newLogin = access.purposes.includes('register');
   const title = `'${access.itemTitle}'`;
   const login = access.purposes.includes('login');
   const code = access.purposes.includes('totp');
-  const phrase = login && code
-    ? `Sign in to ${site} with ${title} and its one-time code`
-    : code ? `Use a one-time code from ${title} on ${site}` : `Sign in to ${site} with ${title}`;
+  const phrase = newLogin
+    ? `Create a new agent-owned login on ${site}`
+    : login && code
+      ? `Sign in to ${site} with ${title} and its one-time code`
+      : code ? `Use a one-time code from ${title} on ${site}` : `Sign in to ${site} with ${title}`;
   const format = ctx.formatTime ?? ((timestamp: number) => new Date(timestamp).toLocaleString());
   const lasts = duration === 'task'
     ? `${capitalise(PERMISSION_SCOPE_WORDS.session.lasts)}.`
-    : `${capitalise(credentialAccessWords(duration).lasts)}. Any session can use this saved login on ${site} without asking again.`;
+    : `${capitalise(credentialAccessWords(duration).lasts)}. Any session can ${newLogin ? 'create new logins' : 'use this saved login'} on ${site} without asking again.`;
 
   return {
     approval,
     kind: 'saved-login',
-    kindLabel: 'Saved login',
+    kindLabel: newLogin ? 'New login' : 'Saved login',
     headline: `${phrase} (${computer.name})`,
     facts: [
       { label: 'Session', value: access.sessionName },
       { label: 'Reason', value: access.reason },
       { label: 'Website', value: site },
       { label: 'Computer', value: computer.name },
-      { label: 'Access', value: `${credentialAccessPurpose(approval)}. Only this website, computer and saved login.` },
+      { label: 'Access', value: `${credentialAccessPurpose(approval)}. ${newLogin ? 'Only this website and computer.' : 'Only this website, computer and saved login.'}` },
       { label: 'Vault folder', value: credentialAccessMovement(approval) },
       { label: 'Lasts', value: lasts },
       ...(duration === 'task' && access.permissionExpiresAt

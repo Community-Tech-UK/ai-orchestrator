@@ -14,8 +14,11 @@ import {
   buildBannerGrant,
   credentialAccessChoice,
   credentialAccessErrorText,
+  credentialAccessLasts,
+  credentialAccessMovement,
   credentialAccessPurpose,
   credentialAccessWords,
+  isNewLoginRequest,
 } from './browser-approvals-banner.rules';
 
 function makeApproval(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
@@ -376,5 +379,24 @@ describe('credentialAccessPurpose', () => {
 
   it('says the website itself sends the codes when no sender is declared', () => {
     expect(credentialAccessPurpose(access(['email_code']))).toBe('read sign-in codes this website emails');
+  });
+});
+
+describe('a request to create a new agent-owned login', () => {
+  const newLogin = makeApproval({ credentialAccess: {
+    taskScope: 'conversation:placeholder-task', sessionName: 'Example session', reason: 'Create a monitoring account',
+    origin: 'https://dashboard.example.com', computerName: 'windows-pc', computerId: 'placeholder-computer', scope: 'placeholder-scope',
+    vaultFolder: 'AIO-Agent', moveIntoFolder: false, purposes: ['register'], permission: 'task',
+  } });
+
+  it('says what it allows and where the new login goes, with no saved login to name', () => {
+    expect(isNewLoginRequest(newLogin)).toBe(true);
+    expect(credentialAccessPurpose(newLogin)).toBe('create a new agent-owned login');
+    expect(credentialAccessMovement(newLogin)).toBe('The new login will be saved in the AIO-Agent agent vault folder.');
+  });
+
+  it('says what a longer choice lets other sessions do', () => {
+    expect(credentialAccessLasts(newLogin, 'task')).toBe('Access ends with this session.');
+    expect(credentialAccessLasts(newLogin, '7d')).toBe(`Any session can create new logins on this website without asking again ${credentialAccessWords('7d').lasts}.`);
   });
 });

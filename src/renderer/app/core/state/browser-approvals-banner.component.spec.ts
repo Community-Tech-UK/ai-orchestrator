@@ -100,6 +100,28 @@ describe('BrowserApprovalsBannerComponent', () => {
     );
   });
 
+  it('shows a new-login request with its website, computer and reason, and approves it in one click', async () => {
+    const { vaultItemRef: _ref, itemTitle: _title, ...access } = savedLoginAccess();
+    const pending = makeApproval({ credentialAccess: { ...access, purposes: ['register'], moveIntoFolder: false, vaultFolder: 'AIO-Agent' } });
+    const fixture = setup([pending]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.textContent).toContain('New-login permission requested');
+    expect(element.textContent).toContain('asks to create a new agent-owned login on https://login.example.com using windows-pc');
+    expect(element.textContent).toContain('Reason: Complete the requested sign-in');
+    expect(element.textContent).not.toContain('Saved login:');
+    expect(element.textContent).not.toContain('undefined');
+    expect(element.textContent).toContain('The new login will be saved in the AIO-Agent agent vault folder.');
+    expect(element.querySelector('.banner-duration')?.textContent?.trim()).toBe('Only this website and computer. Access ends with this session.');
+    expect(element.querySelector('.credential-access-duration')?.getAttribute('aria-label')).toBe('How long to allow creating logins');
+    element.querySelector<HTMLButtonElement>('.banner-btn.primary')?.click();
+    await fixture.whenStable();
+    expect(gateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: pending.requestId, credentialAccess: { permission: 'task' },
+    }));
+  });
+
   it('shows the complete saved-login request with this-session permission selected', async () => {
     const pending = makeApproval({ credentialAccess: savedLoginAccess() });
     const fixture = setup([pending]);

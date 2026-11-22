@@ -190,12 +190,14 @@ const grantProposalSchema = objectSchema({
 const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.request_credential_access': objectSchema({
     profileId: profileIdProp, targetId: targetIdProp,
-    item: { ...stringProp, description: 'Exact saved login title or opaque vault item reference. Never a password.' },
+    item: { ...stringProp, description: 'Exact saved login title or opaque vault item reference. Never a password. Omit for register.' },
+    origin: { ...stringProp, description: 'register only: the new login\'s website. Default: the tab\'s.' },
     reason: { ...stringProp, description: 'Why this session needs to sign in. Do not include credentials.' },
     purposes: {
       type: 'array',
-      items: { type: 'string', enum: ['login', 'totp', 'email_code'] },
-      description: 'Default login. email_code lets browser.fill_credential read this website\'s emailed sign-in codes from the agent mailbox.',
+      items: { type: 'string', enum: ['login', 'totp', 'email_code', 'register'] },
+      description: 'Default login. email_code lets browser.fill_credential read this website\'s emailed sign-in codes from the agent mailbox. '
+        + 'register (alone) allows browser.create_agent_credential.',
     },
     senderDomains: {
       type: 'array',
@@ -203,7 +205,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       description: 'With email_code only: domains that send this website\'s codes when they are not the website\'s own '
         + '(read the From address of a real code email, e.g. britishcouncil.org for tap.tcsapps.com). The approver sees each one.',
     },
-  }, ['profileId', 'targetId', 'item', 'reason']),
+  }, ['profileId', 'targetId', 'reason']),
   'browser.get_credential_access_status': objectSchema({ requestId: requestIdProp }, ['requestId']),
   'browser.cancel_credential_access': objectSchema({ requestId: requestIdProp }, ['requestId']),
   'browser.list_targets': objectSchema({
@@ -870,10 +872,11 @@ function toolDescription(name: BrowserMcpToolName): string {
   if (deviceLoginDescription) return deviceLoginDescription;
   if (name === 'browser.recover_secret_observation') return SECRET_RECOVERY_TOOL_DESCRIPTION;
   if (name === 'browser.request_credential_access') {
-    return 'Request visible operator approval to enrol and use one saved login on this exact website and computer. '
+    return 'Request visible operator approval to enrol and use one saved login on this exact website and computer, '
+      + 'or (purposes register) to create a new agent-owned login there. '
       + 'Pending until the operator approves (YOLO too) unless their agent-folder setting allows this login and site. '
       + 'Default permission is this task; the operator may explicitly remember a limited period. '
-      + 'Returns a real requestId, status and non-secret vaultItemRef. Retry browser.fill_credential only after approved. Does not require shell CLI connection.';
+      + 'Returns a real requestId, status and non-secret vaultItemRef. Retry only after approved. Does not require shell CLI connection.';
   }
   if (name === 'browser.fill_credential') {
     return `${UNTRUSTED_WARNING} Fill an approved saved login; the secret never reaches you. `

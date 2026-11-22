@@ -206,11 +206,15 @@ export class WorkerInstanceNotifier {
     }
   }
 
+  // A reply goes out at once, so held output is sent first: a request's reply must never overtake output emitted
+  // before it. A failed send's reply otherwise reached the coordinator before the transcript line explaining it.
   sendResult(id: string | number, result: unknown): void {
+    this.flushOutputBuffer();
     this.send({ jsonrpc: '2.0', id, result });
   }
 
   sendError(id: string | number, code: number, message: string): void {
+    this.flushOutputBuffer();
     this.send({ jsonrpc: '2.0', id, error: { code, message } });
   }
 

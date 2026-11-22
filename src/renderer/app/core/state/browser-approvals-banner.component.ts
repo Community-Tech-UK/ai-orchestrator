@@ -40,9 +40,10 @@ import {
   CREDENTIAL_ACCESS_DURATIONS,
   credentialAccessChoice,
   credentialAccessErrorText,
+  credentialAccessLasts,
   credentialAccessMovement,
   credentialAccessPurpose,
-  credentialAccessWords,
+  isNewLoginRequest,
   bannerCanQuickApprove,
   bannerConfirmationPhrase,
   bannerGrantModes,
@@ -83,7 +84,11 @@ import {
               <span>{{ describe(approval) }}</span>
               @if (approval.credentialAccess; as access) {
                 <span class="credential-access-detail">{{ access.sessionName }} asks to {{ credentialPurpose(approval) }} on {{ access.origin }} using {{ access.computerName }}.</span>
-                <span class="credential-access-detail">Saved login: {{ access.itemTitle }} · Reason: {{ access.reason }}</span>
+                @if (access.itemTitle) {
+                  <span class="credential-access-detail">Saved login: {{ access.itemTitle }} · Reason: {{ access.reason }}</span>
+                } @else {
+                  <span class="credential-access-detail">Reason: {{ access.reason }}</span>
+                }
                 <span class="credential-access-detail">{{ credentialMovement(approval) }}</span>
                 @if (credentialDuration() === 'task' && access.permissionExpiresAt; as expiresAt) {
                   <span class="credential-access-detail">Access expires by {{ formatExpiry(expiresAt) }}.</span>
@@ -105,14 +110,14 @@ import {
                   class="banner-scope credential-access-duration"
                   [value]="credentialDuration()"
                   [disabled]="working() !== null"
-                  aria-label="How long to allow this saved login"
+                  [attr.aria-label]="newLogin(approval) ? 'How long to allow creating logins' : 'How long to allow this saved login'"
                   (change)="onCredentialDurationChange($event)"
                 >
                   @for (duration of credentialDurations; track duration.value) {
                     <option [value]="duration.value">{{ duration.label }}</option>
                   }
                 </select>
-                <span class="banner-duration">Only this website, computer, saved login and sign-in purpose. {{ savedLoginLasts() }}</span>
+                <span class="banner-duration">{{ newLogin(approval) ? 'Only this website and computer.' : 'Only this website, computer, saved login and sign-in purpose.' }} {{ savedLoginLasts(approval) }}</span>
               }
               @if (needsConfirmation(approval)) {
                 <label class="banner-confirm">
@@ -458,7 +463,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   describe(approval: BrowserApprovalRequest): string {
     if (approval.deviceLogin) return `Review Codex sign-in for ${approval.deviceLogin.expectedIdentity}`;
     if (approval.secretRecovery) return `Review restoring browser access for ${secretRecoverySites(approval.secretRecovery)}`;
-    if (approval.credentialAccess) return 'Saved-login permission requested';
+    if (approval.credentialAccess) return isNewLoginRequest(approval) ? 'New-login permission requested' : 'Saved-login permission requested';
     const action = approval.toolName.replace(/^browser\./, '').replaceAll('_', ' ');
     const where = this.displayHost(approval.origin ?? approval.url ?? approval.profileId);
     const file = approval.filePath ? ` · ${approval.filePath}` : '';
@@ -490,13 +495,12 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
     this.credentialDuration.set((event.target as HTMLSelectElement).value as CredentialAccessDuration);
   }
 
-  /** What the chosen saved-login length means, including who else can use a longer one. */
-  savedLoginLasts(): string {
-    const duration = this.credentialDuration();
-    return duration === 'task'
-      ? 'Access ends with this session.'
-      : `Any session can use this saved login without asking again ${credentialAccessWords(duration).lasts}.`;
+  /** What the chosen length means, including who else can use a longer one. */
+  savedLoginLasts(approval: BrowserApprovalRequest): string {
+    return credentialAccessLasts(approval, this.credentialDuration());
   }
+
+  newLogin = isNewLoginRequest;
 
   credentialPurpose = credentialAccessPurpose;
   credentialMovement = credentialAccessMovement;

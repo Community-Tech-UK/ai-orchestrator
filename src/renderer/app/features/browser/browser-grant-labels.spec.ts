@@ -20,4 +20,18 @@ describe('browser grant and request labels', () => {
   ])('gives %s a readable action', (toolName, label) => {
     expect(browserGrantLabels.action(toolName)).toBe(label);
   });
+
+  it('names a pending new-login request for what it allows, and a saved-login one as before', () => {
+    const access = (purposes: ('login' | 'register')[]) => ({
+      toolName: 'browser.request_credential_access',
+      credentialAccess: {
+        taskScope: 'conversation:placeholder', sessionName: 'Example session', reason: 'Example reason',
+        origin: 'https://example.com', computerName: 'Example computer', computerId: 'placeholder-computer',
+        scope: 'placeholder-scope', vaultFolder: 'AIO-Agent', moveIntoFolder: false, purposes, permission: 'task' as const,
+      },
+    });
+    expect(browserGrantLabels.request(access(['register']))).toBe('Create a new login');
+    expect(browserGrantLabels.request(access(['login']))).toBe('Use saved login details');
+    expect(browserGrantLabels.request({ toolName: 'browser.click' })).toBe('Click on a page');
+  });
 });

@@ -281,7 +281,7 @@
               [style.outline]="focusedApprovalRequestId() === approval.requestId ? '2px solid var(--warning-color, #f59e0b)' : null"
               [style.outline-offset]="focusedApprovalRequestId() === approval.requestId ? '2px' : null"
             >
-              <div class="permission-heading"><div><span class="audit-action">{{ labels.action(approval.toolName) }}</span><span class="audit-tool">New request · Request {{ approvalPosition(approval) }} of {{ approvalRequests().length }} · received {{ approvalReceivedAt(approval) }}</span></div><span class="status-badge warning">{{ approval.actionClass }}</span></div>
+              <div class="permission-heading"><div><span class="audit-action">{{ labels.request(approval) }}</span><span class="audit-tool">New request · Request {{ approvalPosition(approval) }} of {{ approvalRequests().length }} · received {{ approvalReceivedAt(approval) }}</span></div><span class="status-badge warning">{{ approval.actionClass }}</span></div>
               <p class="permission-origin">{{ approval.origin || approval.url || 'Browser page' }}</p>
               <dl class="approval-context">
                 <div><dt>Scope</dt><dd>{{ formatApprovalScope(approval) }}</dd></div>

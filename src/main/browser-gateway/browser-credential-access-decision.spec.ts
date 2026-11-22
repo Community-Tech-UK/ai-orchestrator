@@ -39,6 +39,7 @@ function harness() {
     vault: {
       inspectExistingCredential: async () => ({ vaultItemRef: 'test-item', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: !enrolled, savedOrigins: [], ...(enrolled ? { existingBinding: { origin, createdAt: 1 } } : {}) }),
       enrolExistingCredential: enrol,
+      folderName: 'AIO-Agent',
     },
     notify: (request) => {
       notifications.push({ status: request.status, storedStatus: approvals.getRequest(request.requestId)!.status, authorizations: authorizations.list().length, grants: grants.listGrants({}).length });

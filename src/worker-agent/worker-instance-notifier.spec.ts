@@ -233,6 +233,19 @@ describe('WorkerInstanceNotifier durable-stream integration (WS15)', () => {
     expect(frames.map((f) => f.params.durableSeq)).toEqual([1, 2]);
   });
 
+  it('sends held output before a request\'s error or result reply', () => {
+    const { socket, notifier } = makeDurableNotifier();
+    // A failed send writes its explaining line, then the send's reply goes out at once. Without a flush the
+    // coordinator read the failure first and added its own "could not be delivered" notice.
+    notifier.sendOutputNotification('inst-1', { type: 'error', content: 'Google has retired Gemini…' });
+    notifier.sendError('req-1', -32603, 'Gemini failed');
+    notifier.sendOutputNotification('inst-1', { type: 'assistant', content: 'later' });
+    notifier.sendResult('req-2', { ok: true });
+
+    const frames = socket.sent.map((raw) => JSON.parse(raw));
+    expect(frames.map((f) => f.method ?? (f.error ? 'error' : 'result'))).toEqual(['instance.output', 'error', 'instance.output', 'result']);
+  });
+
   it('keeps a multi-item output batch ahead of the completion frame', () => {
     const { socket, notifier } = makeDurableNotifier();
     notifier.sendOutputNotification('inst-1', { n: 1 });

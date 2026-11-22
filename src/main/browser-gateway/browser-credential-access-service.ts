@@ -6,15 +6,16 @@ import { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { CredentialAuthorizationService } from './browser-credential-authorization-store';
 import { CredentialVaultError, type CredentialVault } from './browser-credential-vault';
-import type { CredentialAccessSession } from './browser-credential-access-session';
+import type { CredentialAccessGrantReason, CredentialAccessSession } from './browser-credential-access-session';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { createCredentialAccessDependencies } from './browser-credential-access-runtime';
+import { normaliseBindableOrigin } from './browser-credential-origin';
 
 export interface BrowserCredentialAccessDependencies {
   store: BrowserApprovalStore;
   authorizations: CredentialAuthorizationService;
-  vault: Pick<CredentialVault, 'inspectExistingCredential' | 'enrolExistingCredential'>;
+  vault: Pick<CredentialVault, 'inspectExistingCredential' | 'enrolExistingCredential' | 'folderName'>;
   grants: Pick<BrowserGrantStore, 'createGrant' | 'getGrant' | 'revokeGrant'>;
   resolveSession: (instanceId?: string) => CredentialAccessSession | undefined;
   findSession: (taskScope: string, requesterInstanceId: string) => CredentialAccessSession | undefined;
@@ -31,6 +32,19 @@ const PRE_APPROVABLE_PURPOSES: ReadonlySet<string> = new Set(['login', 'totp']);
 
 const PENDING_MS = 30 * 60_000;
 
+/** What a request is for: one saved login, or a new agent-owned login (register). */
+interface CredentialSubject {
+  origin: string;
+  vaultItemRef?: string;
+  itemTitle?: string;
+  vaultFolder: string;
+  moveIntoFolder: boolean;
+  /** Consent already on record may be reused without asking again. */
+  reusable: boolean;
+  /** The agent-folder setting may answer it: a saved login the item itself lists for this site. */
+  settingMayApprove: boolean;
+}
+
 /** The agent requests; only an operator decision calls approve. */
 export class BrowserCredentialAccessService {
   private readonly requests = new Map<string, Promise<BrowserGatewayResult<BrowserApprovalRequest | null>>>();
@@ -41,7 +55,7 @@ export class BrowserCredentialAccessService {
   constructor(private readonly deps: BrowserCredentialAccessDependencies) {}
 
   request(input: BrowserRequestCredentialAccessPayload, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const key = JSON.stringify([context.instanceId, input.profileId, input.targetId, input.item, input.purposes, input.senderDomains]);
+    const key = JSON.stringify([context.instanceId, input.profileId, input.targetId, input.item, input.origin, input.purposes, input.senderDomains]);
     const existing = this.requests.get(key);
     if (existing) return existing;
     const run = this.createRequest(input, context).finally(() => this.requests.delete(key));
@@ -56,22 +70,24 @@ export class BrowserCredentialAccessService {
       const session = this.deps.resolveSession(context.instanceId);
       if (!session) return this.report(null, context, 'denied', 'session_unavailable');
       const target = await this.deps.readTarget(input.profileId, input.targetId, context);
-      const inspected = await this.deps.vault.inspectExistingCredential({ item: input.item, origin: target.origin });
+      const subject = input.item === undefined
+        ? this.newLoginSubject(input.origin ?? target.origin)
+        : await this.savedLoginSubject(input.item, target.origin);
       const purposes: BrowserCredentialAccessMetadata['purposes'] = [...new Set(input.purposes ?? ['login' as const])].sort();
       const senderDomains = requestedSenderDomains(input.senderDomains);
       const metadata: BrowserCredentialAccessMetadata = {
         taskScope: session.taskScope, sessionName: session.sessionName, reason: input.reason,
-        origin: target.origin, scope: target.scope, computerName: target.computerName, computerId: target.computerId ?? target.scope,
-        vaultItemRef: inspected.vaultItemRef, itemTitle: inspected.title, vaultFolder: inspected.folderName,
-        moveIntoFolder: inspected.requiresMoveIntoFolder, purposes, ...(senderDomains ? { senderDomains } : {}), permission: 'task',
+        origin: subject.origin, scope: target.scope, computerName: target.computerName, computerId: target.computerId ?? target.scope,
+        ...(subject.vaultItemRef ? { vaultItemRef: subject.vaultItemRef, itemTitle: subject.itemTitle } : {}),
+        vaultFolder: subject.vaultFolder, moveIntoFolder: subject.moveIntoFolder,
+        purposes, ...(senderDomains ? { senderDomains } : {}), permission: 'task',
       };
       // James's setting covers only items already in the agent folder, on a site the item itself lists.
-      let preApprovable = this.deps.preApproveAgentFolderLogins?.() === true && !inspected.requiresMoveIntoFolder
-        && inspected.savedOrigins.includes(target.origin) && !senderDomains
+      let preApprovable = this.deps.preApproveAgentFolderLogins?.() === true && subject.settingMayApprove && !senderDomains
         && purposes.every((purpose) => PRE_APPROVABLE_PURPOSES.has(purpose));
-      // Once James has said no to this login and site in this task (any purposes,
-      // any computer), only he answers it again.
-      if (this.deps.store.hasDeniedCredentialAccess(session.taskScope, inspected.vaultItemRef, target.origin)) {
+      // Once James has said no to this login (or to a new login) and site in this
+      // task (any purposes, any computer), only he answers it again.
+      if (this.deps.store.hasDeniedCredentialAccess(session.taskScope, subject.vaultItemRef, subject.origin)) {
         preApprovable = false;
         metadata.afterDenial = true;
       }
@@ -84,7 +100,7 @@ export class BrowserCredentialAccessService {
           approval = this.deps.store.updateCredentialAccess(current.requestId, { ...m, sessionName: session.sessionName }, { instanceId: session.instanceId, profileId: input.profileId, targetId: input.targetId }) ?? current;
           return preApprovable && !m.afterDenial ? await this.preApprove(approval, context) : this.report(approval, context, 'requires_user', 'awaiting_approval');
         }
-        if (current.status === 'approved' && !inspected.requiresMoveIntoFolder && inspected.existingBinding?.origin === metadata.origin) return this.report(current, context, 'allowed', 'existing_permission');
+        if (current.status === 'approved' && subject.reusable) return this.report(current, context, 'allowed', 'existing_permission');
         // A plain "no" stands until it expires, so an agent cannot ask again at once.
         // A request that had already failed before it was denied gets a fresh one.
         if (current.status === 'denied' && current.expiresAt > this.deps.now() && !current.credentialAccess?.operationError) {
@@ -93,13 +109,13 @@ export class BrowserCredentialAccessService {
       }
       approval = this.deps.store.createRequest({
         instanceId: session.instanceId, provider: BrowserProviderSchema.parse(context.provider ?? 'orchestrator'), profileId: input.profileId, targetId: input.targetId,
-        toolName: 'browser.request_credential_access', action: 'request_credential_access', actionClass: 'credential', origin: target.origin,
+        toolName: 'browser.request_credential_access', action: 'request_credential_access', actionClass: 'credential', origin: subject.origin,
         credentialAccess: metadata, expiresAt: this.deps.now() + PENDING_MS,
-        proposedGrant: { mode: 'session', nodeId: target.scope, allowedOrigins: [this.allowedOrigin(target.origin)], allowedActionClasses: ['credential'], allowExternalNavigation: false, autonomous: false },
+        proposedGrant: { mode: 'session', nodeId: target.scope, allowedOrigins: [this.allowedOrigin(subject.origin)], allowedActionClasses: ['credential'], allowExternalNavigation: false, autonomous: false },
       });
       // Standing consent can be reused, but never enrol or move an item implicitly.
-      if (!inspected.requiresMoveIntoFolder && inspected.existingBinding?.origin === metadata.origin) {
-        const decisions = purposes.map((purpose) => this.deps.authorizations.check({ profileId: target.scope, origin: target.origin, purpose, taskScope: session.taskScope, vaultItemRef: inspected.vaultItemRef, computerId: metadata.computerId }));
+      if (subject.reusable) {
+        const decisions = purposes.map((purpose) => this.deps.authorizations.check({ profileId: target.scope, origin: subject.origin, purpose, taskScope: session.taskScope, vaultItemRef: subject.vaultItemRef, computerId: metadata.computerId }));
         const id = decisions[0]?.authorizationId;
         // Standing consent must already name every requested sender; otherwise ask.
         const sendersCovered = (senderDomains ?? []).every((domain) =>
@@ -116,6 +132,30 @@ export class BrowserCredentialAccessService {
     } catch (error) {
       return this.report(approval ?? null, context, 'denied', this.safeError(error));
     }
+  }
+
+  private async savedLoginSubject(item: string, origin: string): Promise<CredentialSubject> {
+    const inspected = await this.deps.vault.inspectExistingCredential({ item, origin });
+    return {
+      origin, vaultItemRef: inspected.vaultItemRef, itemTitle: inspected.title,
+      vaultFolder: inspected.folderName, moveIntoFolder: inspected.requiresMoveIntoFolder,
+      reusable: !inspected.requiresMoveIntoFolder && inspected.existingBinding?.origin === origin,
+      settingMayApprove: !inspected.requiresMoveIntoFolder && inspected.savedOrigins.includes(origin),
+    };
+  }
+
+  /**
+   * A new agent-owned login has no vault item yet. It is created later by
+   * browser.create_agent_credential in the agent folder, bound to this exact origin.
+   */
+  private newLoginSubject(rawOrigin: string): CredentialSubject {
+    let origin: string;
+    try {
+      origin = normaliseBindableOrigin(rawOrigin);
+    } catch {
+      throw new Error('origin_invalid');
+    }
+    return { origin, vaultFolder: this.deps.vault.folderName, moveIntoFolder: false, reusable: true, settingMayApprove: false };
   }
 
   /** Approve on James's standing setting; on any failure the request stays pending for him, with its reason. */
@@ -187,8 +227,10 @@ export class BrowserCredentialAccessService {
       if (!session) throw new Error('session_unavailable');
       const m = request.credentialAccess!;
       await this.validateTarget(request, m, session);
-      const preview = await this.deps.vault.inspectExistingCredential({ item: m.vaultItemRef, origin: m.origin });
-      if (preview.vaultItemRef !== m.vaultItemRef || preview.title !== m.itemTitle || preview.folderName !== m.vaultFolder || (preview.requiresMoveIntoFolder && !m.moveIntoFolder)) throw new Error('saved_login_changed');
+      if (m.vaultItemRef) {
+        const preview = await this.deps.vault.inspectExistingCredential({ item: m.vaultItemRef, origin: m.origin });
+        if (preview.vaultItemRef !== m.vaultItemRef || preview.title !== m.itemTitle || preview.folderName !== m.vaultFolder || (preview.requiresMoveIntoFolder && !m.moveIntoFolder)) throw new Error('saved_login_changed');
+      }
       this.requirePending(request);
       const accepted: BrowserCredentialAccessMetadata = {
         ...m, permission: choice.permission, operationError: undefined,
@@ -199,12 +241,15 @@ export class BrowserCredentialAccessService {
       // Choice is durable before enrolment. Retrying cannot silently extend its lifetime.
       request = this.deps.store.updateCredentialAccess(requestId, accepted, { instanceId: session.instanceId, profileId: request.profileId, targetId: request.targetId! })!;
       if (!request) throw new Error('request_no_longer_pending');
-      await this.deps.vault.enrolExistingCredential({ item: m.vaultItemRef, expectedVaultItemRef: m.vaultItemRef, origin: m.origin, moveIntoFolder: m.moveIntoFolder });
+      // A new login (register) has nothing to enrol yet.
+      if (m.vaultItemRef) await this.deps.vault.enrolExistingCredential({ item: m.vaultItemRef, expectedVaultItemRef: m.vaultItemRef, origin: m.origin, moveIntoFolder: m.moveIntoFolder });
       this.requirePending(request);
       await this.validateTarget(request, accepted, session);
       this.requirePending(request);
       if (accepted.permissionExpiresAt! <= this.deps.now()) throw new Error('permission_expired');
       const savedRequest = request;
+      const grantReason: CredentialAccessGrantReason = decidedBy === 'setting' ? 'saved_login_preapproved_by_setting'
+        : m.vaultItemRef ? 'saved_login_access_approved' : 'agent_login_creation_approved';
       let createdGrant: BrowserPermissionGrant | undefined;
       let createdAuthorizationId: string | undefined;
       let committed: { grant: BrowserPermissionGrant; approved: BrowserApprovalRequest };
@@ -214,7 +259,7 @@ export class BrowserCredentialAccessService {
           if (auth && (auth.revokedAt || auth.expiresAt <= this.deps.now())) throw new Error('authorization_revoked');
           if (!auth) auth = this.deps.authorizations.create({
             profileId: m.scope, allowedOrigins: [{ scheme: new URL(m.origin).protocol.slice(0, -1) as 'http' | 'https', hostPattern: new URL(m.origin).host, includeSubdomains: false }], purposes: m.purposes, computerId: m.computerId,
-            vaultFolder: m.vaultFolder, vaultItemRef: m.vaultItemRef, ...(m.senderDomains ? { allowedSenderDomains: m.senderDomains } : {}),
+            vaultFolder: m.vaultFolder, ...(m.vaultItemRef ? { vaultItemRef: m.vaultItemRef } : {}), ...(m.senderDomains ? { allowedSenderDomains: m.senderDomains } : {}),
             ...(choice.permission === 'task' ? { taskScope: m.taskScope } : {}), expiresAt: accepted.permissionExpiresAt!,
           }, accepted.authorizationId!);
           createdAuthorizationId = auth.id;
@@ -225,7 +270,7 @@ export class BrowserCredentialAccessService {
             allowExternalNavigation: false, autonomous: false, userApprovedCredentials: false,
             // The setting is James's own standing decision; the reason keeps it apart in the audit.
             requestedBy: session.instanceId, decidedBy: 'user', decision: 'allow', expiresAt: auth.expiresAt,
-            reason: decidedBy === 'setting' ? 'saved_login_preapproved_by_setting' : 'saved_login_access_approved',
+            reason: grantReason,
           });
           createdGrant = grant;
           const approved = this.deps.store.resolveCredentialAccessRequest(requestId, 'pending', { status: 'approved', grantId: grant.id });

@@ -60,6 +60,7 @@ export function credentialAccessChoice(
 export function credentialAccessPurpose(approval: BrowserApprovalRequest): string {
   const access = approval.credentialAccess;
   return access?.purposes.map((purpose) => {
+    if (purpose === 'register') return 'create a new agent-owned login';
     if (purpose === 'totp') return 'use a one-time sign-in code';
     if (purpose === 'email_code') {
       return access.senderDomains?.length
@@ -73,6 +74,7 @@ export function credentialAccessPurpose(approval: BrowserApprovalRequest): strin
 export function credentialAccessMovement(approval: BrowserApprovalRequest): string {
   const access = approval.credentialAccess;
   if (!access) return '';
+  if (!access.vaultItemRef) return `The new login will be saved in the ${access.vaultFolder} agent vault folder.`;
   return access.moveIntoFolder
     ? `Approval will move this login into the ${access.vaultFolder} agent vault folder.`
     : `This login will stay in its current vault folder (${access.vaultFolder}).`;
@@ -107,6 +109,18 @@ const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
   shared_tab_credential_fill_not_allowed: 'Saved logins on shared browser tabs are turned off in settings.',
   shared_tab_secure_credential_fill_unavailable: 'The browser extension on that computer needs updating or reconnecting before it can use saved logins.',
 };
+
+/** A request to create a new agent-owned login rather than use a saved one. */
+export function isNewLoginRequest(approval: BrowserApprovalRequest): boolean {
+  return approval.credentialAccess?.purposes.includes('register') === true;
+}
+
+/** What the chosen length allows, including who else may use a longer one. */
+export function credentialAccessLasts(approval: BrowserApprovalRequest, duration: CredentialAccessDuration): string {
+  if (duration === 'task') return 'Access ends with this session.';
+  const what = isNewLoginRequest(approval) ? 'create new logins on this website' : 'use this saved login';
+  return `Any session can ${what} without asking again ${credentialAccessWords(duration).lasts}.`;
+}
 
 /** Plain-language text for a saved-login approval failure code. */
 export function credentialAccessErrorText(reason: string): string {

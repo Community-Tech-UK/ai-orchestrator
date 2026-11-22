@@ -50,7 +50,7 @@ import {
   parseGeminiStreamingEvent,
 } from './gemini-json';
 import { probeVersionStatus } from './cli-status-probe';
-import { GeminiClientRetiredError, isGeminiClientRetiredText, reportGeminiSignInOutcome } from './gemini-client-retired';
+import { GeminiClientRetiredError, geminiRetiredOutput, isGeminiClientRetiredText, reportGeminiSignInOutcome } from './gemini-client-retired';
 import { killProcessGroup } from './base-cli-process-utils';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
 
@@ -811,13 +811,9 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     } catch (error) {
       assertAdapterInputCurrent(admission);
       if (error instanceof Error && error.name === 'AbortError') throw error;
-      // A retired sign-in reaches the transcript once, in plain words, through the error event below.
-      if (!(error instanceof GeminiClientRetiredError)) {
-        this.emit('output', createOutputMessage(
-          'error',
-          error instanceof Error ? error.message : String(error),
-        ));
-      }
+      this.emit('output', error instanceof GeminiClientRetiredError
+        ? geminiRetiredOutput(error)
+        : createOutputMessage('error', error instanceof Error ? error.message : String(error)));
       this.emit('status', 'error' as InstanceStatus);
       this.emitErrorIfObserved(error instanceof Error ? error : new Error(String(error)));
       throw error;

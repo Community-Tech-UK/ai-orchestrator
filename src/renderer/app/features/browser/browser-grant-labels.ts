@@ -1,4 +1,4 @@
-import type { BrowserPermissionGrant } from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserPermissionGrant } from '@contracts/types/browser';
 
 const ACTIONS: Readonly<Record<string, string>> = {
   'browser.click': 'Click on a page',
@@ -29,5 +29,11 @@ export const browserGrantLabels = {
   },
   action(toolName: string): string {
     return Object.hasOwn(ACTIONS, toolName) ? ACTIONS[toolName] : 'Use a browser page';
+  },
+  /** A pending request's action: a credential request may create a new login rather than use a saved one. */
+  request(approval: Pick<BrowserApprovalRequest, 'toolName' | 'credentialAccess'>): string {
+    return approval.credentialAccess?.purposes.includes('register')
+      ? 'Create a new login'
+      : browserGrantLabels.action(approval.toolName);
   },
 };

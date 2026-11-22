@@ -441,6 +441,11 @@ export const SETTINGS_TOOL_POLICY = {
   // from settings export; the password itself is never stored here or logged.
   browserVaultMasterPasswordFile: secret(),
   browserVaultAutoUnlock: readOnly(),
+  // Where new agent-created logins are saved. Closed to `set_setting`; writable
+  // through the privileged settings CLI (logged `privileged_set`) so an agent
+  // can repair it when creation is refused for a missing organisation.
+  browserVaultOrganizationId: readOnly(),
+  browserVaultCollectionId: readOnly(),
   // WS11.2: routes page text through the aux model; operator decides.
   browserAuxExtractionEnabled: readOnly(),
   // WS9: global tool-surface economy; an agent must not re-inflate every

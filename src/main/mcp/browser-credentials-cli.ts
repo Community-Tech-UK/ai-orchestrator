@@ -13,6 +13,7 @@ import {
 import { parseCredentialOrigin } from '../browser-gateway/browser-credential-origin';
 import {
   OrchestratorToolsRpcClient,
+  OrchestratorToolsUnavailableError,
   type OrchestratorToolsRpcClientLike,
 } from './orchestrator-tools-rpc-client';
 
@@ -50,10 +51,16 @@ export async function runBrowserCredentialsCli(
 
   switch (command) {
     case 'request': {
-      assertAccessFlags(flags, ['profile', 'target', 'item', 'reason', 'purpose', 'sender-domain']);
+      assertAccessFlags(flags, ['profile', 'target', 'item', 'origin', 'reason', 'purpose', 'sender-domain']);
+      // A new login (register) has no saved item yet; --origin defaults to the tab's website.
+      // Anything given is passed on, so the schema refuses a mixed request rather than dropping a flag.
+      const item = flags.values.get('purpose')?.includes('register') ? optionalOne(flags, 'item') : requireOne(flags, 'item');
+      const origin = optionalOne(flags, 'origin');
       const payload = BrowserCredentialsCliRequestPayloadSchema.parse({
         profileId: requireOne(flags, 'profile'), targetId: requireOne(flags, 'target'),
-        item: requireOne(flags, 'item'), reason: requireOne(flags, 'reason'),
+        ...(item !== undefined ? { item } : {}),
+        ...(origin !== undefined ? { origin } : {}),
+        reason: requireOne(flags, 'reason'),
         ...(flags.values.has('purpose') ? { purposes: [...new Set(flags.values.get('purpose'))] } : {}),
         ...(flags.values.has('sender-domain') ? { senderDomains: [...new Set(flags.values.get('sender-domain'))] } : {}),
       });
@@ -161,9 +168,11 @@ async function reportAccessResult(
   const result = parseResult(BrowserCredentialsCliAccessResultSchema, await call(deps, method, payload), 'credential access');
   if (!result.data) throw new Error(result.reason ?? 'Credential access request unavailable');
   if (json) { stdout(formatJson(result)); return; }
+  const retry = result.data.credentialAccess?.purposes.includes('register')
+    ? 'browser.create_agent_credential' : 'secure fill';
   stdout(`Credential access request ${result.data.id}: ${result.data.status}\n`);
-  if (result.data.status === 'pending') stdout('Waiting for James\'s approval in Harness. Retry secure fill only when approved.\n');
-  else if (result.data.status === 'approved') stdout('Credential access approved. Retry secure fill for the same website and computer.\n');
+  if (result.data.status === 'pending') stdout(`Waiting for James's approval in Harness. Retry ${retry} only when approved.\n`);
+  else if (result.data.status === 'approved') stdout(`Credential access approved. Retry ${retry} for the same website and computer.\n`);
   else stdout('Credential access is not approved.\n');
 }
 
@@ -286,6 +295,13 @@ export function resolveScope(flags: Flags): string {
  * in a log at 3am.
  */
 function withRemedy(error: unknown): Error {
+  if (error instanceof OrchestratorToolsUnavailableError) {
+    // James's own terminal has no session connection; the raw RPC text means nothing to him.
+    return new Error(
+      'This command only works inside a Harness agent session. To grant a permission yourself, '
+        + 'use Browser Gateway > Permissions in Harness.',
+    );
+  }
   const message = error instanceof Error ? error.message : String(error);
   if (/vault is locked|vault_locked|vault_relock_failed|BW_SESSION/i.test(message)) {
     return new Error(
@@ -410,12 +426,18 @@ function formatHelp(): string {
     '  request    --profile <id> --target <id> --item <saved login name|id>',
     '             --reason <task reason> [--purpose login|totp|email_code]',
     '             [--sender-domain <domain> ...]   (email_code only)',
+    '  request    --profile <id> --target <id> --purpose register',
+    '             [--origin <url>] --reason <task reason>',
+    '             Permission to create a new agent-owned login on that website',
+    '             (default: the tab\'s website), then use browser.create_agent_credential.',
     '  status     --id <requestId>',
     '  cancel     --id <requestId>',
     '             Access stays pending until James approves in Harness, including',
     '             in YOLO mode. Access defaults to this task; only James can',
     '             choose to remember it for a limited period.',
     '             Session CLI cannot enrol or authorize directly; use request.',
+    '             Every command needs a Harness agent session. To grant a',
+    '             permission yourself, use Browser Gateway > Permissions in Harness.',
     '  enrol      --item <name|id> --origin <url> [--move-into-folder]',
     '  authorize  (--local | --node <nodeId> | --profile <id>)',
     '             --origin <url> [--origin <url> ...]',

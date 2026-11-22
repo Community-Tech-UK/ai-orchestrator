@@ -6,14 +6,11 @@ import type { CredentialAuthorization } from './browser-credential-authorization
  * `browser.fill_credential` returns only `reason` to the model (the audit
  * summary never leaves the recorder). A bare
  * `credential_not_authorized:origin_not_authorized` therefore looks like a
- * Gateway hard-stop, even though the operator already approved a session grant
- * and the real door is `$AIO_MCP browser-credentials authorize`.
+ * Gateway hard-stop, even though the real door is a visible approval request
+ * (`browser.request_credential_access`). Never point at `aio-mcp
+ * browser-credentials authorize`: session RPC refuses it, and outside a
+ * session it has no connection (22 Nov 2026, UptimeRobot sign-up).
  */
-
-const NODE_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const CLI_PURPOSES = new Set(['login', 'register', 'totp', 'email_code']);
 
 export function formatAuthorizedOriginHosts(
   authorizations: Pick<CredentialAuthorization, 'allowedOrigins'>[],
@@ -41,24 +38,11 @@ export function formatAuthorizedOriginHosts(
   return hosts;
 }
 
-export function formatAuthorizeCommand(scope: string, origin: string, purpose: string): string {
-  const rest =
-    `--origin ${origin} --purpose ${purpose} --vault-folder AIO-Agent --expires-in 90d`;
-  if (scope === 'local') {
-    return `$AIO_MCP browser-credentials authorize --local ${rest}`;
-  }
-  if (NODE_ID_RE.test(scope)) {
-    return `$AIO_MCP browser-credentials authorize --node ${scope} ${rest}`;
-  }
-  return `$AIO_MCP browser-credentials authorize --profile ${scope} ${rest}`;
-}
-
 export function formatCredentialAuthorizationDenial(input: {
   toolName: string;
   origin: string;
   purpose: string;
   reason: string;
-  scope: string;
   /** Shown in parentheses when it is more specific than `purpose` (secret type). */
   detail?: string;
   authorizedOrigins?: string[];
@@ -74,7 +58,7 @@ export function formatCredentialAuthorizationDenial(input: {
   if (input.authorizedOrigins && input.authorizedOrigins.length > 0) {
     parts.push(`This scope already covers: ${input.authorizedOrigins.join(', ')}.`);
   }
-  parts.push(nextStep(input.scope, input.origin, input.purpose));
+  parts.push(nextStep(input.origin, input.purpose));
   const message = parts.join(' ');
   return {
     reason: `${codePrefix}: ${message}`,
@@ -100,7 +84,7 @@ export function buildCredentialAuthorizationDenial(
   });
 }
 
-function nextStep(scope: string, origin: string, purpose: string): string {
+function nextStep(origin: string, purpose: string): string {
   if (purpose === 'login' || purpose === 'totp') {
     return 'Call browser.request_credential_access with this profileId, targetId, exact saved login name and reason. '
       + 'Wait for its approved status, then retry secure fill. It works without the shell CLI connection.';
@@ -110,11 +94,11 @@ function nextStep(scope: string, origin: string, purpose: string): string {
       + 'purposes including email_code; add senderDomains when the code email comes from another domain. '
       + 'Wait for its approved status, then retry secure fill.';
   }
-  if (!CLI_PURPOSES.has(purpose)) {
-    return (
-      'Create a secret_fill authorization for this origin in Browser → Credential authorizations; '
-      + 'the CLI cannot mint secret_fill.'
-    );
+  if (purpose === 'register') {
+    return `Call browser.request_credential_access with this profileId, targetId, purposes ["register"], `
+      + `origin ${origin} and a reason (no item). Wait for its approved status, then retry `
+      + 'browser.create_agent_credential. It works without the shell CLI connection.';
   }
-  return `Create one with: ${formatAuthorizeCommand(scope, origin, purpose)}`;
+  return 'Only James can allow this: ask him to create a secret_fill permission for this website in '
+    + 'Browser Gateway > Permissions. Agents cannot request secret_fill.';
 }

@@ -14,6 +14,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { MultiProviderCompareService, type MultiProviderCompareDeps } from '../multi-provider-compare-service';
+import { GeminiRetirementRecord, getGeminiRetirementRecord } from '../../providers/gemini-retirement-record';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../../core/system/cost-attribution';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 
@@ -109,5 +110,16 @@ describe('MultiProviderCompareService', () => {
     const { service } = makeService({ claude: 'a', gemini: 'b', codex: null, copilot: null, cursor: null });
     const available = await service.listAvailableProviders();
     expect(available).toEqual(['claude', 'gemini']);
+  });
+
+  it('leaves Gemini out once Google has retired its sign-in here, so the council does not tick a member bound to fail', async () => {
+    GeminiRetirementRecord._resetForTesting();
+    getGeminiRetirementRecord().recordRetired();
+    try {
+      const { service } = makeService({ claude: 'a', gemini: 'b', codex: null, copilot: null, cursor: null });
+      expect(await service.listAvailableProviders()).toEqual(['claude']);
+    } finally {
+      GeminiRetirementRecord._resetForTesting();
+    }
   });
 });

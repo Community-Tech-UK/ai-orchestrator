@@ -73,7 +73,7 @@
               <span>How long</span>
               <select
                 class="browser-approval-mode credential-access-duration"
-                aria-label="How long to allow this saved login"
+                [attr.aria-label]="newLogin(view.approval) ? 'How long to allow creating logins' : 'How long to allow this saved login'"
                 [value]="credentialDuration(view.approval)"
                 [disabled]="workingRequestId() !== null"
                 (change)="onCredentialDurationChange(view.approval, $event)"

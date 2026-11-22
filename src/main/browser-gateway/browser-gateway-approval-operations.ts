@@ -28,6 +28,7 @@ import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import { requiresAutonomousGrant } from './browser-grant-policy';
 import { approvalComputerId, grantScopeForApproval } from './browser-grant-scope';
 import { getBrowserCredentialAccessService } from './browser-credential-access-service';
+import { isCredentialAccessGrantReason } from './browser-credential-access-session';
 
 interface BrowserGatewayApprovalOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest'
@@ -459,9 +460,8 @@ export class BrowserGatewayApprovalOperations {
       originalGrant ??= ownGrant;
     }
     const revoked = this.deps.grantStore.revokeGrant(request.grantId, request.reason);
-    // Operator-approved and setting-approved saved-login grants both carry an authorization.
-    const savedLogin = (reason?: string) => reason === 'saved_login_access_approved' || reason === 'saved_login_preapproved_by_setting';
-    if (revoked && (savedLogin(originalGrant?.reason) || savedLogin(revoked.reason))) {
+    // Every grant the credential-access service minted carries an authorization.
+    if (revoked && (isCredentialAccessGrantReason(originalGrant?.reason) || isCredentialAccessGrantReason(revoked.reason))) {
       if (this.deps.revokeCredentialAccess) this.deps.revokeCredentialAccess(revoked.id);
       else getBrowserCredentialAccessService().revokeForGrant(revoked.id);
     }

@@ -23,7 +23,10 @@ const BUDGET = {
   // Nov-17: browser.recover_secret_observation lets agents ask the user to restore
   // access, which the popup-only reset never allowed (76,667 bytes measured); it has its own ceiling
   // below. Next 1 KiB ceiling is 76,800.
-  browserFull: { bytes: 76800, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
+  // Nov-22: browser.request_credential_access accepts purpose `register` with an optional `origin` (one-click
+  // approval for browser.create_agent_credential; descriptions trimmed to ~230 bytes): 76,983 bytes; next 1 KiB
+  // ceiling is 77,824.
+  browserFull: { bytes: 77824, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
   browserDeferred: { bytes: 12288, render: () => createDeferredBrowserMcpTools(client, { onReveal: () => undefined }), measure: measureToolSchemaBytes },
   browserStable: { bytes: 12288, render: () => createStableBrowserMcpTools(client), measure: measureToolSchemaBytes },
   // Nov-07: plan_queue_report_ready (the worker completion report, roughly 2 KB of schema)

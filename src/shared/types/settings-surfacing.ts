@@ -125,6 +125,8 @@ export const SETTING_SURFACING = {
   chromeDevtoolsAttachProfileId: 'tab',
   browserVaultMasterPasswordFile: 'tab',
   browserVaultAutoUnlock: 'tab',
+  browserVaultOrganizationId: 'tab',
+  browserVaultCollectionId: 'tab',
   browserAuxExtractionEnabled: 'internal',
   browserMcpToolDeferral: 'tab',
   orchestratorMcpToolDeferral: 'tab',

@@ -5,6 +5,8 @@ import type { BrowserGatewayResult } from '@contracts/types/browser';
 import { credentialFailureCode } from './browser-credential-fill-targeting';
 import { buildCredentialAuthorizationDenial } from './browser-credential-authorization-denial';
 import { contextOf, type FillOperationDeps } from './browser-form-fill-operations';
+import { resolveCredentialTaskScope } from './browser-credential-access-session';
+import { resolveCredentialComputerId } from './browser-credential-access-runtime';
 
 /**
  * browser.create_agent_credential, split out of browser-form-fill-operations.ts
@@ -77,8 +79,15 @@ export async function createAgentCredentialOperation(
   // checked against their stable worker-node scope. The explicit login URI can
   // differ from the currently shared Meta tab, but the credential remains bound
   // exactly to that URI's origin; fill_credential still refuses every other origin.
+  // An approval from browser.request_credential_access is bound to this task and
+  // computer, so both are checked exactly as fill_credential checks them.
   const authProfileId = deps.resolveCredentialProfileScope?.(request.profileId) ?? request.profileId;
-  const decision = authorizations.check({ profileId: authProfileId, origin, purpose: 'register' });
+  const decision = authorizations.check({
+    profileId: authProfileId, origin, purpose: 'register',
+    taskScope: resolveCredentialTaskScope(request.instanceId),
+    computerId: deps.resolveCredentialComputerId?.(request.profileId, request.targetId)
+      ?? resolveCredentialComputerId(request.profileId, request.targetId),
+  });
   if (!decision.authorized) {
     const denial = buildCredentialAuthorizationDenial(authorizations.list?.bind(authorizations), {
       toolName,
@@ -112,6 +121,7 @@ export async function createAgentCredentialOperation(
       data: { vaultItemRef: created.vaultItemRef, username: created.username },
     });
   } catch (error) {
+    const code = credentialFailureCode(error, 'create_agent_credential_failed');
     return deps.result({
       context,
       profileId: request.profileId,
@@ -121,7 +131,11 @@ export async function createAgentCredentialOperation(
       actionClass: 'credential',
       decision: 'denied',
       outcome: 'failed',
-      reason: credentialFailureCode(error, 'create_agent_credential_failed'),
+      reason: code === 'vault_organization_not_configured'
+        ? `${code}: new logins are never saved to the personal vault. Set browserVaultOrganizationId and `
+          + 'browserVaultCollectionId (the Bitwarden organisation and collection for new logins) with '
+          + '`$AIO_MCP settings set`, then retry.'
+        : code,
       summary: `${toolName} failed`,
       data: null,
     });

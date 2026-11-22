@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runBrowserCredentialsCli } from './browser-credentials-cli';
+import { OrchestratorToolsRpcClient } from './orchestrator-tools-rpc-client';
 
 function result(status: 'pending' | 'approved' | 'denied' | 'expired' = 'pending') {
   return {
@@ -94,5 +95,40 @@ describe('browser-credentials approved-access CLI', () => {
     const h = harness({ ...response, data: { ...response.data, password: 'PLACEHOLDER_PASSWORD' } });
     await expect(runBrowserCredentialsCli(requestArgs, h.deps)).rejects.toThrow(/Malformed credential access/);
     expect(h.output).toEqual([]);
+  });
+
+  it('asks for a new agent-owned login without an item and points at create_agent_credential', async () => {
+    const response = result();
+    const { vaultItemRef: _ref, itemTitle: _title, ...access } = response.data.credentialAccess;
+    const h = harness({ ...response, data: { ...response.data, credentialAccess: { ...access, purposes: ['register'] } } });
+    await runBrowserCredentialsCli(['request', '--profile', 'profile-1', '--target', 'target-1', '--purpose', 'register',
+      '--origin', 'https://dashboard.example.com', '--reason', 'Create a monitoring account'], h.deps);
+    expect(h.call).toHaveBeenCalledWith('orchestrator_tools.browser_credentials.request', {
+      profileId: 'profile-1', targetId: 'target-1', origin: 'https://dashboard.example.com',
+      reason: 'Create a monitoring account', purposes: ['register'],
+    });
+    expect(h.output.join('')).toContain('Retry browser.create_agent_credential only when approved');
+  });
+
+  it('refuses register mixed with an item or another purpose before calling Harness', async () => {
+    for (const extra of [['--item', 'Portal test login'], ['--purpose', 'login']]) {
+      const h = harness(result());
+      await expect(runBrowserCredentialsCli(['request', '--profile', 'profile-1', '--target', 'target-1',
+        '--purpose', 'register', '--reason', 'Create a monitoring account', ...extra], h.deps)).rejects.toThrow();
+      expect(h.call).not.toHaveBeenCalled();
+    }
+  });
+
+  it('says plainly that it needs a Harness session when run from an ordinary terminal', async () => {
+    const output: string[] = [];
+    const deps = { client: new OrchestratorToolsRpcClient({ env: {} }), stdout: (text: string) => output.push(text) };
+    for (const args of [requestArgs, ['authorize', '--node', 'node-1', '--origin', 'https://a.example', '--purpose', 'register',
+      '--vault-folder', 'AIO-Agent', '--expires-in', '90d']]) {
+      const error = await runBrowserCredentialsCli(args, deps).then(() => undefined, (caught: unknown) => caught as Error);
+      expect(error?.message).toBe('This command only works inside a Harness agent session. To grant a permission yourself, '
+        + 'use Browser Gateway > Permissions in Harness.');
+      expect(error?.message).not.toContain('parent socket');
+    }
+    expect(output).toEqual([]);
   });
 });

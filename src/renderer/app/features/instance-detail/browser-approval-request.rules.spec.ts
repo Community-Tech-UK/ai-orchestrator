@@ -546,3 +546,32 @@ describe('presentBrowserApproval: other tools', () => {
     expect(view.facts[0]).toEqual({ label: 'Why it needs your OK', value: why });
   });
 });
+
+describe('presentBrowserApproval: a new agent-owned login', () => {
+  const { vaultItemRef: _ref, itemTitle: _title, ...access } = savedLogin().credentialAccess!;
+  const approval = makeApproval({
+    toolName: 'browser.request_credential_access', action: 'request_credential_access', actionClass: 'credential',
+    origin: 'https://dashboard.example.com',
+    credentialAccess: { ...access, origin: 'https://dashboard.example.com', purposes: ['register'], moveIntoFolder: false, vaultFolder: 'AIO-Agent' },
+  });
+
+  it('names the website, computer and purpose without a saved login', () => {
+    const view = presentBrowserApproval(approval, { ...ctx, credentialDuration: 'task' });
+    expect(view.kind).toBe('saved-login');
+    expect(view.kindLabel).toBe('New login');
+    expect(view.headline).toBe('Create a new agent-owned login on dashboard.example.com (windows-pc)');
+    expect(view.facts).toEqual(expect.arrayContaining([
+      { label: 'Reason', value: 'Finish the requested sign-in' },
+      { label: 'Website', value: 'dashboard.example.com' },
+      { label: 'Access', value: 'create a new agent-owned login. Only this website and computer.' },
+      { label: 'Vault folder', value: 'The new login will be saved in the AIO-Agent agent vault folder.' },
+    ]));
+    expect(JSON.stringify(view)).not.toContain('undefined');
+  });
+
+  it('warns that a longer choice lets any session create logins there', () => {
+    const longer = presentBrowserApproval(approval, { ...ctx, credentialDuration: '7d' });
+    expect(longer.facts.find((fact) => fact.label === 'Lasts')?.value)
+      .toBe('For 7 days. Any session can create new logins on dashboard.example.com without asking again.');
+  });
+});

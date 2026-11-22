@@ -253,6 +253,14 @@ export interface AppSettings
    */
   browserVaultAutoUnlock: boolean;
   /**
+   * Bitwarden organisation id that new agent-created logins are saved in
+   * (`browser.create_agent_credential`). Empty = creation refused, so nothing
+   * lands in the personal vault. Not a secret.
+   */
+  browserVaultOrganizationId: string;
+  /** Collection inside `browserVaultOrganizationId` for new agent-created logins. */
+  browserVaultCollectionId: string;
+  /**
    * WS11.2 "big model asks, small model reads": when true, browser.snapshot
    * calls that carry an extractionHint run the captured page text through the
    * auxiliary `webExtract` slot and return the distilled extract (never-worse

@@ -28,6 +28,7 @@ import type { UnifiedSpawnOptions } from './adapter-factory';
 import { markRemoteUsageSettlement } from './remote-response-usage-settlement';
 import { deferUntilResponseUsageSettled } from './deferred-response-usage';
 import type { CliResponse } from './base-cli-adapter';
+import { isSurfacedToUserError } from './surfaced-error';
 
 function makeAdapter(sendRpc: ReturnType<typeof vi.fn>): RemoteCliAdapter {
   const nodeConnection = {
@@ -209,5 +210,53 @@ describe('RemoteCliAdapter deferred account context', () => {
     await adapter.sendInput('next work');
     expect(sendRpc.mock.calls.filter((call) => call[1] === 'instance.sendInput').map((call) => call[2].message))
       .toEqual(['FIRST\n\nwork', 'SECOND\n\nnext work']);
+  });
+});
+
+describe('RemoteCliAdapter when a worker computer\'s Gemini sign-in is retired', () => {
+  beforeEach(() => { registryEmitter.removeAllListeners(); pause.active = false; });
+
+  const GOOGLE = 'An unexpected critical error occurred: This client is no longer supported for Gemini Code Assist for individuals. '
+    + 'To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google';
+
+  it('marks the failed send as already shown once the worker has sent its plain line, with the same reason', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockRejectedValueOnce(new Error(`RPC error -32603: ${GOOGLE}`));
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+    // The worker's line arrives before the failed send's reply: its notifier sends held output before any reply.
+    adapter.handleRemoteOutput({
+      id: 'line-1', timestamp: Date.now(), type: 'error', content: 'Google has retired Gemini…',
+      metadata: { errorPresentation: { category: 'gemini-retired', headline: 'h', whatToDo: 'w', rawDetail: GOOGLE } },
+    });
+
+    const failure = await adapter.sendInput('work').then(() => undefined, (error: unknown) => error);
+
+    // Already shown: no "initial message could not be delivered" notice is added on top.
+    expect(isSurfacedToUserError(failure)).toBe(true);
+    expect((failure as Error).message).toBe(GOOGLE);
+  });
+
+  it('keeps the usual notice for a worker on older code that sent no plain line', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockRejectedValueOnce(new Error(`RPC error -32603: ${GOOGLE}`));
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+
+    const failure = await adapter.sendInput('work').then(() => undefined, (error: unknown) => error);
+
+    expect(isSurfacedToUserError(failure)).toBe(false);
+  });
+
+  it('leaves every other failed send as it was', async () => {
+    const sendRpc = vi.fn().mockResolvedValueOnce({ instanceId: 'inst-remote-1' })
+      .mockRejectedValueOnce(new Error('RPC error -32603: worker lost the session'));
+    const adapter = makeAdapter(sendRpc);
+    await adapter.spawn();
+
+    const failure = await adapter.sendInput('work').then(() => undefined, (error: unknown) => error);
+
+    expect(isSurfacedToUserError(failure)).toBe(false);
+    expect((failure as Error).message).toBe('RPC error -32603: worker lost the session');
   });
 });

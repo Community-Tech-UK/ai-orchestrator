@@ -237,11 +237,11 @@ export class BrowserApprovalStore {
         AND json_extract(credential_access_json, '$.origin') = ?
         AND json_extract(credential_access_json, '$.scope') = ?
         AND json_extract(credential_access_json, '$.computerId') = ?
-        AND json_extract(credential_access_json, '$.vaultItemRef') = ?
+        AND json_extract(credential_access_json, '$.vaultItemRef') IS ?
         AND json_extract(credential_access_json, '$.purposes') = ?
         AND json_extract(credential_access_json, '$.senderDomains') IS ?
       ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC, id DESC LIMIT 1`).get<BrowserApprovalRequestRow>(metadata.taskScope,
-        metadata.origin, metadata.scope, metadata.computerId, metadata.vaultItemRef, JSON.stringify(metadata.purposes),
+        metadata.origin, metadata.scope, metadata.computerId, metadata.vaultItemRef ?? null, JSON.stringify(metadata.purposes),
         metadata.senderDomains ? JSON.stringify(metadata.senderDomains) : null);
     return row ? this.map(row) : null;
   }
@@ -249,15 +249,17 @@ export class BrowserApprovalStore {
   /**
    * Whether James said no to this saved login on this site in this task, whatever was
    * asked or on which computer. A request that failed or that its agent cancelled
-   * (operationError set) is not his no (brief 18 Nov 2026, item 3).
+   * (operationError set) is not his no (brief 18 Nov 2026, item 3). A register
+   * request has no saved login, so `vaultItemRef` is undefined and matches only
+   * other register requests.
    */
-  hasDeniedCredentialAccess(taskScope: string, vaultItemRef: string, origin: string): boolean {
+  hasDeniedCredentialAccess(taskScope: string, vaultItemRef: string | undefined, origin: string): boolean {
     return this.db.prepare(`SELECT 1 FROM browser_approval_requests
       WHERE credential_access_json IS NOT NULL AND status = 'denied'
         AND json_extract(credential_access_json, '$.operationError') IS NULL
         AND json_extract(credential_access_json, '$.taskScope') = ?
-        AND json_extract(credential_access_json, '$.vaultItemRef') = ?
-        AND json_extract(credential_access_json, '$.origin') = ? LIMIT 1`).get(taskScope, vaultItemRef, origin) !== undefined;
+        AND json_extract(credential_access_json, '$.vaultItemRef') IS ?
+        AND json_extract(credential_access_json, '$.origin') = ? LIMIT 1`).get(taskScope, vaultItemRef ?? null, origin) !== undefined;
   }
 
   /** Exact operation lookup, including expired/denied tombstones so retries cannot renew consent. */

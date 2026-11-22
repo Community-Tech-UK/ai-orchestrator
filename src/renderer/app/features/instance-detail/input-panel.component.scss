@@ -108,6 +108,13 @@
   flex-wrap: wrap;
 }
 
+/* One muted line under the draft toggles saying what the new session may do. */
+.draft-posture {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 .yolo-toggle {
   display: flex;
   align-items: center;
@@ -537,6 +544,12 @@
   min-width: 0;
 }
 
+/* The hints give way first; Voice, Steer and Stop stay together on one line, on the right even when they wrap. */
+.composer-actions-right {
+  flex: none;
+  margin-left: auto;
+}
+
 .btn-attach {
   width: auto;
   height: auto;
@@ -912,8 +925,17 @@
   line-height: 1.4;
   color: var(--text-muted);
   overflow-wrap: anywhere;
-  flex: 1 1 12em;
-  min-width: min(12em, 100%);
+}
+
+/* Wide enough to read in one or two lines; the quota notice moves underneath when both cannot fit. */
+.input-hints .hint {
+  flex: 1 1 24em;
+  min-width: min(24em, 100%);
+}
+
+/* The words beside the Stop button stay on one line. */
+.stop-label {
+  white-space: nowrap;
 }
 
 /* Idle instructional hints: stay out of the way until the composer is focused */

@@ -29,7 +29,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | `release-readiness` | Build a mobile release readiness report from evidence JSON and live captures. |
 | `local-ai` | Discover, enrol, inspect, check, rename, edit, pause, and retire Local AI Guard targets, read effectiveness, and acknowledge incidents through the running parent app. |
 | `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
-| `browser-credentials` | Request James's approval to use a saved login, inspect or cancel that request, and manage existing credential authorizations. |
+| `browser-credentials` | Request James's approval to use a saved login or create a new agent-owned login, inspect or cancel that request, and manage existing credential authorizations. |
 | `loop` | List parked loops and resume one, including after an app restart. |
 | `plan-queue` | See who owns each Plan Queue run and move one to another session. |
 | `pause` | Check, hold or release new unattended work. |
@@ -632,6 +632,38 @@ cancel with `browser.cancel_credential_access({requestId})`. These tools and CLI
 commands use the same service and permission checks. Do not repair this by
 editing permission records or borrowing another session's connection.
 
+### Creating a new agent-owned login (register)
+
+`browser.create_agent_credential` needs a `register` permission for the website
+the new login is for. When it is refused with
+`credential_not_authorized:...`, ask James through the same approval:
+
+```bash
+$AIO_MCP browser-credentials request --profile <profileId> --target <targetId> \
+    --purpose register [--origin https://dashboard.example.com] \
+    --reason "Create a monitoring account for this task" --json
+```
+
+or `browser.request_credential_access({profileId, targetId, purposes:
+["register"], origin?, reason})`. There is no `--item`: the login does not exist
+yet. `--origin` defaults to the tab's website; give it when the login URI you
+will pass to `create_agent_credential` is on another website. `register` cannot
+be combined with other purposes.
+
+James sees the website, computer, "create a new agent-owned login" and your
+reason, and approves with one click, for this session or a limited period. The
+agent-folder setting never answers a register request. The permission is scoped
+exactly as saved-login access is: a shared tab authorizes by its computer (node
+id, or `local`), a managed profile by its own id. Once approved,
+`browser.create_agent_credential` works for that website, computer and task with
+no further steps. It saves the new login in the `AIO-Agent` folder inside the
+Bitwarden organisation and collection named by the `browserVaultOrganizationId`
+and `browserVaultCollectionId` settings, and refuses with
+`vault_organization_not_configured` while either is empty, so nothing lands in
+the personal vault. Set them with `$AIO_MCP settings set` (privileged CLI; closed
+to `set_setting`). To type the new password into the sign-up form, request
+saved-login access for the returned `vaultItemRef` as usual.
+
 ### Codex device sign-in tools
 
 These are Browser Gateway MCP tools carried by the `browser-gateway` forwarder,
@@ -861,6 +893,11 @@ Run `$AIO_MCP release-readiness --help` for the current concise usage text.
 ## Troubleshooting
 
 `orchestrator-tools RPC unavailable: parent socket/instance id missing`
+
+`browser-credentials` says instead: "This command only works inside a Harness
+agent session. To grant a permission yourself, use Browser Gateway > Permissions
+in Harness." Every `aio-mcp` command needs a Harness agent session; it does not
+work from an ordinary terminal, even with the full path to the binary.
 
 The shell lacks one or more connection values, including its private capability.
 Check presence only:

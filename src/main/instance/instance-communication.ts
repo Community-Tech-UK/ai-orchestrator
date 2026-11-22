@@ -116,7 +116,7 @@ import { isAutomaticInstanceInput, throwIfInstanceInputAborted, type InstanceSen
 import { assertQueuedInputProviderReady } from './instance-provider-limit-runtime';
 import { InstanceInputFailureScopes, type InstanceInputFailureScope } from './instance-input-failure-scope';
 import { OutputPublicationOrder, type OutputPublicationTicket } from './instance-communication-output-order';
-import { handleInstanceAdapterError } from './instance-adapter-error-handler';
+import { handleInstanceAdapterError, recentlyShownError } from './instance-adapter-error-handler';
 import { createInstanceAdapterInputDispatch, createInstanceInputReceipt } from './instance-adapter-input-dispatch';
 import { buildSpawnStallNotice } from './stall-notices';
 import { bindInstanceAcpHistoryReplay } from './instance-acp-history-replay';
@@ -1450,6 +1450,8 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
+        // The turn's error event may already have shown this failure in plain words, with the same reason under Details.
+        if (message.type === 'error' && recentlyShownError(instance.outputBuffer, errorMessageText(message), { plainOnly: true })) return;
         this.addToOutputBuffer(instance, message, { countAsProcessOutput: true, emitStreamingUpdate: false });
         this.emit('output', {
           instanceId,

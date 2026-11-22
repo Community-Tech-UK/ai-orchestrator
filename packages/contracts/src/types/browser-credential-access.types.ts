@@ -1,4 +1,5 @@
-export type BrowserCredentialAccessPurpose = 'login' | 'totp' | 'email_code';
+/** `register` is always alone: permission to create a new agent-owned login. */
+export type BrowserCredentialAccessPurpose = 'login' | 'totp' | 'email_code' | 'register';
 
 /** Non-secret, trusted main-process metadata for a saved-login decision. */
 export interface BrowserCredentialAccessMetadata {
@@ -9,8 +10,9 @@ export interface BrowserCredentialAccessMetadata {
   computerName: string;
   computerId: string;
   scope: string;
-  vaultItemRef: string;
-  itemTitle: string;
+  /** Absent only for a register request, which has no saved login yet. */
+  vaultItemRef?: string;
+  itemTitle?: string;
   vaultFolder: string;
   moveIntoFolder: boolean;
   purposes: BrowserCredentialAccessPurpose[];
@@ -34,7 +36,10 @@ export interface BrowserCredentialAccessChoice {
 export interface BrowserRequestCredentialAccess {
   profileId: string;
   targetId: string;
-  item: string;
+  /** The saved login; omitted for a register request. */
+  item?: string;
+  /** Register only: the website the new login is for. Defaults to the tab's website. */
+  origin?: string;
   reason: string;
   purposes?: BrowserCredentialAccessPurpose[];
   senderDomains?: string[];

@@ -24,6 +24,7 @@ import { RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS } from './instance-communication.c
 import { findAnnouncedUsageLimit, usageLimitWindow } from '../cli/usage-limit-window';
 import { presentFailure } from './instance-failure-presentation';
 import { redactSpawnFailureText } from './lifecycle/spawn-transaction';
+import { redactSecrets } from '../security/secret-detector';
 import { detectErrorProviderLimit, readAdapterRateLimitTelemetry, type ProviderLimitTurnSignal } from './instance-provider-limit-detection';
 
 const logger = getLogger('InstanceCommunication');
@@ -213,6 +214,29 @@ export async function handleInstanceAdapterError(
 }
 
 /**
+ * Whether the transcript showed a failure with this real reason a moment ago. The adapter's own error line and its
+ * error event can arrive in either order; whichever comes second adds nothing. Both sides are compared with their
+ * secrets hidden by both screens a kept reason may have been through (the adapter's and this handler's), so the same
+ * reason matches however it was kept. With `plainOnly`, only a line already in plain words counts:
+ * two raw lines with the same text can be separate failures (two tool calls failing alike) and both stay.
+ */
+export function recentlyShownError(
+  outputBuffer: readonly OutputMessage[],
+  reason: string,
+  { now = Date.now(), plainOnly = false }: { now?: number; plainOnly?: boolean } = {},
+): boolean {
+  const screened = (text: string): string => redactSpawnFailureText(redactSecrets(text));
+  const kept = screened(reason);
+  for (let index = outputBuffer.length - 1; index >= 0; index--) {
+    const candidate = outputBuffer[index];
+    if (!candidate || now - candidate.timestamp > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) break;
+    if (candidate.type !== 'error' || (plainOnly && !candidate.metadata?.['errorPresentation'])) continue;
+    if (screened(errorMessageText(candidate)) === kept) return true;
+  }
+  return false;
+}
+
+/**
  * Puts a failed turn in the transcript as plain words, with the real text kept under Details.
  * A repeat is matched on that real text (`errorMessageText`), not on the words the person reads.
  * The text kept under Details has its secrets hidden, so a new failure is compared in that form too.
@@ -227,14 +251,9 @@ function publishAdapterError(
 ): void {
   const now = Date.now();
   const rawContent = safeError.message;
-  const keptText = redactSpawnFailureText(rawContent);
-  for (let index = instance.outputBuffer.length - 1; index >= 0; index--) {
-    const candidate = instance.outputBuffer[index];
-    if (!candidate || now - candidate.timestamp > RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS) break;
-    if (candidate.type === 'error' && errorMessageText(candidate) === keptText) {
-      logger.debug('Skipping duplicate UI error message after adapter error event', { instanceId, ...textDiagnostic(rawContent) });
-      return;
-    }
+  if (recentlyShownError(instance.outputBuffer, rawContent, { now })) {
+    logger.debug('Skipping duplicate UI error message after adapter error event', { instanceId, ...textDiagnostic(rawContent) });
+    return;
   }
   const failure = presentFailure({ error: safeError, message: rawContent, instance, limit });
   const message: OutputMessage = {

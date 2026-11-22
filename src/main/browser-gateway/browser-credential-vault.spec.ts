@@ -13,6 +13,7 @@ import {
 } from './browser-credential-vault';
 
 const AGENT_FOLDER_ID = 'folder-agent';
+const ORGANIZATION = { organizationId: 'org-placeholder', collectionId: 'collection-placeholder' };
 
 /**
  * A fake `bw` CLI. Records commands, serves a scripted folder list and an item
@@ -21,12 +22,14 @@ const AGENT_FOLDER_ID = 'folder-agent';
 class FakeBw implements BwRunner {
   readonly commands: string[][] = [];
   readonly inputs: (string | undefined)[] = [];
-  private readonly items = new Map<string, { folderId: string | null; username: string; password: string }>();
+  private readonly items = new Map<string, { folderId: string | null; username: string; password: string; organizationId?: string | null }>();
   private readonly fieldsById = new Map<string, { name: string; value: string }[]>();
   private folderExists = true;
   private nextId = 1;
   /** Models a local copy older than the server's until `bw sync` runs. */
   private localCopyStale: boolean;
+  /** Models a create that lands outside the organisation it asked for. */
+  ignoreOrganization = false;
 
   constructor(opts: { folderExists?: boolean; localCopyStale?: boolean } = {}) {
     this.folderExists = opts.folderExists ?? true;
@@ -57,12 +60,16 @@ class FakeBw implements BwRunner {
     if (args[0] === 'create' && args[1] === 'item') {
       const decoded = JSON.parse(Buffer.from(opts?.input ?? '', 'base64').toString('utf-8'));
       const id = `item-${this.nextId++}`;
+      // Bitwarden keeps the item in the personal vault (organizationId null)
+      // unless the body names an organisation.
+      const organizationId = this.ignoreOrganization ? null : decoded.organizationId ?? null;
       this.items.set(id, {
         folderId: decoded.folderId,
         username: decoded.login.username,
         password: decoded.login.password,
+        organizationId,
       });
-      return ok(JSON.stringify({ id, folderId: decoded.folderId, login: decoded.login }));
+      return ok(JSON.stringify({ id, folderId: decoded.folderId, organizationId, login: decoded.login }));
     }
     if (args[0] === 'edit' && args[1] === 'item') {
       const existing = this.items.get(args[2] as string);
@@ -142,11 +149,12 @@ class MemoryBindings implements VaultOriginBindingStore {
   }
 }
 
-function makeVault(bw: FakeBw, opts: { locked?: boolean } = {}) {
+function makeVault(bw: FakeBw, opts: { locked?: boolean; organization?: typeof ORGANIZATION } = {}) {
   const bindings = new MemoryBindings();
   const vault = new CredentialVault({
     runner: bw,
     bindings,
+    getOrganization: () => opts.organization ?? ORGANIZATION,
     getSession: () => (opts.locked ? undefined : 'session-token'),
     generatePassword: () => 'Test-Password-123!',
     now: () => 1_000,
@@ -237,6 +245,36 @@ describe('CredentialVault.createAgentCredential', () => {
     const { vault } = makeVault(bw);
     await vault.createAgentCredential({ origin: 'https://a.example', username: 'u' });
     expect(bw.commands.some((c) => c[0] === 'create' && c[1] === 'folder')).toBe(true);
+  });
+
+  it('saves the new login in the configured organisation and collection, never the personal vault', async () => {
+    const bw = new FakeBw();
+    const { vault } = makeVault(bw);
+    await vault.createAgentCredential({ origin: 'https://a.example', username: 'u' });
+    const createCommand = bw.commands.find((args) => args[0] === 'create' && args[1] === 'item');
+    const item = JSON.parse(Buffer.from(bw.inputs[bw.commands.indexOf(createCommand!)] ?? '', 'base64').toString('utf-8'));
+    expect(item).toMatchObject({ organizationId: 'org-placeholder', collectionIds: ['collection-placeholder'], folderId: AGENT_FOLDER_ID });
+  });
+
+  it.each([
+    ['no organisation', { organizationId: '', collectionId: 'collection-placeholder' }],
+    ['no collection', { organizationId: 'org-placeholder', collectionId: '  ' }],
+  ])('refuses with %s set, before running bw', async (_label, organization) => {
+    const bw = new FakeBw();
+    const { vault, bindings } = makeVault(bw, { organization });
+    await expect(vault.createAgentCredential({ origin: 'https://a.example', username: 'u' }))
+      .rejects.toMatchObject({ code: 'vault_organization_not_configured' });
+    expect(bw.commands).toHaveLength(0);
+    expect(bindings.get('item-1')).toBeUndefined();
+  });
+
+  it('refuses and binds nothing when the item is not saved in the organisation', async () => {
+    const bw = new FakeBw();
+    bw.ignoreOrganization = true;
+    const { vault, bindings } = makeVault(bw);
+    await expect(vault.createAgentCredential({ origin: 'https://a.example', username: 'u' }))
+      .rejects.toMatchObject({ code: 'vault_organization_mismatch' });
+    expect(bindings.get('item-1')).toBeUndefined();
   });
 });
 
@@ -542,6 +580,7 @@ describe('CredentialVault.getSecretForFill (security invariants)', () => {
     const vault = new CredentialVault({
       runner: failing,
       bindings: new MemoryBindings(),
+      getOrganization: () => ORGANIZATION,
       getSession: () => 'session',
       generatePassword: () => 'SUPER-SECRET-PW',
     });
@@ -696,6 +735,7 @@ describe('stale session recovery', () => {
           return queue.shift() ?? { stdout: '', stderr: '', code: 0 };
         },
       },
+      getOrganization: () => ORGANIZATION,
       bindings: {
         put: () => undefined,
         get: () => ({

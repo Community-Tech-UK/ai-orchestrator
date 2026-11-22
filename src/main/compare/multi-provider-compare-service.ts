@@ -21,6 +21,7 @@
 
 import type { CliType } from '../cli/cli-detection';
 import { getLogger } from '../logging/logger';
+import { canChooseProviderHere } from '../providers/gemini-retirement-record';
 import {
   DEFAULT_PROVIDER_INVOKE_DEPS,
   invokeProviderOneShot,
@@ -61,10 +62,13 @@ export class MultiProviderCompareService {
     this.deps = { ...DEFAULT_DEPS, ...deps };
   }
 
-  /** Which known providers are currently installed. */
+  /**
+   * Which known providers are currently installed. Gemini is left out once Google has retired its sign-in here:
+   * the council page ticks every listed provider by default, and a Gemini member could only fail.
+   */
   async listAvailableProviders(): Promise<string[]> {
     const checks = await Promise.all(
-      KNOWN_PROVIDERS.map(async (p) => ({ p, type: await this.deps.resolveProvider(p) })),
+      KNOWN_PROVIDERS.filter(canChooseProviderHere).map(async (p) => ({ p, type: await this.deps.resolveProvider(p) })),
     );
     return checks.filter((c) => c.type !== null).map((c) => c.p);
   }

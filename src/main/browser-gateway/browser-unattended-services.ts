@@ -59,6 +59,10 @@ export function getBrowserCredentialVault(): CredentialVault {
       bindings: new SqliteVaultOriginBindingStore(),
       getSession: () => getBrowserCredentialSession().getToken(),
       getSessionGeneration: () => credentialVaultLockGeneration,
+      getOrganization: () => {
+        const settings = getSettingsManager().getAll();
+        return { organizationId: settings.browserVaultOrganizationId, collectionId: settings.browserVaultCollectionId };
+      },
       // Recover from a rotated or expired CLI session without a human. Without
       // this, one laptop sleep leaves every credential fill failing until
       // somebody opens the Browser screen and clicks Unlock, which is precisely

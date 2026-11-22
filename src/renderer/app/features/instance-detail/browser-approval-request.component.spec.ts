@@ -460,6 +460,17 @@ describe('BrowserApprovalRequestComponent', () => {
       }
     });
 
+    it('shows a new-login request on the same card, labelled for creating logins', async () => {
+      await show(login({ vaultItemRef: undefined, itemTitle: undefined, purposes: ['register'], moveIntoFolder: false, vaultFolder: 'AIO-Agent' }));
+      expect(element.querySelector('.browser-approval-kicker')?.textContent?.trim()).toBe('New login');
+      const text = element.textContent ?? '';
+      expect(text).toContain('Create a new agent-owned login on login.example.com');
+      expect(text).toContain('The new login will be saved in the AIO-Agent agent vault folder.');
+      expect(text).not.toContain('undefined');
+      expect(element.querySelector('.credential-access-duration')?.getAttribute('aria-label')).toBe('How long to allow creating logins');
+      expect(buttons().map((candidate) => candidate.textContent?.trim())).toEqual(['Deny', 'Allow for this session']);
+    });
+
     it('never calls the permission a task', async () => {
       await show(login());
       expect(element.textContent?.toLowerCase()).not.toContain('task');

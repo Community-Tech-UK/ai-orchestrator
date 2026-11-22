@@ -307,7 +307,7 @@ describe('Browser Gateway approval resume admission', () => {
     },
   );
 
-  it.each(['saved_login_access_approved', 'saved_login_preapproved_by_setting'])(
+  it.each(['saved_login_access_approved', 'saved_login_preapproved_by_setting', 'agent_login_creation_approved'])(
     'does not send a second wake after the shared credential service already owns notification (%s)', async (reason) => {
     mocks.approveRequest.mockResolvedValueOnce({
       decision: 'allowed', outcome: 'succeeded', data: { instanceId: 'inst-1', reason },

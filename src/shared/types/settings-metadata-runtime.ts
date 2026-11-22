@@ -251,6 +251,22 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'browserVaultOrganizationId',
+    label: 'Organisation for new agent logins',
+    description: 'The Bitwarden organisation id that logins created by agents are saved in. While this or the collection below is empty, agents cannot create new logins, so nothing is ever saved to your personal vault.',
+    type: 'string',
+    category: 'advanced',
+    placeholder: 'Bitwarden organisation id',
+  },
+  {
+    key: 'browserVaultCollectionId',
+    label: 'Collection for new agent logins',
+    description: 'The collection inside that organisation that new agent-created logins go into.',
+    type: 'string',
+    category: 'advanced',
+    placeholder: 'Bitwarden collection id',
+  },
+  {
     key: 'workspaceSecretsEnabled',
     label: 'Workspace secret card',
     description: 'Let sessions request a masked secret card. Values are stored encrypted per workspace and the agent only sees a secret:// reference. Off refuses new requests and fails closed on resolve.',

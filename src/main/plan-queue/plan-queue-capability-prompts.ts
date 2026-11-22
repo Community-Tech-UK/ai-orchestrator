@@ -2,6 +2,14 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import type { PlanQueueItem } from './plan-queue.types';
 
+/**
+ * Whether a repository has Harness's checkpoint-bound dev-app launcher, the only route to a runtime probe receipt.
+ * Only such a repository's repairs need one; elsewhere a probe cannot be produced, so it is not asked for.
+ */
+export function hasHarnessRuntimeLauncher(repoRoot: string): boolean {
+  return existsSync(path.join(repoRoot, 'scripts/remote-checks/dev-app.js'));
+}
+
 export function capabilityRules(repoRoot?: string, remote = false): string[] {
   const runbook = repoRoot && path.join(repoRoot, 'docs/plans/livetest-capability-repair-runbook.md');
   return [
@@ -18,12 +26,12 @@ export function capabilityRules(repoRoot?: string, remote = false): string[] {
 }
 
 export function capabilityCheckerRules(item: PlanQueueItem, repoRoot: string): string[] {
-  const launcher = existsSync(path.join(repoRoot, 'scripts/remote-checks/dev-app.js'));
+  const launcher = hasHarnessRuntimeLauncher(repoRoot);
   return [
     ...capabilityRules(repoRoot),
     `- Read plan_queue_status for run_id "${item.runId}". When this item retries checks linked to a repair, verify each exact check and call plan_queue_report_capability_check with item_id "${item.id}", repair_id, exact check text and concrete evidence before your normal verdict. A passing check may resolve even when another check in the document still needs genuine human action.`,
     ...(launcher ? ['- If this is a capability repair plan, independent PASS requires a current runtime probe. In the reviewed worktree, read the checkpoint tree with `git rev-parse HEAD^{tree}`. Start the authorised remote copy with the repository dev-app launcher’s `--checked-tree` option. Preserve its actual `AIO_DEV_APP_RECEIPT` JSON; do not manufacture or substitute the expected tree when it differs.',
     '- Read application name, version and isPackaged from the running copy and execute the exact new control. Stop the owned copy afterward. Write an ignored, bounded JSON receipt in your worktree. Its launch field contains the actual launcher object; runtime contains application, version and isPackaged; operation and result contain the exact probe and observed outcome; observedAt contains Unix milliseconds. No tracked file edits. Hash the receipt bytes with SHA-256, then call plan_queue_report_capability_probe using that relative receiptPath, receiptSha256, computer, runtimeBuild (actual launch tree), testedTree (reviewed checkpoint tree), observedAt, operation and result. The tool retains the evidence before cleanup. If these do not match, keep the repair unverified; never claim its original check passed.']
-      : ['- This repository has no supported checkpoint-bound Harness runtime launcher. A capability repair here must wait for an authorised runtime receipt route or an owner handoff; do not invent a launcher, build identity or successful probe. Ordinary non-repair reviews still follow this project’s own checks.']),
+      : ['- This repository has no Harness runtime launcher, so a capability repair here needs no runtime probe or launch receipt, even where its plan asks for one. Review it against its plan and this project’s own checks like any other job; do not report the missing launcher as a capability gap.']),
   ];
 }

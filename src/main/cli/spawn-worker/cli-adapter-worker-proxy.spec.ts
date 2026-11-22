@@ -3,6 +3,8 @@ import { CliAdapterWorkerProxy } from './cli-adapter-worker-proxy';
 import type { CliSpawnGatewayPort, SpawnInstanceRequest } from './cli-spawn-worker-gateway';
 import { createBudgetedSystemPromptComposer } from '../../context/budgeted-system-prompt';
 import { isProviderAuthenticationError } from '../adapters/provider-authentication-error';
+import { setGeminiSignInObserver, type GeminiSignInOutcome } from '../adapters/gemini-client-retired';
+import { isSurfacedToUserError } from '../adapters/surfaced-error';
 
 class FakeGateway implements CliSpawnGatewayPort {
   handler: Parameters<CliSpawnGatewayPort['registerInstance']>[1] | null = null;
@@ -244,6 +246,38 @@ describe('CliAdapterWorkerProxy', () => {
 
     await send;
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({ content: 'hi' }));
+  });
+
+  it('ends a Gemini turn on Google\'s retirement message with one plain line, and reports retired then replied', async () => {
+    const outcomes: GeminiSignInOutcome[] = [];
+    setGeminiSignInObserver((outcome) => outcomes.push(outcome));
+    try {
+      const gateway = new FakeGateway();
+      const proxy = new CliAdapterWorkerProxy({ cliType: 'gemini', instanceId: 'inst-gemini-retired', gateway, options: { workingDirectory: '/repo' } });
+      const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
+      proxy.on('output', (message) => outputs.push(message));
+      proxy.on('error', () => undefined);
+      await proxy.spawn();
+
+      const failed = proxy.sendInput('hello gemini').then(() => undefined, (error: unknown) => error);
+      // Gemini prints its banner on stdout first; that must not turn the failed turn into a success.
+      gateway.handler?.stdout?.('YOLO mode is enabled. All tool calls will be automatically approved.\n');
+      gateway.handler?.stderr?.('An unexpected critical error occurred: This client is no longer supported for Gemini Code Assist for individuals.');
+      gateway.handler?.exited?.(1, null);
+
+      expect(isSurfacedToUserError(await failed)).toBe(true);
+      expect(outputs.filter((message) => message.type === 'error').map((message) => message.content)).toEqual([
+        "Google has retired Gemini for personal Google accounts, so it can't run here any more. What to do: Start a new session with Antigravity, Google's replacement.",
+      ]);
+
+      const replied = proxy.sendInput('again');
+      gateway.handler?.stdout?.('{"type":"message","role":"assistant","content":"hi"}\n');
+      gateway.handler?.exited?.(0, null);
+      await replied;
+      expect(outcomes).toEqual(['retired', 'replied']);
+    } finally {
+      setGeminiSignInObserver(undefined);
+    }
   });
 
   it('delivers Gemini worker system context, protects leading-dash prompts, and sends RTK guidance every turn', async () => {

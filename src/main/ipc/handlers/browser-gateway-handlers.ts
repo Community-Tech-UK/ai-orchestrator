@@ -41,6 +41,7 @@ import { getSessionAdmissionService } from '../../session/session-admission-serv
 import { isBrowserDeviceLoginGenerationCurrent } from '../../browser-gateway/browser-device-login-capability';
 import {
   findCredentialAccessSession,
+  isCredentialAccessGrantReason,
   setCredentialAccessDecisionNotifier,
   setCredentialAccessSessionResolver,
 } from '../../browser-gateway/browser-credential-access-session';
@@ -245,9 +246,9 @@ export function registerBrowserGatewayHandlers(
         if (approval.data?.deviceLogin && approval.data.status === 'approved') {
           resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, approval);
         }
-      } else if (!result.data?.reason?.startsWith('saved_login_')) {
-        // Saved-login decisions wake the agent through notifyCredentialAccessDecision; an Approve
-        // press on one the setting already approved must not wake it again.
+      } else if (!isCredentialAccessGrantReason(result.data?.reason)) {
+        // Saved-login and new-login decisions wake the agent through notifyCredentialAccessDecision;
+        // an Approve press on one the setting already approved must not wake it again.
         resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
       }
       return result;
@@ -454,7 +455,7 @@ export function resumeInstanceAfterBrowserDecision(
     ? `Browser Gateway approval request ${requestId} was approved by the user. Retry the action this request authorises and continue. Re-check the page before treating sign-in as complete. A manual handoff does not grant access to a saved login.`
     : decision === 'denied'
       ? `Browser Gateway approval request ${requestId} was denied by the user or cancelled. Do not retry this denied browser action; continue without it.`
-      : `Browser Gateway approval request ${requestId} expired or its permission was revoked. It no longer grants permission. Request saved-login access again if it is still needed.`;
+      : `Browser Gateway approval request ${requestId} expired or its permission was revoked. It no longer grants permission. Request access again with browser.request_credential_access if it is still needed (purposes ["register"] for a new login).`;
 
   deliverBrowserResume(instanceManager, instanceId, requestId, message,
     { decision, requestId, ...(deviceLogin ? { deviceLogin } : {}) }, deviceLogin);

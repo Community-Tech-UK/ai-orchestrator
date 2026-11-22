@@ -216,12 +216,14 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   {
     id: 'credential-vault-heading',
     title: 'Credential vault',
-    description: 'Where the browser credential vault reads its master password from, and whether it unlocks automatically at startup. Only the file path is stored here; the password itself is read at unlock time, kept in memory only, and never logged or shown.',
+    description: 'Where the browser credential vault reads its master password from, whether it unlocks automatically at startup, and where new agent-created logins are saved. Only the file path is stored here; the password itself is read at unlock time, kept in memory only, and never logged or shown.',
     group: 'security',
     dangerous: true,
     keys: [
       'browserVaultMasterPasswordFile',
       'browserVaultAutoUnlock',
+      'browserVaultOrganizationId',
+      'browserVaultCollectionId',
     ],
   },
   {

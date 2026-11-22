@@ -1,6 +1,6 @@
 /**
  * Google retired the Gemini CLI's personal sign-in: the CLI writes one line to stderr and exits with code 1.
- * The turn must end with one error that names the retirement, not the raw line, a second "exited with code 1"
+ * The turn must end with one plain line that names the retirement, not the raw line, a second "exited with code 1"
  * line and a "could not be delivered" notice on top.
  */
 
@@ -50,7 +50,7 @@ function observeOutcomes(): GeminiSignInOutcome[] {
 describe('GeminiCliAdapter when Google has retired the sign-in', () => {
   afterEach(() => setGeminiSignInObserver(undefined));
 
-  it('ends the turn with one retirement error and no raw error lines, and reports the retirement', async () => {
+  it('ends the turn with one plain retirement line, no raw error lines, and reports the retirement', async () => {
     const outcomes = observeOutcomes();
     const child = fakeProcess();
     const adapter = await startedAdapter(child);
@@ -71,7 +71,12 @@ describe('GeminiCliAdapter when Google has retired the sign-in', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(GeminiClientRetiredError);
     expect(errors[0]?.message).toContain('no longer supported for Gemini Code Assist');
-    expect(outputs.filter((message) => message.type === 'error')).toEqual([]);
+    // One line already in plain words, with Google's text kept for Details. A worker computer passes on only this.
+    const errorLines = outputs.filter((message) => message.type === 'error');
+    expect(errorLines).toHaveLength(1);
+    expect(errorLines[0]?.content).toBe("Google has retired Gemini for personal Google accounts, so it can't run here any more."
+      + " What to do: Start a new session with Antigravity, Google's replacement.");
+    expect(errorLines[0]?.metadata?.['errorPresentation']).toMatchObject({ category: 'gemini-retired', rawDetail: errors[0]?.message });
     expect(outcomes).toEqual(['retired']);
   });
 

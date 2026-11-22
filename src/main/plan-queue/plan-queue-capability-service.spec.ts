@@ -10,6 +10,7 @@ import { PlanQueueCapabilityService, type CapabilityHooks } from './plan-queue-c
 import type { PlanQueueRun } from './plan-queue.types';
 import type { CapabilityRepair } from './plan-queue-capability-store';
 import { enableCapabilityRepairs, releaseHeldCapabilityRepairs, retryCapabilityOrigin } from './plan-queue-capability-control';
+import { capabilityCheckerRules } from './plan-queue-capability-prompts';
 
 function fixture(role: 'worker' | 'triage' | 'verifier' = 'worker') {
   const parent = fake.addParent();
@@ -510,5 +511,59 @@ describe('checker tools for live checks', () => {
     const checker = fake.created.find(instance => instance.role === 'verifier');
     expect(checker).toBeDefined();
     expect(checker?.config.metadata?.['planQueueLiveChecks']).toBe(expected);
+  });
+});
+
+describe('runtime probe only where Harness can produce one', () => {
+  const addLauncher = () => {
+    mkdirSync(join(repo, 'scripts/remote-checks'), { recursive: true });
+    writeFileSync(join(repo, 'scripts/remote-checks/dev-app.js'), '');
+  };
+
+  async function repairUnderReview() {
+    const { service, gap } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    const repair = store.capabilities.get(repairId)!, run = coordinator.getRun('source');
+    store.upsertRun({ ...run, id: 'repair-run', kind: 'plans', config: { ...run.config, capabilityRepairId: repair.id } });
+    store.upsertItem(newPlanQueueItem('repair-item', 'repair-run', repair.planPath, Date.now(), { state: 'verifying', checkpointCommit: git(['rev-parse', 'HEAD']) }));
+    store.capabilities.save({ ...repair, repairRunId: 'repair-run', repairItemId: 'repair-item', state: 'running' });
+    return { service, repair };
+  }
+
+  it('lets a repair pass on its review alone in a project without Harness\'s launcher', async () => {
+    const { service } = await repairUnderReview();
+    expect(() => service.assertCanPass(coordinator.getItem('repair-item'))).not.toThrow();
+  });
+
+  it('still needs a fresh runtime probe for a repair in a project with Harness\'s launcher', async () => {
+    const { service } = await repairUnderReview();
+    addLauncher();
+    expect(() => service.assertCanPass(coordinator.getItem('repair-item'))).toThrow('fresh independent runtime probe');
+  });
+
+  it('writes a repair plan without a runtime probe step where none can be produced', async () => {
+    const { repair } = await repairUnderReview();
+    const plan = readFileSync(repair.planPath, 'utf8');
+    expect(plan).not.toContain('plan_queue_report_capability_probe');
+    expect(plan).toContain('Leave the plan open until independent review demonstrates the action.');
+    expect(plan).toContain('only after verified landing.');
+  });
+
+  it('keeps the runtime probe steps in a repair plan for a project with Harness\'s launcher', async () => {
+    addLauncher();
+    const { repair } = await repairUnderReview();
+    const plan = readFileSync(repair.planPath, 'utf8');
+    expect(plan).toContain('plan_queue_report_capability_probe');
+    expect(plan).toContain('and a matching runtime receipt.');
+  });
+
+  it('tells the checker a repair without Harness\'s launcher needs no probe, and not to report the launcher as missing', async () => {
+    await repairUnderReview();
+    const rules = capabilityCheckerRules(coordinator.getItem('repair-item'), repo).join('\n');
+    expect(rules).toContain('needs no runtime probe or launch receipt');
+    expect(rules).toContain('do not report the missing launcher as a capability gap');
+    expect(rules).not.toContain('must wait');
+    addLauncher();
+    expect(capabilityCheckerRules(coordinator.getItem('repair-item'), repo).join('\n')).toContain('independent PASS requires a current runtime probe');
   });
 });

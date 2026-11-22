@@ -221,6 +221,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chromeDevtoolsAttachProfileId: '',
   browserVaultMasterPasswordFile: '',
   browserVaultAutoUnlock: false,
+  browserVaultOrganizationId: '',
+  browserVaultCollectionId: '',
   browserAuxExtractionEnabled: false,
   // Decision 6 (fable plan review, 2026-07-13): deferred by default.
   browserMcpToolDeferral: true,

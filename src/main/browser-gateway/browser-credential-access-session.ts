@@ -42,6 +42,24 @@ export function findCredentialAccessSession(taskScope: string, requesterInstance
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+/**
+ * Reasons on the grants BrowserCredentialAccessService mints. Each such grant
+ * carries a credential authorization: revoking the grant must revoke it, and
+ * the service, not the approve handler, wakes the requesting session.
+ */
+export type CredentialAccessGrantReason =
+  | 'saved_login_access_approved'
+  | 'saved_login_preapproved_by_setting'
+  | 'agent_login_creation_approved';
+
+const CREDENTIAL_ACCESS_GRANT_REASONS: ReadonlySet<string> = new Set<CredentialAccessGrantReason>([
+  'saved_login_access_approved', 'saved_login_preapproved_by_setting', 'agent_login_creation_approved',
+]);
+
+export function isCredentialAccessGrantReason(reason: string | undefined): boolean {
+  return reason !== undefined && CREDENTIAL_ACCESS_GRANT_REASONS.has(reason);
+}
+
 export function resolveCredentialTaskScope(instanceId?: string): string | undefined {
   return resolveCredentialAccessSession(instanceId)?.taskScope;
 }

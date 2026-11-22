@@ -3,8 +3,9 @@ import type { BrowserPermissionGrant } from '@contracts/types/browser';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
 import { CredentialAuthorizationService, InMemoryCredentialAuthorizationStore } from './browser-credential-authorization-store';
-import { CredentialVaultError } from './browser-credential-vault';
+import { CredentialVaultError, type ExistingCredentialInspection } from './browser-credential-vault';
 import { BrowserCredentialAccessService } from './browser-credential-access-service';
+import { credentialScopeForProfile } from './browser-grant-scope';
 import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const rlmTemplate = useSqliteTemplate((db) => {
@@ -26,14 +27,14 @@ function harness() {
   const createGrant = vi.fn((input: Omit<BrowserPermissionGrant, 'id' | 'createdAt' | 'revokedAt' | 'consumedAt'>) => {
     const grant = { ...input, id: `grant-${grants.length}`, createdAt: now }; grants.push(grant); return grant;
   });
-  const inspect = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] as string[] }));
+  const inspect = vi.fn(async (): Promise<ExistingCredentialInspection> => ({ vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] }));
   const enrol = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', username: 'NON_SECRET_USERNAME_PLACEHOLDER', movedIntoFolder: true }));
   const readTarget = vi.fn(async () => target);
   const notify = vi.fn();
   let preApprove = false;
   const service = new BrowserCredentialAccessService({
     store, authorizations: auth,
-    vault: { inspectExistingCredential: inspect, enrolExistingCredential: enrol },
+    vault: { inspectExistingCredential: inspect, enrolExistingCredential: enrol, folderName: 'AIO-Agent' },
     grants: {
       createGrant,
       getGrant: (id) => grants.find((grant) => grant.id === id) ?? null,
@@ -358,8 +359,8 @@ describe('saved login access for emailed sign-in codes', () => {
     const h = harness();
     h.inspect.mockResolvedValue({
       vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: false,
-      existingBinding: { origin: 'https://login.example.test' },
-    } as never);
+      existingBinding: { origin: 'https://login.example.test', createdAt: 1 }, savedOrigins: [],
+    });
     h.auth.create({
       profileId: 'node-placeholder', allowedOrigins: [{ scheme: 'https', hostPattern: 'login.example.test', includeSubdomains: false }],
       purposes: ['login', 'email_code'], vaultFolder: 'AIO-Agent', expiresAt: Date.now() + 86_400_000,
@@ -516,5 +517,93 @@ describe('agent-folder pre-approval setting', () => {
     await h.service.deny(p);
     h.setPreApprove(true);
     expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'denied', data: { requestId: p.requestId } });
+  });
+});
+
+describe('permission to create a new agent-owned login (register)', () => {
+  const SHARED_TAB = 'existing-tab:n.node-placeholder:7:42';
+  const registerInput = { profileId: SHARED_TAB, targetId: `${SHARED_TAB}:target`, purposes: ['register' as const], reason: 'Create a monitoring account' };
+  /** The live readTarget scopes a shared tab exactly so (browser-credential-access-runtime.spec). */
+  const sharedTabTarget = { origin: 'https://dashboard.example.test', scope: credentialScopeForProfile(SHARED_TAB), computerName: 'Windows test computer' };
+
+  it('asks without a saved login, on the tab\'s node scope and website, never touching the vault', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    const result = await h.service.request(registerInput, h.context());
+    expect(sharedTabTarget.scope).toBe('node-placeholder');
+    expect(result).toMatchObject({ decision: 'requires_user', data: { status: 'pending', origin: 'https://dashboard.example.test',
+      credentialAccess: { purposes: ['register'], scope: 'node-placeholder', computerId: 'node-placeholder', vaultFolder: 'AIO-Agent', moveIntoFolder: false } } });
+    expect(result.data!.credentialAccess).not.toHaveProperty('vaultItemRef');
+    expect(result.data!.credentialAccess).not.toHaveProperty('itemTitle');
+    expect(h.inspect).not.toHaveBeenCalled();
+    expect(h.auth.list()).toHaveLength(0);
+  });
+
+  it('uses an explicit origin instead of the tab\'s, normalised to the bare website', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    const result = await h.service.request({ ...registerInput, origin: 'https://Signup.Example.test/start?x=1' }, h.context());
+    expect(result.data).toMatchObject({ origin: 'https://signup.example.test', credentialAccess: { origin: 'https://signup.example.test' } });
+  });
+
+  it('on approval grants register only, for that node scope, website, task and computer, with nothing enrolled', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    const pending = (await h.service.request(registerInput, h.context())).data!;
+    const approved = await h.service.approve(pending, { permission: 'task' });
+    expect(approved).toMatchObject({ decision: 'allowed', reason: 'approved' });
+    expect(h.inspect).not.toHaveBeenCalled(); expect(h.enrol).not.toHaveBeenCalled();
+    expect(h.grants[0]).toMatchObject({ reason: 'agent_login_creation_approved', nodeId: 'node-placeholder', userApprovedCredentials: false });
+    const [auth] = h.auth.list();
+    expect(auth).toMatchObject({ profileId: 'node-placeholder', purposes: ['register'], vaultFolder: 'AIO-Agent', taskScope: 'conversation:placeholder', computerId: 'node-placeholder' });
+    expect(auth).not.toHaveProperty('vaultItemRef');
+    // The exact check browser.create_agent_credential makes for this tab.
+    const check = { profileId: credentialScopeForProfile(SHARED_TAB), origin: 'https://dashboard.example.test', purpose: 'register' as const, taskScope: 'conversation:placeholder', computerId: 'node-placeholder' };
+    expect(h.auth.check(check).authorized).toBe(true);
+    for (const change of [{ profileId: SHARED_TAB }, { computerId: 'other-node' }, { origin: 'https://other.example.test' }, { taskScope: 'other-task' }, { purpose: 'login' as const }]) {
+      expect(h.auth.check({ ...check, ...change }).authorized).toBe(false);
+    }
+    expect((await h.service.request(registerInput, h.context()))).toMatchObject({ decision: 'allowed', reason: 'existing_permission' });
+  });
+
+  it('ends with its grant: revoking the grant revokes the permission and asks again', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    await h.service.approve((await h.service.request(registerInput, h.context())).data!, { permission: 'remember', rememberForMs: 30 * 86_400_000 });
+    h.service.revokeForGrant(h.grants[0].id);
+    const check = { profileId: 'node-placeholder', origin: 'https://dashboard.example.test', purpose: 'register' as const, taskScope: 'conversation:placeholder', computerId: 'node-placeholder' };
+    expect(h.auth.check(check)).toMatchObject({ authorized: false, reason: 'authorization_revoked' });
+    expect(await h.service.request(registerInput, h.context())).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+  });
+
+  it('is never answered by the agent-folder setting', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget); h.setPreApprove(true);
+    expect(await h.service.request(registerInput, h.context())).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(h.auth.list()).toHaveLength(0);
+  });
+
+  it('stays denied after a no, and only James answers it again', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    const pending = (await h.service.request(registerInput, h.context())).data!;
+    await h.service.deny(pending);
+    expect(await h.service.request(registerInput, h.context())).toMatchObject({ decision: 'denied', reason: 'denied' });
+    expect(h.auth.list()).toHaveLength(0);
+    // A saved-login denial on the same site is a different question, and so is register on another site.
+    expect((await h.service.request(h.input, h.context())).decision).toBe('requires_user');
+  });
+
+  it('expires the task permission and ends the approved request', async () => {
+    const h = harness(); h.setTarget(sharedTabTarget);
+    const pending = (await h.service.request(registerInput, h.context())).data!;
+    await h.service.approve(pending, { permission: 'task' });
+    h.advance(9 * 60 * 60_000);
+    const check = { profileId: 'node-placeholder', origin: 'https://dashboard.example.test', purpose: 'register' as const, taskScope: 'conversation:placeholder', computerId: 'node-placeholder' };
+    expect(h.auth.check(check)).toMatchObject({ authorized: false, reason: 'authorization_expired' });
+    expect((await h.service.status(pending.requestId, h.context())).data?.status).toBe('expired');
+    expect(await h.service.request(registerInput, h.context())).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+  });
+
+  it('refuses a request that mixes register with saved-login purposes or names an item', async () => {
+    const h = harness();
+    expect((await h.service.request({ ...registerInput, purposes: ['register', 'login'] } as never, h.context())).decision).toBe('denied');
+    expect((await h.service.request({ ...registerInput, item: 'Saved test login' }, h.context())).decision).toBe('denied');
+    expect((await h.service.request({ ...h.input, origin: 'https://other.example.test' }, h.context())).decision).toBe('denied');
+    expect(h.store.listRequests({})).toHaveLength(0);
   });
 });

@@ -138,6 +138,20 @@ describe('Credential access approval routing', () => {
     expect(ctx.revokeCredentialAccess).toHaveBeenCalledExactlyOnceWith(grant.id);
   });
 
+  it('revokes the new-login (register) authority with its grant', async () => {
+    const ctx = setup();
+    const grant: BrowserPermissionGrant = {
+      ...ctx.approval.proposedGrant, id: 'placeholder-grant', createdAt: Date.now(),
+      instanceId: ctx.approval.instanceId, provider: ctx.approval.provider,
+      requestedBy: ctx.approval.instanceId, decidedBy: 'user', decision: 'allow',
+      expiresAt: Date.now() + 60_000, reason: 'agent_login_creation_approved', userApprovedCredentials: false,
+    };
+    ctx.grantStore.getGrant.mockReturnValue(grant);
+    ctx.grantStore.revokeGrant.mockReturnValue({ ...grant, revokedAt: Date.now() });
+    await ctx.operations.revokeGrant({ grantId: grant.id });
+    expect(ctx.revokeCredentialAccess).toHaveBeenCalledExactlyOnceWith(grant.id);
+  });
+
   it('does not revoke credential authority for an unrelated browser grant', async () => {
     const ctx = setup();
     const grant: BrowserPermissionGrant = {

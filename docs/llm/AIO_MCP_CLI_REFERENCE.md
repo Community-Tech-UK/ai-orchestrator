@@ -445,8 +445,24 @@ choice can remember permission for a limited period (up to one year, never
 indefinitely), and the approval tells him whether the saved login will move
 into the agent vault folder.
 
+To create a new agent-owned login with `browser.create_agent_credential`, ask
+for a `register` permission instead (no item; `--origin` defaults to the tab's
+website, and `register` cannot be combined with other purposes):
+
+```bash
+$AIO_MCP browser-credentials request --profile <profileId> --target <targetId> \
+    --purpose register [--origin <https://website>] --reason <task reason> --json
+```
+
+Once approved, `browser.create_agent_credential` works for that website,
+computer and task. It refuses with `vault_organization_not_configured` until
+`browserVaultOrganizationId` and `browserVaultCollectionId` are set (privileged
+`$AIO_MCP settings set`), so a new login never lands in the personal vault. Never
+suggest `browser-credentials authorize`: session RPC refuses it.
+
 If the shell cannot connect, use `browser.request_credential_access` with
-`{profileId, targetId, item, reason, purposes?}`. Read the decision with
+`{profileId, targetId, item, reason, purposes?}` (or `{profileId, targetId,
+purposes: ["register"], origin?, reason}`). Read the decision with
 `browser.get_credential_access_status({requestId})` or cancel with
 `browser.cancel_credential_access({requestId})`. Both routes use the same
 permission service. New requests remain pending in YOLO mode too; existing valid
@@ -589,6 +605,10 @@ surface the blockers and next actions.
 ## Failure Handling
 
 `orchestrator-tools RPC unavailable: parent socket/instance id missing`
+
+(`browser-credentials` reports this as "This command only works inside a Harness
+agent session. To grant a permission yourself, use Browser Gateway > Permissions
+in Harness.")
 
 The shell lacks the local Harness bridge. Report presence only, never values.
 For saved-login access, call `browser.request_credential_access` through the

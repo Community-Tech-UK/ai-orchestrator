@@ -29,6 +29,8 @@ export const CREDENTIAL_VAULT_ERROR_CODE_COVERAGE = {
   bw_command_failed: true,
   secret_field_empty: true,
   custom_field_not_found: true,
+  vault_organization_not_configured: true,
+  vault_organization_mismatch: true,
   'vault_relock_failed:empty_password': true,
   'vault_relock_failed:bw_unlock_failed': true,
   'vault_relock_failed:empty_session': true,
