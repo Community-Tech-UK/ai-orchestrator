@@ -3,6 +3,7 @@ import { repositoryRoot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueRun } from './plan-queue.types';
 import { heldForOwner } from './plan-queue-capability-store';
+import { findProjectFiles } from './plan-queue-source-presence';
 import type { PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
 import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
@@ -62,6 +63,22 @@ export async function enableCapabilityRepairs(host: PlanQueueFlowHost, runId: st
   }
 }
 
+/**
+ * A job parked on a missing setup is not sent back to a checkout with no application in it: it would find the same
+ * gap and report it again. Only a `setup` gap is judged (a missing control does not depend on this checkout), and the
+ * owner's own resume of the job is never blocked. The reason names where the application lives when the report did.
+ */
+async function missingSourceProblem(host: PlanQueueFlowHost, itemId: string): Promise<string | null> {
+  const waiting = host.store.capabilities.forOrigin(itemId).filter(repair => repair.gap.classification === 'setup'
+    && host.store.capabilities.origins(repair.id).some(origin => origin.itemId === itemId && origin.state === 'waiting'));
+  if (!waiting.length) return null;
+  const workspace = host.getRun(host.getItem(itemId).runId).workspaceCwd;
+  if ((await findProjectFiles(workspace)).length) return null;
+  const owners = [...new Set(waiting.map(repair => repair.gap.repairRepository).filter((repository): repository is string => !!repository && repository !== workspace))];
+  return `The original check was not sent again: ${workspace} holds no application to run it on (no package.json or similar project file), so it would report the same missing setup.`
+    + (owners.length ? ` The application is in ${owners.join(' or ')}: start a run there with plan_queue_start.` : ' Start a run in the folder that holds the application.');
+}
+
 export async function retryCapabilityOrigin(host: PlanQueueFlowHost, itemId: string,
   resume: (id: string, canResume: () => boolean) => Promise<void>, reopen: (run: PlanQueueRun) => void): Promise<boolean> {
   const admitted = (): boolean => {
@@ -78,6 +95,8 @@ export async function retryCapabilityOrigin(host: PlanQueueFlowHost, itemId: str
   if (!intended) throw new Error('The original item has no recorded capability retry.');
   if (item.state === 'parked') {
     if (item.parkReason !== 'needs-setup') return false;
+    const problem = await missingSourceProblem(host, item.id);
+    if (problem) throw new Error(problem);
     if (item.branchName || item.worktreePath) await resume(item.id, () => admitted() && host.getItem(itemId).state === 'parked'
       && host.getItem(itemId).parkReason === 'needs-setup');
     else host.transition(item, 'discovered', { question: null, parkReason: null, detail: 'Its capability repair passed. Investigate current readiness and rerun the original check; no check has been marked passed.' });

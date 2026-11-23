@@ -24,6 +24,8 @@ export interface CapabilityRepair {
   /** After landing, an original check's rerun failed or rechecking it threw. Resuming the original job releases it. */
   heldForOwner?: boolean;
   operatorPaused?: boolean;
+  /** The repository's owner queued this repair's plan in their own run; the repair record follows that run but never controls it. */
+  ownerRun?: boolean;
   createdAt: number;
   updatedAt: number;
 }

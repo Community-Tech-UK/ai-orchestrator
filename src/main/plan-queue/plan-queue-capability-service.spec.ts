@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync, realpathSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueCapabilityGap } from '@contracts/schemas/plan-queue';
@@ -511,6 +512,176 @@ describe('checker tools for live checks', () => {
     const checker = fake.created.find(instance => instance.role === 'verifier');
     expect(checker).toBeDefined();
     expect(checker?.config.metadata?.['planQueueLiveChecks']).toBe(expected);
+  });
+});
+
+describe('source presence before an original check is sent again', () => {
+  async function landedSetupRepair(repairRepository?: string) {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, classification: 'setup', ...(repairRepository ? { repairRepository } : {}) } });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null, branchName: 'main' });
+    landedRepair(store.capabilities.get(repairId)!);
+    const resume = vi.fn(async (itemId: string) => { coordinator.transition(coordinator.getItem(itemId), 'queued', { parkReason: null }); });
+    hooks.retryOrigin = id => retryCapabilityOrigin(coordinator, id, resume, () => undefined);
+    return { service, repairId, resume };
+  }
+
+  it('holds the repair for its owner and does not resume an original whose checkout has no application, telling the owner once', async () => {
+    const { service, repairId, resume } = await landedSetupRepair(undefined);
+    const notify = vi.spyOn(coordinator, 'notifyParent');
+    try {
+      await service.reconcile();
+      expect(resume).not.toHaveBeenCalled();
+      expect(coordinator.getItem('origin')).toMatchObject({ state: 'parked', parkReason: 'needs-setup' });
+      expect(store.capabilities.origins(repairId)[0]?.state).toBe('waiting');
+      expect(store.capabilities.get(repairId)).toMatchObject({ state: 'waiting', heldForOwner: true });
+      expect(store.capabilities.get(repairId)!.detail).toContain('holds no application');
+      await service.reconcile();
+      expect(notify).toHaveBeenCalledTimes(1);
+    } finally { notify.mockRestore(); }
+  });
+
+  it('names the repository that holds the application when the report did', async () => {
+    const application = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-app-')));
+    try {
+      git(['init', '-q', '-b', 'main'], application);
+      const { service, repairId } = await landedSetupRepair(application);
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)!.detail).toContain(`The application is in ${application}`);
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('resumes the original as before when the checkout has an application', async () => {
+    writeFileSync(join(repo, 'package.json'), '{"name":"app"}\n');
+    const { service, repairId, resume } = await landedSetupRepair(undefined);
+    await service.reconcile();
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('retrying');
+    expect(store.capabilities.get(repairId)).toMatchObject({ state: 'verifying-origin' });
+  });
+
+  it('does not judge a missing control, which does not depend on the checkout', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null, branchName: 'main' });
+    landedRepair(store.capabilities.get(repairId)!);
+    const resume = vi.fn(async (itemId: string) => { coordinator.transition(coordinator.getItem(itemId), 'queued', { parkReason: null }); });
+    hooks.retryOrigin = id => retryCapabilityOrigin(coordinator, id, resume, () => undefined);
+    await service.reconcile();
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the owner resume the original by hand after the hold', async () => {
+    const { service, repairId } = await landedSetupRepair(undefined);
+    await service.reconcile();
+    expect(store.capabilities.get(repairId)).toMatchObject({ heldForOwner: true });
+    const flow = vi.spyOn(PlanQueueItemFlow.prototype, 'resume').mockImplementation(async itemId => {
+      coordinator.transition(coordinator.getItem(itemId), 'queued', { parkReason: null });
+    });
+    try {
+      await coordinator.control({ action: 'resume-item', itemId: 'origin' });
+      expect(flow).toHaveBeenCalledTimes(1);
+      expect(coordinator.getItem('origin').state).toBe('queued');
+    } finally { flow.mockRestore(); }
+  });
+});
+
+describe('a repair the repository owner queued in their own run', () => {
+  async function crossProjectRepair() {
+    const application = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-owner-')));
+    git(['init', '-q', '-b', 'main'], application);
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, classification: 'setup', repairRepository: application } });
+    const ownerRun = (workspaceCwd: string, itemFile: string) => {
+      store.upsertRun({ ...coordinator.getRun('source'), id: 'owner', workspaceCwd, config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans } });
+      store.upsertItem(newPlanQueueItem('owner-item', 'owner', itemFile, Date.now(), { state: 'working', workerInstanceId: 'owner-worker' }));
+      coordinator.registerRole('owner-worker', { role: 'worker', runId: 'owner', itemId: 'owner-item' });
+    };
+    return { application, service, hooks, repairId, ownerRun, gap, planFile: join(application, 'docs/plans', `capability-${repairId}_plan.md`) };
+  }
+
+  it('links the owner’s item so its runtime probe can be kept, without pausing or cancelling the owner’s run', async () => {
+    const { application, service, hooks, repairId, ownerRun, planFile } = await crossProjectRepair();
+    try {
+      ownerRun(application, planFile);
+      store.upsertRun({ ...coordinator.getRun('source'), status: 'paused' });
+      await service.reconcile();
+      expect(store.capabilities.forRepairItem('owner-item')).toMatchObject({ id: repairId, repairRunId: 'owner', ownerRun: true, state: 'running' });
+      expect(hooks.controlRun).not.toHaveBeenCalled();
+      expect(coordinator.getRun('owner').status).toBe('running');
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('does not link a plan of another name or a run in another repository', async () => {
+    const { application, service, repairId, ownerRun, planFile } = await crossProjectRepair();
+    try {
+      ownerRun(application, join(application, 'docs/plans', 'capability-other_plan.md'));
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
+      store.upsertRun({ ...coordinator.getRun('owner'), workspaceCwd: repo });
+      store.upsertItem({ ...coordinator.getItem('owner-item'), sourceRef: planFile });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('does not link a cancelled run', async () => {
+    const { application, service, repairId, ownerRun, planFile } = await crossProjectRepair();
+    try {
+      ownerRun(application, planFile);
+      store.upsertRun({ ...coordinator.getRun('owner'), status: 'cancelled' });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null });
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('does not link an owner item that already passed, so a landed plan cannot rerun the original without a probe', async () => {
+    const { application, service, hooks, repairId, ownerRun, planFile } = await crossProjectRepair();
+    const pass = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    try {
+      ownerRun(application, planFile);
+      // A finished run whose matching item landed.
+      store.upsertRun({ ...coordinator.getRun('owner'), status: 'completed' });
+      store.upsertItem({ ...coordinator.getItem('owner-item'), state: 'landed', verdict: pass, workerInstanceId: null });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
+      // The same landed item in a run still going.
+      store.upsertRun({ ...coordinator.getRun('owner'), status: 'running' });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
+      // Passed and waiting to land, or set aside after its PASS (it can land again without another review).
+      for (const state of ['landing', 'parked'] as const) {
+        store.upsertItem({ ...coordinator.getItem('owner-item'), state, verdict: pass });
+        await service.reconcile();
+        expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
+      }
+      expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('links an owner item still under review, and its PASS then needs the runtime probe where the repository has Harness’s launcher', async () => {
+    const { application, service, repairId, ownerRun, planFile } = await crossProjectRepair();
+    try {
+      mkdirSync(join(application, 'scripts/remote-checks'), { recursive: true });
+      writeFileSync(join(application, 'scripts/remote-checks/dev-app.js'), '');
+      ownerRun(application, planFile);
+      store.upsertItem({ ...coordinator.getItem('owner-item'), state: 'verifying', checkpointCommit: 'abc123' });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: 'owner', repairItemId: 'owner-item' });
+      expect(() => service.assertCanPass(coordinator.getItem('owner-item'))).toThrow(/runtime probe/);
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('keeps the linked item from starting another repair', async () => {
+    const { application, service, repairId, ownerRun, planFile, gap } = await crossProjectRepair();
+    try {
+      ownerRun(application, planFile);
+      await service.reconcile();
+      const result = await service.reportGap('owner-worker', { item_id: 'owner-item', gap: { ...gap, capabilityKey: 'a-further-prerequisite' } });
+      expect(result.repairId).toBe(repairId);
+      expect(store.capabilities.forOrigin('owner-item')).toEqual([]);
+      expect(store.capabilities.get(repairId)).toMatchObject({ state: 'waiting' });
+    } finally { rmSync(application, { recursive: true, force: true }); }
   });
 });
 

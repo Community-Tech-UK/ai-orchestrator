@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { PlanQueueAccountRules, PlanQueueCapabilityGap, PlanQueueReportCapabilityGapArgs,
   PlanQueueReportCapabilityProbeArgs, PlanQueueReportCapabilityCheckArgs } from '@contracts/schemas/plan-queue';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -58,8 +59,9 @@ export class PlanQueueCapabilityService {
     if (args.gap.attempts.some(attempt => attempt.observedAt > this.now() || attempt.observedAt < this.now() - 7 * 86_400_000)) throw new Error('Capability observations must be from the last seven days, with no future timestamps.');
     if (Buffer.byteLength(JSON.stringify(args.gap)) > 24_000) throw new Error('The capability evidence exceeds 24 KB; give bounded, redacted observations.');
     if (JSON.stringify(redactValue(args.gap, { homeDir: '' })) !== JSON.stringify(args.gap)) throw new Error('Capability evidence contains sensitive material; submit redacted observations.');
-    if (run.config.capabilityRepairId) {
-      const own = this.host.store.capabilities.get(run.config.capabilityRepairId)!;
+    const ownId = run.config.capabilityRepairId ?? this.host.store.capabilities.forRepairItem(item.id)?.id;
+    if (ownId) {
+      const own = this.host.store.capabilities.get(ownId)!;
       this.host.store.capabilities.save({ ...own, state: 'waiting', detail: `This repair found a further prerequisite: ${args.gap.requiredAction}. No nested repair was started.` });
       return { repairId: own.id, state: 'waiting', message: 'Record the prerequisite and stop. The owner must resolve it; repairs never spawn repairs.' };
     }
@@ -153,7 +155,7 @@ export class PlanQueueCapabilityService {
   async reconcile(): Promise<void> {
     const store = this.host.store.capabilities, repairs = store.list();
     for (const repair of repairs) {
-      try { await this.reconcileOne(repair); }
+      try { await this.reconcileOne(await this.adoptOwnerRun(repair)); }
       catch (error) {
         const current = store.get(repair.id)!;
         if (current.state === 'cancelled' || current.state === 'resolved') continue;
@@ -172,6 +174,37 @@ export class PlanQueueCapabilityService {
       }
     }
     for (const [itemId, waiting] of waitingFor) this.publishWaitingStatus(itemId, waiting);
+  }
+
+  /**
+   * A repair for another repository is never started from here. Its owner queues the copied plan in their own run
+   * (`capability-<repair id>_plan.md`, in the repository the gap names). That item becomes the repair's item, so its
+   * runtime probe is kept, the original check reruns after it lands, and it cannot report a further repair. The run
+   * itself stays the owner's: it is never paused or cancelled for the repair. Only an item whose independent PASS is
+   * still ahead is linked: a PASS given before the link never had to carry the runtime probe, so an item that passed,
+   * is landing or landed, or sits in a finished run cannot stand in for the repair.
+   */
+  private async adoptOwnerRun(repair: CapabilityRepair): Promise<CapabilityRepair> {
+    const target = repair.gap.repairRepository;
+    if (repair.repairRunId || !target || target === repair.repository) return repair;
+    const wanted = `capability-${repair.id}_plan.md`;
+    for (const run of this.host.store.listRuns()) {
+      if (!['running', 'paused'].includes(run.status) || run.config.capabilityRepairId) continue;
+      const root = await fs.realpath(run.workspaceCwd).catch(() => null);
+      if (root !== target && !root?.startsWith(target + path.sep)) continue;
+      const item = this.host.store.listItems(run.id).find(candidate => path.basename(candidate.sourceRef) === wanted
+        && !candidate.discardedAt && !['skipped', 'landing', 'landed'].includes(candidate.state)
+        && candidate.verdict?.verdict !== 'PASS' && !this.host.store.capabilities.forRepairItem(candidate.id));
+      if (!item) continue;
+      const latest = this.host.store.capabilities.get(repair.id)!;
+      if (latest.repairRunId) return latest;
+      const linked = { ...latest, repairRunId: run.id, repairItemId: item.id, ownerRun: true,
+        state: latest.state === 'waiting' || latest.state === 'planned' ? 'running' as const : latest.state,
+        detail: 'The repository owner is implementing this repair in their own queue run.' };
+      this.host.store.capabilities.save(linked);
+      return linked;
+    }
+    return repair;
   }
 
   /**
@@ -216,7 +249,7 @@ export class PlanQueueCapabilityService {
     const origins = store.origins(repair.id), active = origins.filter(activeOrigin);
     if (!active.length) {
       const run = repair.repairRunId ? this.host.store.getRun(repair.repairRunId) : undefined;
-      if (run && ['running', 'paused'].includes(run.status)) await this.hooks.controlRun(run.id, 'cancel');
+      if (run && !repair.ownerRun && ['running', 'paused'].includes(run.status)) await this.hooks.controlRun(run.id, 'cancel');
       store.save({ ...store.get(repair.id)!, state: origins.some(origin => origin.state === 'passed') ? 'resolved' : 'cancelled', detail: 'Every originating check passed or was withdrawn.' });
       return;
     }
@@ -239,11 +272,11 @@ export class PlanQueueCapabilityService {
     if (run.status === 'cancelled' || item.discardedAt || item.state === 'skipped') {
       store.save({ ...repair, state: 'cancelled', detail: 'The owner cancelled the repair; repeated observations do not restart it.' }); return;
     }
-    if (!runnable.length && run.status === 'running') {
+    if (!runnable.length && run.status === 'running' && !repair.ownerRun) {
       await this.hooks.controlRun(run.id, 'pause'); const latest = store.get(repair.id)!;
       if (!latest.operatorPaused) store.save({ ...latest, autoPaused: true }); return;
     }
-    if (runnable.length && repair.autoPaused && !repair.operatorPaused && run.status === 'paused') {
+    if (runnable.length && repair.autoPaused && !repair.ownerRun && !repair.operatorPaused && run.status === 'paused') {
       await this.hooks.controlRun(run.id, 'resume'); store.save({ ...store.get(repair.id)!, autoPaused: false }); return;
     }
     if (run.status === 'paused') return;
