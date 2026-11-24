@@ -12,7 +12,6 @@ describe('a tool call that says why', () => {
     ['browser.fill_form', { fields: [{ selector: '#a', value: 'b' }] }],
     ['browser.evaluate', { expression: 'document.title' }],
     ['browser.navigate', { url: 'https://example.com/next' }],
-    ['browser.close_tab', {}],
     ['browser.press_key', { key: 'Enter' }],
     ['browser.upload_file', { selector: '#file', filePath: '/tmp/example.txt' }],
     ['browser.download_file', { selector: '#download' }],

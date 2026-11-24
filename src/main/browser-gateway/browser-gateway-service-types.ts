@@ -110,8 +110,6 @@ export interface BrowserGatewayCloseTabRequest extends BrowserGatewayContext {
   profileId: string;
   targetId: string;
   allowCloseLastInWindow?: boolean;
-  reason?: string;
-  requestId?: string;
 }
 
 export interface BrowserGatewayCloseMatchingRequest extends BrowserGatewayContext {
@@ -126,7 +124,6 @@ export interface BrowserGatewayCloseMatchingRequest extends BrowserGatewayContex
   allowCloseLastInWindow?: boolean;
   maxCount?: number;
   dryRun?: boolean;
-  requestId?: string;
 }
 
 export interface BrowserGatewayAttachExistingTabRequest

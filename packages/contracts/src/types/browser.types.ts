@@ -426,8 +426,6 @@ export interface BrowserTargetRequest {
 
 export interface BrowserCloseTabRequest extends BrowserTargetRequest {
   allowCloseLastInWindow?: boolean;
-  reason?: string;
-  requestId?: string;
 }
 
 export interface BrowserCloseMatchingRequest {
@@ -442,7 +440,6 @@ export interface BrowserCloseMatchingRequest {
   allowCloseLastInWindow?: boolean;
   maxCount?: number;
   dryRun?: boolean;
-  requestId?: string;
 }
 
 export interface BrowserNavigateRequest extends BrowserTargetRequest {

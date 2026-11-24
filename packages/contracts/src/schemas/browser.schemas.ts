@@ -508,8 +508,6 @@ export type BrowserTargetRequest = z.infer<typeof BrowserTargetRequestSchema>;
 
 export const BrowserCloseTabRequestSchema = BrowserTargetRequestSchema.extend({
   allowCloseLastInWindow: z.boolean().optional(),
-  reason: BrowserStatedReasonSchema.optional(),
-  requestId: idSchema.optional(),
 }).strict();
 export type BrowserCloseTabRequest = z.infer<typeof BrowserCloseTabRequestSchema>;
 
@@ -526,7 +524,6 @@ export const BrowserCloseMatchingRequestSchema = z
     allowCloseLastInWindow: z.boolean().optional(),
     maxCount: z.number().int().min(1).max(25).optional(),
     dryRun: z.boolean().optional(),
-    requestId: idSchema.optional(),
   })
   .strict()
   .refine(

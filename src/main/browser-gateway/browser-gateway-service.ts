@@ -371,9 +371,6 @@ export class BrowserGatewayService {
       driver: this.driver,
       extensionTabStore: this.extensionTabStore,
       existingTabOperations: this.existingTabOperations,
-      grantStore: this.grantStore,
-      approvalStore: this.approvalStore,
-      autoApproveApproval: (approval) => this.autoApproveApproval(approval),
       getWorkerNodes: () => getWorkerNodeRegistry().getAllNodes(),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });

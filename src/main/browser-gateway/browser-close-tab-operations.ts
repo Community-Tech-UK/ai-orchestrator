@@ -1,19 +1,14 @@
 import type {
-  BrowserActionClass,
-  BrowserApprovalRequest,
   BrowserGatewayResult,
-  BrowserPermissionGrant,
   BrowserTarget,
   BrowserTargetInspectionState,
 } from '@contracts/types/browser';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
-import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserExistingTabOperations } from './browser-existing-tab-operations';
 import type {
   BrowserExistingTabAttachment,
   BrowserExtensionTabStore,
 } from './browser-extension-tab-store';
-import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
 import type {
   BrowserGatewayContext,
@@ -26,16 +21,6 @@ import {
   matchesBrowserComputerTarget,
   resolveBrowserComputerTarget,
 } from './browser-computer-target';
-import { existingTabGrantNodeId } from './browser-grant-scope';
-import {
-  actionClassRequiresAutonomy,
-  findMatchingBrowserGrant,
-} from './browser-grant-policy';
-import { allowedOriginFromUrl } from './browser-gateway-service-helpers';
-import { createOrReusePendingBrowserApproval } from './browser-pending-approval-match';
-import { isOriginAllowed } from './browser-origin-policy';
-import { providerFromContext } from './browser-provider';
-import { statedReason } from './browser-approval-reason';
 import {
   deriveBrowserTargetInspectionState,
 } from './browser-target-inspection';
@@ -86,13 +71,17 @@ interface BrowserCloseTabOperationsDeps {
   driver: Pick<PuppeteerBrowserDriver, 'closeTarget'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab' | 'detachTab' | 'listTabs'>;
   existingTabOperations: Pick<BrowserExistingTabOperations, 'sendCommand'>;
-  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant'>;
-  approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'listRequests'>;
-  autoApproveApproval: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
   getWorkerNodes: () => WorkerNodeInfo[];
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
+/**
+ * Closing a tab needs no grant or approval (James, 23 November 2026). The
+ * guards that remain are the ones that protect the operator rather than gate
+ * the agent: the last tab in a window is kept unless asked, close_matching
+ * skips opaque and secret-filled tabs unless asked, and a "Leave site?" pop-up
+ * still stops the close (the extension reports browser_dialog_open).
+ */
 export class BrowserCloseTabOperations {
   constructor(private readonly deps: BrowserCloseTabOperationsDeps) {}
 
@@ -103,10 +92,6 @@ export class BrowserCloseTabOperations {
     if (!candidate) {
       return this.denied(request, 'close_tab', 'browser.close_tab', 'target_not_found',
         'Close tab denied because the target was not found', request.profileId, request.targetId);
-    }
-    const authorized = this.authorize(request, 'close_tab', 'browser.close_tab', candidate);
-    if ('result' in authorized) {
-      return authorized.result;
     }
     const outcome = await this.executeClose(candidate, request.allowCloseLastInWindow === true);
     if (!outcome.ok) {
@@ -123,12 +108,9 @@ export class BrowserCloseTabOperations {
         summary: `Close tab failed: ${outcome.reason}`,
         origin: candidate.origin,
         url: candidate.url,
-        grantId: authorized.grant.id,
-        autonomous: authorized.grant.autonomous,
         data: null,
       });
     }
-    this.consumeIfNeeded(authorized.grant);
     return this.deps.result({
       context: request,
       profileId: candidate.profileId,
@@ -141,8 +123,6 @@ export class BrowserCloseTabOperations {
       summary: 'Closed browser tab',
       origin: candidate.origin,
       url: candidate.url,
-      grantId: authorized.grant.id,
-      autonomous: authorized.grant.autonomous,
       data: {
         closed: true,
         remainingTabCount: this.countOpenTargets({ nodeId: candidate.nodeId }),
@@ -197,87 +177,26 @@ export class BrowserCloseTabOperations {
       matches.push(candidate);
     }
 
-    const covered: Array<{ candidate: CloseCandidate; grant: BrowserPermissionGrant }> = [];
-    for (const candidate of matches) {
-      const grant = this.matchingGrant(request, candidate);
-      if (!grant) {
-        skipped.push(this.toMatchItem(candidate, 'grant_does_not_cover_target'));
-        continue;
-      }
-      covered.push({ candidate, grant });
+    const bounded = matches.slice(0, maxCount);
+    for (const candidate of matches.slice(maxCount)) {
+      skipped.push(this.toMatchItem(candidate, 'max_count_reached'));
     }
-
-    const bounded: typeof covered = [];
-    for (const entry of covered) {
-      if (bounded.length < maxCount) {
-        bounded.push(entry);
-      } else {
-        skipped.push(this.toMatchItem(entry.candidate, 'max_count_reached'));
-      }
-    }
-
     if (bounded.length === 0) {
-      const firstUnauthorized = matches.find((candidate) => !this.matchingGrant(request, candidate));
-      if (!firstUnauthorized) {
-        return this.deps.result({
-          context: request,
-          action: 'close_matching',
-          toolName: 'browser.close_matching',
-          actionClass: 'destructive',
-          decision: 'allowed',
-          outcome: 'succeeded',
-          summary: 'No matching browser tabs to close',
-          data: {
-            closed: [],
-            skipped,
-            remainingTabCount: this.countOpenTargets(remainingScope),
-            dryRun: request.dryRun === true,
-          },
-        });
-      }
-      const authorized = this.authorize(
-        request,
-        'close_matching',
-        'browser.close_matching',
-        firstUnauthorized,
-      );
-      if ('result' in authorized) {
-        return authorized.result;
-      }
-      for (const candidate of matches) {
-        const grant = this.matchingGrant(request, candidate);
-        if (!grant) {
-          continue;
-        }
-        const skipIndex = skipped.findIndex((item) => (
-          item.targetId === candidate.targetId && item.reason === 'grant_does_not_cover_target'
-        ));
-        if (skipIndex >= 0) {
-          skipped.splice(skipIndex, 1);
-        }
-        if (bounded.length < maxCount) {
-          bounded.push({ candidate, grant });
-        } else {
-          skipped.push(this.toMatchItem(candidate, 'max_count_reached'));
-        }
-      }
-      if (bounded.length === 0) {
-        return this.deps.result({
-          context: request,
-          action: 'close_matching',
-          toolName: 'browser.close_matching',
-          actionClass: 'destructive',
-          decision: 'allowed',
-          outcome: 'succeeded',
-          summary: 'No matching browser tabs to close',
-          data: {
-            closed: [],
-            skipped,
-            remainingTabCount: this.countOpenTargets(remainingScope),
-            dryRun: request.dryRun === true,
-          },
-        });
-      }
+      return this.deps.result({
+        context: request,
+        action: 'close_matching',
+        toolName: 'browser.close_matching',
+        actionClass: 'destructive',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'No matching browser tabs to close',
+        data: {
+          closed: [],
+          skipped,
+          remainingTabCount: this.countOpenTargets(remainingScope),
+          dryRun: request.dryRun === true,
+        },
+      });
     }
 
     if (request.dryRun === true) {
@@ -289,10 +208,8 @@ export class BrowserCloseTabOperations {
         decision: 'allowed',
         outcome: 'succeeded',
         summary: `Dry-run: would close ${bounded.length} browser tab(s)`,
-        grantId: bounded[0]!.grant.id,
-        autonomous: bounded[0]!.grant.autonomous,
         data: {
-          closed: bounded.map((entry) => this.toMatchItem(entry.candidate)),
+          closed: bounded.map((candidate) => this.toMatchItem(candidate)),
           skipped,
           remainingTabCount: this.countOpenTargets(remainingScope),
           dryRun: true,
@@ -301,20 +218,14 @@ export class BrowserCloseTabOperations {
     }
 
     const closed: BrowserCloseMatchItem[] = [];
-    const usedGrantIds = new Set<string>();
-    for (const { candidate, grant } of bounded) {
+    let firstFailure: string | undefined;
+    for (const candidate of bounded) {
       const outcome = await this.executeClose(candidate, request.allowCloseLastInWindow === true);
       if (outcome.ok) {
         closed.push(this.toMatchItem(candidate));
-        usedGrantIds.add(grant.id);
       } else {
+        firstFailure ??= outcome.reason;
         skipped.push(this.toMatchItem(candidate, outcome.reason));
-      }
-    }
-    for (const grantId of usedGrantIds) {
-      const grant = bounded.find((entry) => entry.grant.id === grantId)?.grant;
-      if (grant) {
-        this.consumeIfNeeded(grant);
       }
     }
     return this.deps.result({
@@ -324,12 +235,10 @@ export class BrowserCloseTabOperations {
       actionClass: 'destructive',
       decision: 'allowed',
       outcome: closed.length > 0 ? 'succeeded' : 'failed',
-      ...(closed.length === 0 ? { reason: skipped[0]?.reason ?? 'close_matching_failed' } : {}),
+      ...(closed.length === 0 ? { reason: firstFailure ?? 'close_matching_failed' } : {}),
       summary: closed.length > 0
         ? `Closed ${closed.length} browser tab(s)`
         : 'Close matching failed to close any tab',
-      grantId: bounded[0]!.grant.id,
-      autonomous: bounded[0]!.grant.autonomous,
       data: {
         closed,
         skipped,
@@ -337,109 +246,6 @@ export class BrowserCloseTabOperations {
         dryRun: false,
       },
     });
-  }
-
-  private matchingGrant(
-    request: BrowserGatewayContext,
-    candidate: CloseCandidate,
-  ): BrowserPermissionGrant | null {
-    const origin = this.candidateOrigin(candidate);
-    const nodeId = existingTabGrantNodeId(candidate.profileId, candidate.nodeId) ?? candidate.nodeId ?? 'local';
-    const match = findMatchingBrowserGrant({
-      grants: this.deps.grantStore.listGrants({
-        instanceId: request.instanceId,
-        profileId: candidate.profileId,
-        nodeId,
-        authorizationOrigin: origin,
-      }),
-      instanceId: request.instanceId ?? 'unknown',
-      provider: providerFromContext(request.provider),
-      nodeId,
-      profileId: candidate.profileId,
-      targetId: candidate.targetId,
-      origin,
-      liveOrigin: candidate.origin,
-      actionClass: 'destructive',
-      autonomousRequired: actionClassRequiresAutonomy('destructive'),
-    });
-    return match.grant ?? null;
-  }
-
-  private candidateOrigin(candidate: CloseCandidate): string {
-    const originDecision = isOriginAllowed(candidate.url, [
-      ...(candidate.attachment?.allowedOrigins ?? []),
-      ...(allowedOriginFromUrl(candidate.url) ? [allowedOriginFromUrl(candidate.url)!] : []),
-    ]);
-    return originDecision.origin ?? candidate.origin;
-  }
-
-  private authorize(
-    request: BrowserGatewayContext & { requestId?: string; reason?: string },
-    action: string,
-    toolName: string,
-    candidate: CloseCandidate,
-  ): { grant: BrowserPermissionGrant } | { result: BrowserGatewayResult<null> } {
-    const origin = this.candidateOrigin(candidate);
-    const nodeId = existingTabGrantNodeId(candidate.profileId, candidate.nodeId);
-    const grant = this.matchingGrant(request, candidate);
-    if (grant) {
-      return { grant };
-    }
-    const allowedOrigin = allowedOriginFromUrl(candidate.url);
-    if (!allowedOrigin) {
-      return {
-        result: this.denied(request, action, toolName, 'invalid_url',
-          `${toolName} denied because the target URL is invalid`,
-          candidate.profileId, candidate.targetId, origin, candidate.url),
-      };
-    }
-    const { approval, reused } = createOrReusePendingBrowserApproval(this.deps.approvalStore, {
-      instanceId: request.instanceId ?? 'unknown',
-      provider: providerFromContext(request.provider),
-      profileId: candidate.profileId,
-      targetId: candidate.targetId,
-      toolName,
-      action,
-      actionClass: 'destructive' satisfies BrowserActionClass,
-      origin,
-      url: candidate.url,
-      requestReason: statedReason(request.reason),
-      proposedGrant: {
-        mode: 'per_action',
-        ...(nodeId ? { nodeId } : {}),
-        allowedOrigins: [allowedOrigin],
-        allowedActionClasses: ['destructive'],
-        allowExternalNavigation: false,
-        autonomous: false,
-      },
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-    const autoGrant = this.deps.autoApproveApproval(approval);
-    if (autoGrant) {
-      return { grant: autoGrant };
-    }
-    return {
-      result: this.deps.result({
-        context: request,
-        profileId: candidate.profileId,
-        targetId: candidate.targetId,
-        action,
-        toolName,
-        actionClass: 'destructive',
-        decision: 'requires_user',
-        outcome: 'not_run',
-        requestId: approval.requestId,
-        reason: reused ? 'approval_already_pending' : 'destructive_close_requires_user_approval',
-        summary: `${toolName} requires user approval`
-          + (candidate.inspectionState !== 'readable'
-            ? ` (${candidate.inspectionState}, window ${candidate.attachment?.windowId ?? 'unknown'}`
-              + `${candidate.attachment?.tabIndex !== undefined ? `, tab index ${candidate.attachment.tabIndex}` : ''})`
-            : ''),
-        origin,
-        url: candidate.url,
-        data: null,
-      }),
-    };
   }
 
   private async executeClose(
@@ -613,12 +419,6 @@ export class BrowserCloseTabOperations {
     };
   }
 
-  private consumeIfNeeded(grant: BrowserPermissionGrant): void {
-    if (grant.mode === 'per_action') {
-      this.deps.grantStore.consumeGrant(grant.id);
-    }
-  }
-
   private denied(
     request: BrowserGatewayContext,
     action: string,
@@ -627,8 +427,6 @@ export class BrowserCloseTabOperations {
     summary: string,
     profileId?: string,
     targetId?: string,
-    origin?: string,
-    url?: string,
   ): BrowserGatewayResult<null> {
     return this.deps.result({
       context: request,
@@ -641,8 +439,6 @@ export class BrowserCloseTabOperations {
       outcome: 'not_run',
       reason,
       summary,
-      ...(origin ? { origin } : {}),
-      ...(url ? { url } : {}),
       data: null,
     });
   }

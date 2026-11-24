@@ -39,7 +39,7 @@ describe('Step 9c listing at serialized RPC versus renderer IPC boundaries', () 
   beforeEach(async () => {
     mocks.handlers.clear();
     mocks.listTargets.mockReset();
-    closeTab.mockReset().mockResolvedValue({ decision: 'denied', outcome: 'not_run', reason: 'destructive_grant_required', auditId: 'close-placeholder' });
+    closeTab.mockReset().mockResolvedValue({ decision: 'allowed', outcome: 'succeeded', auditId: 'close-placeholder' });
     ensureTrustedSender.mockReset().mockReturnValue(null);
     registerBrowserGatewayHandlers({ ensureTrustedSender });
     dir = mkdtempSync(join(tmpdir(), 'aio-list-boundary-'));
@@ -95,7 +95,7 @@ describe('Step 9c listing at serialized RPC versus renderer IPC boundaries', () 
     expect(JSON.stringify(compact).length).toBeLessThan(before.length);
     const { profileId, targetId } = compact.data[0];
     await expect(client.call('browser.close_tab', { profileId, targetId })).resolves.toMatchObject({
-      decision: 'denied', reason: 'destructive_grant_required',
+      decision: 'allowed', outcome: 'succeeded',
     });
     expect(closeTab).toHaveBeenCalledExactlyOnceWith({ profileId, targetId, instanceId: 'instance-placeholder', provider: 'claude' });
   });

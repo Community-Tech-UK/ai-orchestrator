@@ -252,8 +252,6 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
         'When true, allow closing the last shared Chrome tab in its window. '
         + 'Default false, because that can quit the operator\'s Chrome window.',
     },
-    reason: reasonProp,
-    requestId: requestIdProp,
   }, ['profileId', 'targetId']),
   'browser.close_matching': objectSchema({
     profileId: profileIdProp,
@@ -293,7 +291,6 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       ...booleanProp,
       description: 'When true, return the matches without closing them.',
     },
-    requestId: requestIdProp,
   }),
   'browser.select_target': targetSchema,
   'browser.navigate': objectSchema({
@@ -897,14 +894,14 @@ function toolDescription(name: BrowserMcpToolName): string {
       + 'never receives) resets that connection. Calls the worker service and never opens Chrome, tabs or CLIs.';
   }
   if (name === 'browser.close_tab') {
-    return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Destructive: requires an approved destructive grant. Use profileId and targetId from list_targets.`;
+    return `${UNTRUSTED_WARNING} Close one Browser Gateway tab. Needs no approval. Use profileId and targetId from list_targets. A "Leave site?" pop-up still stops the close (browser_dialog_open); answering Leave with handle_dialog asks the user, so do it only when leaving the page is intended.`;
   }
   const sessionDescription = sessionToolDescription(name);
   if (sessionDescription) {
     return sessionDescription;
   }
   if (name === 'browser.close_matching') {
-    return `${UNTRUSTED_WARNING} Close matching tabs by URL/title substring or already-closed status. Destructive. Requires at least one filter. Opaque/secret-tainted tabs are skipped unless explicitly included.`;
+    return `${UNTRUSTED_WARNING} Close matching tabs by URL/title substring or already-closed status. Needs no approval. Requires at least one filter. Opaque/secret-tainted tabs are skipped unless explicitly included.`;
   }
   if (name === 'browser.press_key') {
     return `${UNTRUSTED_WARNING} Press a named key (Tab, Shift+Tab with modifiers, Enter, Escape, arrows) with the browser's real input mechanism, so focus actually moves and default key behaviour occurs. Reads back the focused element and page state without exposing field values. Enter/Space with no informative actionHint require explicit user approval; retries must reuse the same idempotencyKey so an Enter is never double-activated.`;

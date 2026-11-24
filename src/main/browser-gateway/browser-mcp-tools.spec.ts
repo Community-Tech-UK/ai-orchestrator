@@ -286,7 +286,7 @@ describe('browser-mcp-tools', () => {
     const asksForApproval = [
       'browser.click', 'browser.type', 'browser.fill_form', 'browser.select', 'browser.press_key',
       'browser.upload_file', 'browser.download_file', 'browser.evaluate', 'browser.navigate',
-      'browser.close_tab', 'browser.request_grant',
+      'browser.request_grant',
     ];
     for (const name of asksForApproval) {
       expect(properties(name)['reason'], `${name} takes a reason`).toMatchObject({ type: 'string' });
@@ -297,7 +297,10 @@ describe('browser-mcp-tools', () => {
         `${name} does not require a reason`,
       ).not.toContain('reason');
     }
-    for (const name of ['browser.snapshot', 'browser.screenshot', 'browser.list_targets', 'browser.query_elements']) {
+    for (const name of [
+      'browser.snapshot', 'browser.screenshot', 'browser.list_targets', 'browser.query_elements',
+      'browser.close_tab', 'browser.close_matching',
+    ]) {
       expect(properties(name), `${name} has no reason`).not.toHaveProperty('reason');
     }
   });

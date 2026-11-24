@@ -6548,7 +6548,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2653
+      "lines": 2650
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -7495,15 +7495,15 @@
       "lines": 940
     },
     {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
-      "lines": 939
-    },
-    {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
       "lines": 938
     },
     {
       "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 936
+    },
+    {
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 936
     },
     {
@@ -7763,10 +7763,6 @@
       "lines": 847
     },
     {
-      "path": "packages/contracts/src/schemas/browser.schemas.ts",
-      "lines": 846
-    },
-    {
       "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
       "lines": 845
     },
@@ -7777,6 +7773,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design_completed.md",
       "lines": 844
+    },
+    {
+      "path": "packages/contracts/src/schemas/browser.schemas.ts",
+      "lines": 843
     },
     {
       "path": "src/main/bootstrap/capability-probe.spec.ts",

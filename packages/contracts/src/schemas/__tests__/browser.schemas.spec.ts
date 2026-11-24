@@ -431,7 +431,6 @@ describe('browser.schemas', () => {
       ['upload_file', BrowserUploadFileRequestSchema, { selector: '#file', filePath: '/tmp/example.txt' }],
       ['download_file', BrowserDownloadFileRequestSchema, { selector: '#download' }],
       ['navigate', BrowserNavigateRequestSchema, { url: 'https://example.com/next' }],
-      ['close_tab', BrowserCloseTabRequestSchema, {}],
       ['press_key', BrowserPressKeyRequestSchema, { key: 'Enter' }],
     ];
     for (const [name, schema, extra] of withReason) {
@@ -552,6 +551,15 @@ describe('browser.schemas', () => {
       }).success,
     ).toBe(true);
     expect(BrowserCloseMatchingRequestSchema.safeParse({}).success).toBe(false);
+    // Closing a tab raises no approval, so it takes no approver-facing reason
+    // or approval request id.
+    for (const extra of [{ reason: 'Done with it' }, { requestId: 'request-1' }]) {
+      expect(BrowserCloseTabRequestSchema.safeParse({
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        ...extra,
+      }).success).toBe(false);
+    }
     expect(
       BrowserCloseMatchingRequestSchema.safeParse({
         includeInspectionUnavailable: true,

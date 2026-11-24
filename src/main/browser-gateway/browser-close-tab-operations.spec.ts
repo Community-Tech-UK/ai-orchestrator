@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BrowserCloseTabOperations } from './browser-close-tab-operations';
-import { makeGrant } from './browser-gateway-service.test-helpers';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 
 function attachment(
@@ -31,7 +30,6 @@ function makeOps(options: {
   tabs?: BrowserExistingTabAttachment[];
   sendCommand?: CloseTabDeps['existingTabOperations']['sendCommand'];
   closeTarget?: CloseTabDeps['driver']['closeTarget'];
-  grants?: ReturnType<typeof makeGrant>[];
   targets?: Array<{
     id: string;
     profileId?: string;
@@ -52,22 +50,7 @@ function makeOps(options: {
   })];
   const sendCommand = options.sendCommand ?? vi.fn(async () => ({ closed: true }));
   const closeTarget = options.closeTarget ?? vi.fn(async () => undefined);
-  const grants = options.grants ?? [
-    makeGrant({
-      profileId: undefined,
-      nodeId: 'local',
-      allowedOrigins: [{
-        scheme: 'https',
-        hostPattern: 'example.test',
-        includeSubdomains: false,
-      }],
-      allowedActionClasses: ['destructive'],
-      autonomous: true,
-      mode: 'autonomous',
-    }),
-  ];
   const detached: string[] = [];
-  const createRequest = vi.fn((input) => ({ ...input, requestId: 'req-1' }));
   const ops = new BrowserCloseTabOperations({
     targetRegistry: {
       listTargets: () => (options.targets ?? []).map((target) => ({
@@ -95,43 +78,14 @@ function makeOps(options: {
       },
     },
     existingTabOperations: { sendCommand },
-    grantStore: {
-      listGrants: () => grants,
-      consumeGrant: vi.fn((id: string) => grants.find((grant) => grant.id === id) ?? null),
-    },
-    approvalStore: {
-      createRequest,
-      listRequests: vi.fn(() => []),
-    },
-    autoApproveApproval: () => null,
     getWorkerNodes: () => [],
     result: (params) => params as never,
   });
-  return { ops, sendCommand, closeTarget, detached, createRequest };
+  return { ops, sendCommand, closeTarget, detached };
 }
 
 describe('BrowserCloseTabOperations', () => {
-  it('records the reason the agent gave on the approval it raises to close a tab', async () => {
-    const { ops, sendCommand, createRequest } = makeOps({ grants: [] });
-
-    const result = await ops.closeTab({
-      instanceId: 'instance-1',
-      provider: 'copilot',
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-      reason: 'Closing the checkout tab you finished with',
-    });
-
-    expect(result.decision).toBe('requires_user');
-    expect(createRequest).toHaveBeenCalledWith(expect.objectContaining({
-      toolName: 'browser.close_tab',
-      actionClass: 'destructive',
-      requestReason: 'Closing the checkout tab you finished with',
-    }));
-    expect(sendCommand).not.toHaveBeenCalled();
-  });
-
-  it('closes an existing Chrome tab under a destructive grant and detaches it', async () => {
+  it('closes an existing Chrome tab with no grant or approval and detaches it', async () => {
     const { ops, sendCommand, detached } = makeOps();
     const result = await ops.closeTab({
       instanceId: 'instance-1',
@@ -177,30 +131,6 @@ describe('BrowserCloseTabOperations', () => {
     expect(detached).toEqual([]);
   });
 
-  // LT-620 family: an approval raised without an instanceId is stored under
-  // 'unknown'; the grant lookup has to use the same sentinel to redeem it.
-  it('redeems an approved destructive grant for a caller with no instanceId', async () => {
-    const { ops, sendCommand } = makeOps({
-      grants: [makeGrant({
-        instanceId: 'unknown',
-        profileId: undefined,
-        nodeId: 'local',
-        allowedOrigins: [{ scheme: 'https', hostPattern: 'example.test', includeSubdomains: false }],
-        allowedActionClasses: ['destructive'],
-        autonomous: true,
-        mode: 'autonomous',
-      })],
-    });
-    const result = await ops.closeTab({
-      provider: 'copilot',
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-    });
-
-    expect(result.decision).toBe('allowed');
-    expect(sendCommand).toHaveBeenCalledOnce();
-  });
-
   it('refuses to close the last shared tab in a window', async () => {
     const { ops, sendCommand } = makeOps({
       tabs: [attachment()],
@@ -215,20 +145,6 @@ describe('BrowserCloseTabOperations', () => {
     expect(result.outcome).toBe('failed');
     expect(result.reason).toBe('browser_close_last_tab_in_window_refused');
     expect(sendCommand).not.toHaveBeenCalled();
-  });
-
-  it('asks for approval when no destructive grant exists', async () => {
-    const { ops } = makeOps({ grants: [] });
-    const result = await ops.closeTab({
-      instanceId: 'instance-1',
-      provider: 'copilot',
-      profileId: 'existing-tab:7:42',
-      targetId: 'existing-tab:7:42:target',
-    });
-
-    expect(result.decision).toBe('requires_user');
-    expect((result as { actionClass?: string }).actionClass).toBe('destructive');
-    expect(result.requestId).toBe('req-1');
   });
 
   it('skips inspection-unavailable tabs in close_matching unless included', async () => {
@@ -266,20 +182,6 @@ describe('BrowserCloseTabOperations', () => {
         title: 'Docs',
         url: 'https://example.test/docs',
       })],
-      grants: [
-        makeGrant({
-          profileId: undefined,
-          nodeId: 'local',
-          allowedOrigins: [{
-            scheme: 'https',
-            hostPattern: 'redacted.invalid',
-            includeSubdomains: false,
-          }],
-          allowedActionClasses: ['destructive'],
-          autonomous: true,
-          mode: 'autonomous',
-        }),
-      ],
     });
     const included = await includeOps.closeMatching({
       instanceId: 'instance-1',
@@ -355,13 +257,6 @@ describe('BrowserCloseTabOperations', () => {
   it('closes a managed profile page through the driver', async () => {
     const { ops, closeTarget } = makeOps({
       tabs: [],
-      grants: [
-        makeGrant({
-          allowedActionClasses: ['destructive'],
-          autonomous: true,
-          mode: 'autonomous',
-        }),
-      ],
       targets: [{
         id: 'target-1',
         profileId: 'profile-1',
@@ -384,7 +279,7 @@ describe('BrowserCloseTabOperations', () => {
     expect(closeTarget).toHaveBeenCalledWith('profile-1', 'target-1');
   });
 
-  it('does not close a different origin or targetId than the destructive grant covers', async () => {
+  it('closes every matching tab whatever its origin, with no grant', async () => {
     const otherOrigin = attachment({
       profileId: 'existing-tab:7:44',
       targetId: 'existing-tab:7:44:target',
@@ -412,70 +307,21 @@ describe('BrowserCloseTabOperations', () => {
       ],
     });
 
-    const byOrigin = await ops.closeMatching({
+    const result = await ops.closeMatching({
       instanceId: 'instance-1',
       provider: 'copilot',
       urlContains: 'https://',
+      allowCloseLastInWindow: true,
     });
-    expect(byOrigin.outcome).toBe('succeeded');
-    expect(byOrigin.data?.closed.map((item) => item.targetId).sort()).toEqual([
+    expect(result.decision).toBe('allowed');
+    expect(result.outcome).toBe('succeeded');
+    expect(result.data?.closed.map((item) => item.targetId).sort()).toEqual([
       'existing-tab:7:42:target',
       'existing-tab:7:43:target',
+      'existing-tab:7:44:target',
     ]);
-    expect(byOrigin.data?.skipped).toEqual([
-      expect.objectContaining({
-        targetId: 'existing-tab:7:44:target',
-        reason: 'grant_does_not_cover_target',
-      }),
-    ]);
-    expect(sendCommand).not.toHaveBeenCalledWith(
-      expect.objectContaining({ targetId: 'existing-tab:7:44:target' }),
-      'close_tab',
-      expect.anything(),
-    );
-
-    const { ops: boundOps, sendCommand: boundSend } = makeOps({
-      tabs: [
-        attachment(),
-        attachment({
-          profileId: 'existing-tab:7:43',
-          targetId: 'existing-tab:7:43:target',
-          tabId: 43,
-          title: 'Same origin sibling',
-          url: 'https://example.test/other',
-        }),
-      ],
-      grants: [
-        makeGrant({
-          profileId: undefined,
-          nodeId: 'local',
-          targetId: 'existing-tab:7:42:target',
-          allowedOrigins: [{
-            scheme: 'https',
-            hostPattern: 'example.test',
-            includeSubdomains: false,
-          }],
-          allowedActionClasses: ['destructive'],
-          autonomous: true,
-          mode: 'autonomous',
-        }),
-      ],
-    });
-    const byTarget = await boundOps.closeMatching({
-      instanceId: 'instance-1',
-      provider: 'copilot',
-      urlContains: 'example.test',
-    });
-    expect(byTarget.data?.closed).toEqual([
-      expect.objectContaining({ targetId: 'existing-tab:7:42:target' }),
-    ]);
-    expect(byTarget.data?.skipped).toEqual([
-      expect.objectContaining({
-        targetId: 'existing-tab:7:43:target',
-        reason: 'grant_does_not_cover_target',
-      }),
-    ]);
-    expect(boundSend).toHaveBeenCalledTimes(1);
+    expect(result.data?.skipped).toEqual([]);
+    expect(sendCommand).toHaveBeenCalledTimes(3);
   });
 
   it('skips secret-tainted tabs unless included and caps close_matching with maxCount', async () => {
@@ -561,6 +407,40 @@ describe('BrowserCloseTabOperations', () => {
     );
   });
 
+  it('reports the real close failure, not an earlier skip, when every close fails', async () => {
+    const opaque = attachment({
+      title: 'Tab inspection unavailable',
+      url: 'https://example.test/opaque',
+      textUnavailableReason: 'browser_secret_inspection_unavailable',
+      inspectionState: 'inspection_unavailable',
+    });
+    const { ops } = makeOps({
+      tabs: [opaque, attachment({
+        profileId: 'existing-tab:7:43',
+        targetId: 'existing-tab:7:43:target',
+        tabId: 43,
+        title: 'Draft',
+        url: 'https://example.test/draft',
+      })],
+      sendCommand: vi.fn(async () => {
+        throw new Error('browser_dialog_open: the page opened a beforeunload pop-up');
+      }),
+    });
+
+    const result = await ops.closeMatching({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      urlContains: 'example.test',
+    });
+
+    expect(result.outcome).toBe('failed');
+    expect(result.reason).toMatch(/^browser_dialog_open:/);
+    expect(result.data?.skipped.map((item) => item.reason)).toEqual([
+      'inspection_unavailable_skipped',
+      expect.stringMatching(/^browser_dialog_open:/),
+    ]);
+  });
+
   it('reports remainingTabCount for the resolved node, not every attached tab', async () => {
     const { ops } = makeOps({
       tabs: [
@@ -585,20 +465,6 @@ describe('BrowserCloseTabOperations', () => {
           windowId: 8,
           title: 'Other node',
           url: 'https://example.test/remote',
-        }),
-      ],
-      grants: [
-        makeGrant({
-          profileId: undefined,
-          nodeId: 'win-1',
-          allowedOrigins: [{
-            scheme: 'https',
-            hostPattern: 'example.test',
-            includeSubdomains: false,
-          }],
-          allowedActionClasses: ['destructive'],
-          autonomous: true,
-          mode: 'autonomous',
         }),
       ],
     });
