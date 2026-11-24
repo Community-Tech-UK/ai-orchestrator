@@ -45,6 +45,9 @@ export const FAILED_RERUN = 'The repaired control did not satisfy the original c
 /** Held after landing until its owner resumes the original job (records saved before the flag carry only the wording). */
 export const heldForOwner = (repair: CapabilityRepair): boolean =>
   repair.heldForOwner === true || (repair.state === 'waiting' && repair.detail.startsWith(FAILED_RERUN));
+/** The owner's item for this repair already landed: pausing or cancelling the owner's run afterwards does not undo it. */
+export const landedInOwnerRun = (repair: CapabilityRepair, repairItemState: string | undefined): boolean =>
+  repair.ownerRun === true && repairItemState === 'landed';
 interface AttachInput {
   repository: string;
   sourceRunId: string;

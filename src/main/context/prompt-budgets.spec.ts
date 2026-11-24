@@ -26,6 +26,7 @@ import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from '../instance/auto-titl
 import { CodexStandingNotes } from '../cli/adapters/codex/codex-standing-notes';
 import { PROMPT_SURFACES } from '../logging/prompt-surfaces';
 import { WATCHER_JUDGE_SYSTEM_PROMPT } from '../session-watcher/watcher-judge-prompt';
+import { buildWaitingCheckInPrompt } from '../instance/instance-waiting-check-in';
 import { loopPromptSurface } from '../orchestration/loop-child-invoker';
 import { queuePromptSurface } from '../plan-queue/plan-queue-prompt-surface';
 
@@ -170,6 +171,8 @@ const BUDGET = {
   // The carry-on note after Harness stops a repeating turn: worst case is a tool label at its 60-character cap
   // (measured 417 on 16 Nov 2026; an ordinary 'bash' note is 341).
   toolLoopStopNote: { chars: 500, render: () => toolLoopStopNote({ detector: 'ping-pong', toolName: `${'x'.repeat(200)}/${'x'.repeat(200)}`, count: 6 }) },
+  // Check-in on a session that stopped to wait: the quoted wait is cut to 160 characters (measured 593 on 24 Nov 2026).
+  waitingCheckIn: { chars: 650, render: () => buildWaitingCheckInPrompt('x'.repeat(160)) },
   summaryHelper: { chars: 400, render: () => SUMMARIZE_SYSTEM_PROMPT },
   subqueryHelper: { chars: 300, render: () => SUBQUERY_SYSTEM_PROMPT },
   titleSystem: { chars: 700, render: () => TITLE_SYSTEM_PROMPT },

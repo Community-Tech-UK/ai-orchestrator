@@ -68,10 +68,24 @@ describe('InstanceWaitingCheckIn', () => {
     expect(sendInput).toHaveBeenCalledTimes(WAITING_CHECK_IN_DELAYS_MS.length);
   });
 
+  it('keeps checking for over eight hours, never leaving an hour between checks', () => {
+    expect(WAITING_CHECK_IN_DELAYS_MS.reduce((total, delay) => total + delay, 0)).toBeGreaterThanOrEqual(8 * 60 * MINUTE);
+    expect(Math.max(...WAITING_CHECK_IN_DELAYS_MS)).toBeLessThan(60 * MINUTE);
+  });
+
   it('stops when a reply no longer waits on anything', async () => {
     finishTurn();
     await vi.advanceTimersByTimeAsync(5 * MINUTE);
     finishTurn('The work is complete.');
+    await vi.advanceTimersByTimeAsync(10 * 60 * MINUTE);
+    expect(sendInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a step handed to the user with the user, and that reply ends the series', async () => {
+    finishTurn("I'll check the logs once the build finishes.");
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    expect(sendInput.mock.calls[0]?.[1]).toContain('decision you asked the user for: leave it to them');
+    finishTurn("I'm waiting for you to restart the app before I check the logs.");
     await vi.advanceTimersByTimeAsync(10 * 60 * MINUTE);
     expect(sendInput).toHaveBeenCalledTimes(1);
   });
@@ -133,7 +147,7 @@ describe('InstanceWaitingCheckIn', () => {
   it('stops after the last due check even if none could be sent', async () => {
     paused = true;
     finishTurn();
-    await vi.advanceTimersByTimeAsync(75 * MINUTE);
+    await vi.advanceTimersByTimeAsync(WAITING_CHECK_IN_DELAYS_MS.reduce((total, delay) => total + delay, 0));
     expect(vi.getTimerCount()).toBe(0);
     paused = false;
     await vi.advanceTimersByTimeAsync(10 * 60 * MINUTE);

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import { repositoryRoot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueRun } from './plan-queue.types';
-import { heldForOwner } from './plan-queue-capability-store';
+import { heldForOwner, landedInOwnerRun } from './plan-queue-capability-store';
 import { findProjectFiles } from './plan-queue-source-presence';
 import type { PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
@@ -86,7 +86,8 @@ export async function retryCapabilityOrigin(host: PlanQueueFlowHost, itemId: str
     if (run.status === 'paused' || run.status === 'cancelled' || item.discardedAt || item.state === 'skipped') return false;
     return host.store.capabilities.forOrigin(itemId).filter(repair => repair.gap.classification === 'capability' || repair.gap.classification === 'setup')
       .every(repair => (repair.state === 'verifying-origin' || repair.state === 'resolved')
-        && (!repair.repairRunId || !['paused', 'cancelled'].includes(host.getRun(repair.repairRunId).status)));
+        && (!repair.repairRunId || landedInOwnerRun(repair, host.getItem(repair.repairItemId!).state)
+          || !['paused', 'cancelled'].includes(host.getRun(repair.repairRunId).status)));
   };
   if (!admitted()) return false;
   const item = host.getItem(itemId);

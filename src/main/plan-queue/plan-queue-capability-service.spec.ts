@@ -635,10 +635,12 @@ describe('a repair the repository owner queued in their own run', () => {
     } finally { rmSync(application, { recursive: true, force: true }); }
   });
 
-  it('does not link an owner item that already passed, so a landed plan cannot rerun the original without a probe', async () => {
+  it('does not link an owner item that already passed where Harness’s launcher asks for a probe, so a landed plan cannot rerun the original without one', async () => {
     const { application, service, hooks, repairId, ownerRun, planFile } = await crossProjectRepair();
     const pass = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
     try {
+      mkdirSync(join(application, 'scripts/remote-checks'), { recursive: true });
+      writeFileSync(join(application, 'scripts/remote-checks/dev-app.js'), '');
       ownerRun(application, planFile);
       // A finished run whose matching item landed.
       store.upsertRun({ ...coordinator.getRun('owner'), status: 'completed' });
@@ -656,6 +658,35 @@ describe('a repair the repository owner queued in their own run', () => {
         expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
       }
       expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it.each(['completed', 'cancelled', 'paused'] as const)('links an owner item that already landed in a %s run where no probe is ever asked for, and reruns the original on it', async status => {
+    const { application, service, hooks, repairId, ownerRun, planFile } = await crossProjectRepair();
+    const pass = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
+    try {
+      writeFileSync(join(repo, 'package.json'), '{"name":"app"}\n');
+      coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null, branchName: 'main' });
+      ownerRun(application, planFile);
+      // What the owner's run landed stays landed, whatever happened to the run afterwards.
+      store.upsertRun({ ...coordinator.getRun('owner'), status });
+      store.upsertItem({ ...coordinator.getItem('owner-item'), state: 'landed', verdict: pass, workerInstanceId: null });
+      const resume = vi.fn(async (itemId: string) => { coordinator.transition(coordinator.getItem(itemId), 'queued', { parkReason: null }); });
+      hooks.retryOrigin = id => retryCapabilityOrigin(coordinator, id, resume, () => undefined);
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: 'owner', repairItemId: 'owner-item', ownerRun: true, state: 'verifying-origin' });
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(store.capabilities.origins(repairId)[0]?.state).toBe('retrying');
+    } finally { rmSync(application, { recursive: true, force: true }); }
+  });
+
+  it('does not link a landed owner item that never had an independent PASS', async () => {
+    const { application, service, repairId, ownerRun, planFile } = await crossProjectRepair();
+    try {
+      ownerRun(application, planFile);
+      store.upsertItem({ ...coordinator.getItem('owner-item'), state: 'landed', verdict: null, workerInstanceId: null });
+      await service.reconcile();
+      expect(store.capabilities.get(repairId)).toMatchObject({ repairRunId: null, repairItemId: null });
     } finally { rmSync(application, { recursive: true, force: true }); }
   });
 

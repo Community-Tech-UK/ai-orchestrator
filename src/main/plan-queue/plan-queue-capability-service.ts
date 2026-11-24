@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { PlanQueueAccountRules, PlanQueueCapabilityGap, PlanQueueReportCapabilityGapArgs,
   PlanQueueReportCapabilityProbeArgs, PlanQueueReportCapabilityCheckArgs } from '@contracts/schemas/plan-queue';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import { FAILED_RERUN, heldForOwner, type CapabilityRepair, type CapabilityOrigin } from './plan-queue-capability-store';
+import { FAILED_RERUN, heldForOwner, landedInOwnerRun, type CapabilityRepair, type CapabilityOrigin } from './plan-queue-capability-store';
 import { launchCapabilityRun } from './plan-queue-capability-launch';
 import { ensureCapabilityPlan, validateCapabilityProbe } from './plan-queue-capability-plan';
 import { gitExec } from '../workspace/git/git-exec';
@@ -180,21 +180,26 @@ export class PlanQueueCapabilityService {
    * A repair for another repository is never started from here. Its owner queues the copied plan in their own run
    * (`capability-<repair id>_plan.md`, in the repository the gap names). That item becomes the repair's item, so its
    * runtime probe is kept, the original check reruns after it lands, and it cannot report a further repair. The run
-   * itself stays the owner's: it is never paused or cancelled for the repair. Only an item whose independent PASS is
-   * still ahead is linked: a PASS given before the link never had to carry the runtime probe, so an item that passed,
-   * is landing or landed, or sits in a finished run cannot stand in for the repair.
+   * itself stays the owner's: it is never paused or cancelled for the repair. Where the repository has Harness's
+   * launcher, only an item whose independent PASS is still ahead is linked: a PASS given before the link never had to
+   * carry the runtime probe, so an item that passed, is landing or landed, or sits in a finished run cannot stand in
+   * for the repair. Elsewhere no probe is ever asked for, so an item that already landed (in any run) is linked too and
+   * the original check reruns on the code it landed.
    */
   private async adoptOwnerRun(repair: CapabilityRepair): Promise<CapabilityRepair> {
     const target = repair.gap.repairRepository;
     if (repair.repairRunId || !target || target === repair.repository) return repair;
     const wanted = `capability-${repair.id}_plan.md`;
+    const landedCounts = !hasHarnessRuntimeLauncher(target);
     for (const run of this.host.store.listRuns()) {
-      if (!['running', 'paused'].includes(run.status) || run.config.capabilityRepairId) continue;
+      if (run.config.capabilityRepairId) continue;
       const root = await fs.realpath(run.workspaceCwd).catch(() => null);
       if (root !== target && !root?.startsWith(target + path.sep)) continue;
+      const open = ['running', 'paused'].includes(run.status);
       const item = this.host.store.listItems(run.id).find(candidate => path.basename(candidate.sourceRef) === wanted
-        && !candidate.discardedAt && !['skipped', 'landing', 'landed'].includes(candidate.state)
-        && candidate.verdict?.verdict !== 'PASS' && !this.host.store.capabilities.forRepairItem(candidate.id));
+        && !candidate.discardedAt && !this.host.store.capabilities.forRepairItem(candidate.id)
+        && (candidate.state === 'landed' ? landedCounts && candidate.verdict?.verdict === 'PASS'
+          : open && !['skipped', 'landing'].includes(candidate.state) && candidate.verdict?.verdict !== 'PASS'));
       if (!item) continue;
       const latest = this.host.store.capabilities.get(repair.id)!;
       if (latest.repairRunId) return latest;
@@ -269,7 +274,8 @@ export class PlanQueueCapabilityService {
       await this.launch(this.host, repair, () => store.origins(repair.id).filter(activeOrigin).every(origin => this.hooks.sourceSettled(origin.itemId))); return;
     }
     const run = this.host.getRun(repair.repairRunId), item = this.host.getItem(repair.repairItemId!);
-    if (run.status === 'cancelled' || item.discardedAt || item.state === 'skipped') {
+    const landedByOwner = landedInOwnerRun(repair, item.state);
+    if ((run.status === 'cancelled' && !landedByOwner) || item.discardedAt || item.state === 'skipped') {
       store.save({ ...repair, state: 'cancelled', detail: 'The owner cancelled the repair; repeated observations do not restart it.' }); return;
     }
     if (!runnable.length && run.status === 'running' && !repair.ownerRun) {
@@ -279,7 +285,7 @@ export class PlanQueueCapabilityService {
     if (runnable.length && repair.autoPaused && !repair.ownerRun && !repair.operatorPaused && run.status === 'paused') {
       await this.hooks.controlRun(run.id, 'resume'); store.save({ ...store.get(repair.id)!, autoPaused: false }); return;
     }
-    if (run.status === 'paused') return;
+    if (run.status === 'paused' && !landedByOwner) return;
     // Earlier repairs in this pass may have awaited, and a cancel may have arrived meanwhile: act on the saved record.
     const current = store.get(repair.id)!;
     if (current.state === 'cancelled' || current.state === 'resolved') return;
@@ -307,6 +313,7 @@ export class PlanQueueCapabilityService {
       if (linked.some(other => {
         const latest = store.get(other.id)!;
         return !['verifying-origin', 'resolved'].includes(latest.state) || (latest.repairRunId
+          && !landedInOwnerRun(latest, this.host.getItem(latest.repairItemId!).state)
           && ['paused', 'cancelled'].includes(this.host.getRun(latest.repairRunId).status));
       })) continue;
       store.atomic(() => {

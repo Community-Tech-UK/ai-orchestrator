@@ -6,16 +6,26 @@ import type { InstanceContinuationDispatch } from './instance-continuation-dispa
 
 const logger = getLogger('InstanceWaitingCheckIn');
 const MINUTE_MS = 60_000;
-/** Work can take far longer than the first gap, so each check waits longer. Total: 75 minutes. */
-export const WAITING_CHECK_IN_DELAYS_MS = [5 * MINUTE_MS, 10 * MINUTE_MS, 20 * MINUTE_MS, 40 * MINUTE_MS];
+/**
+ * Each check waits longer, then they come every 55 minutes: outside work such as a remote builder can take hours (24
+ * November 2026: nearly four, long after a 75-minute series had ended). Under an hour apart, a check can still find
+ * Claude's one-hour prompt cache warm, though a session put to sleep in between is restarted to take it. A reply that
+ * no longer waits ends the series, so only a genuine wait uses the later checks. Total: 8 hours 35 minutes.
+ */
+export const WAITING_CHECK_IN_DELAYS_MS = [5, 10, 20, 40, 55, 55, 55, 55, 55, 55, 55, 55].map((minutes) => minutes * MINUTE_MS);
 
+/**
+ * The first outcome stops a check-in nudging the agent into a step it handed to the user, such as merging, publishing
+ * or restarting (24 November 2026 review); its reply names the user, so the series ends.
+ */
 export function buildWaitingCheckInPrompt(excerpt: string): string {
   return [
     `Automatic check-in: you ended your last turn waiting on something ("${excerpt}").`,
     'Nothing tells this session when that finishes, so check it yourself now.',
-    'If it has finished, or will never report back, carry on with the work.',
-    'If it is genuinely still running, reply in one sentence starting "I\'m waiting for".',
-  ].join(' ');
+    '- Waiting on a step, answer or decision you asked the user for: leave it to them and reply in one sentence saying what you need from them.',
+    '- Otherwise, if it has finished or will never report back: carry on with the work.',
+    '- Still running: reply in one sentence starting "I\'m waiting for".',
+  ].join('\n');
 }
 
 interface WaitingState {
