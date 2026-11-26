@@ -612,6 +612,11 @@ describe('renderer event validation', () => {
       category: 'debate',
       progress: { current: 2, total: 3 },
     })).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.ORCHESTRATION_ACTIVITY, {
+      instanceId: 'instance-1',
+      activity: 'Thinking · Checking the migration order',
+      category: 'reasoning',
+    })).toBe(true);
     expect(validateRendererEventPayload(IPC_CHANNELS.USER_ACTION_REQUEST, {
       id: 'request-1',
       instanceId: 'instance-1',
@@ -629,6 +634,11 @@ describe('renderer event validation', () => {
       instanceId: 'instance-1',
       timestamp: 123,
       data: {},
+    })).toBe(false);
+    expect(validateRendererEventPayload(IPC_CHANNELS.ORCHESTRATION_ACTIVITY, {
+      instanceId: 'instance-1',
+      activity: 'Thinking · x',
+      category: 'invented',
     })).toBe(false);
     expect(validateRendererEventPayload(IPC_CHANNELS.USER_ACTION_REQUEST, {
       id: 'request-1',

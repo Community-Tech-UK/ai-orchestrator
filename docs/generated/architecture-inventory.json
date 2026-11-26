@@ -7643,6 +7643,10 @@
       "lines": 883
     },
     {
+      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
+      "lines": 882
+    },
+    {
       "path": "benchmarks/plan-execute-ab/runner.spec.ts",
       "lines": 881
     },
@@ -7677,10 +7681,6 @@
     {
       "path": "src/main/automations/automation-runner.ts",
       "lines": 874
-    },
-    {
-      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
-      "lines": 872
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
