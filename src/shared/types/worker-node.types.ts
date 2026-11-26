@@ -501,6 +501,8 @@ export interface NodePlacementPrefs {
   requiresWorkingDirectory?: string;
   /** The node must allow this folder, or one that contains it. */
   requiresFolderUnder?: string;
+  /** Only these nodes may be chosen. */
+  limitToNodeIds?: readonly string[];
   /** The node must report this Claude or Codex account as signed in. */
   requiresSignIn?: { provider: 'claude' | 'codex'; profileId: string };
   /**

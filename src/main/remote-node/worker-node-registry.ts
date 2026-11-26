@@ -179,6 +179,7 @@ export class WorkerNodeRegistry extends EventEmitter {
 
     // --- Hard filters ---
     if (node.activeInstances >= caps.maxConcurrentInstances) return -Infinity;
+    if (prefs.limitToNodeIds && !prefs.limitToNodeIds.includes(node.id)) return -Infinity;
     // Browser intent requires actual automation wiring. A Chrome-only node can
     // report readiness/setup state, but spawned agents will not receive browser
     // tools unless the node advertises hasBrowserMcp.

@@ -17,7 +17,7 @@ beforeAll(() => initSqliteWasm());
 afterEach(() => WorkAdmission._resetForTesting());
 
 /** The scheduler with a job that will run on another computer (`remoteIds`) and one that runs here. */
-function setup(load: number, remoteIds: string[]) {
+function setup(load: number, remoteIds: string[], waiting: Record<string, string> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'queue-pump-remote-'));
   const document = join(root, 'work_plan.md'); writeFileSync(document, '# Work');
   const run: PlanQueueRun = { id: 'run', parentInstanceId: 'chat', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: root, status: 'running',
@@ -29,11 +29,11 @@ function setup(load: number, remoteIds: string[]) {
   ];
   const starts: string[] = [];
   const host = {
-    store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, listItemsWithKeptFolders: () => [],
+    store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, upsertItem: (item: PlanQueueItem) => { items[items.findIndex(other => other.id === item.id)] = item; }, listItemsWithKeptFolders: () => [],
       listFoldersWithDiscardedItems: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } },
     flow: { startItem: async (item: PlanQueueItem) => { starts.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined },
       breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(),
-      startVerification: async () => undefined, willRunElsewhere: (item: PlanQueueItem) => remoteIds.includes(item.id) },
+      startVerification: async () => undefined, computerPlacement: (item: PlanQueueItem) => waiting[item.id] ? { kind: 'wait', reason: waiting[item.id]! } : { kind: remoteIds.includes(item.id) ? 'there' : 'here' } },
     triage: null, getRun: () => run, getItem: (id: string) => items.find(item => item.id === id)!,
     transition: (item: object, state: string, patch: object) => Object.assign(item, patch, { state }),
     notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [load, load, load], queueFolderLimit: () => 0, followParent: (value: PlanQueueRun) => value,
@@ -81,9 +81,38 @@ describe('the scheduler and jobs on other computers', () => {
   it('is unchanged when the flow has no remote support', async () => {
     const s = setup(0, []);
     try {
-      delete (s.host.flow as { willRunElsewhere?: unknown }).willRunElsewhere;
+      delete (s.host.flow as { computerPlacement?: unknown }).computerPlacement;
       await pumpPlanQueue(s.host);
       expect(s.starts).toEqual(['a']);
+    } finally { s.dispose(); }
+  });
+
+  it('holds a job that waits for a computer, with the reason on its row, and starts the others', async () => {
+    const s = setup(0, [], { a: 'Waiting for a computer: the test Mac is away. This Mac is switched off for jobs.' });
+    try {
+      await pumpPlanQueue(s.host);
+      expect(s.starts).toEqual(['b']);
+      expect(s.items[0]!.detail).toContain('the test Mac is away');
+      expect(s.items[0]!.state).toBe('queued');
+    } finally { s.dispose(); }
+  });
+
+  it('holds a job waiting for a computer even while this Mac is busy, and still shows why', async () => {
+    const s = setup(100, [], { a: 'Waiting for a computer: the test Mac is away.' });
+    try {
+      await pumpPlanQueue(s.host);
+      expect(s.starts).toEqual([]);
+      expect(s.items[0]!.detail).toContain('the test Mac is away');
+    } finally { s.dispose(); }
+  });
+
+  it('keeps a note that is not about waiting, and writes none for a job that is not held', async () => {
+    const s = setup(0, [], { a: 'Waiting for a computer: away.' });
+    try {
+      s.items[0] = Object.assign(s.items[0]!, { detail: 'Needs the plan checked' });
+      await pumpPlanQueue(s.host);
+      expect(s.items[0]!.detail).toBe('Needs the plan checked');
+      expect(s.items[1]!.detail).toBeNull();
     } finally { s.dispose(); }
   });
 });

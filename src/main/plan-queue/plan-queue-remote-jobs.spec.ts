@@ -188,7 +188,7 @@ beforeEach(() => {
     remote: {
       jobs, computers: () => ({ list: () => computers }),
       nodes: { isConnected: () => connected, capabilities: () => ({ queueJobs: 1, signIns: [{ provider: 'claude', profileId: 'legacy', state: 'signed-in' }] }) as WorkerNodeCapabilities },
-      removalsFile: join(dataDir, 'removals.json'), awayLimitMs: 200, awayCheckMs: 20,
+      useThisMac: () => true, removalsFile: join(dataDir, 'removals.json'), awayLimitMs: 200, awayCheckMs: 20,
     },
   });
 });

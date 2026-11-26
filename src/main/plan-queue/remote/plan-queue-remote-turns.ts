@@ -33,6 +33,8 @@ export interface PlanQueueRemoteDeps {
   jobs: Pick<RemoteQueueJobs, 'projectKey' | 'send' | 'prepare' | 'collect' | 'readReport' | 'deleteLeftOut' | 'remove' | 'forget'>;
   computers: () => QueueJobComputerSource;
   nodes: QueueJobNodeView;
+  /** The Computers page's switch for this Mac as a backup (`readUseThisMac`). Read at each decision, so a change applies at once. */
+  useThisMac: () => boolean;
   newTurnId?: () => string;
   /** Where jobs still to be removed from a computer are kept, so a restart doesn't forget them. Memory only when absent. */
   removalsFile?: string;
@@ -58,20 +60,26 @@ export interface SavedRound { item: PlanQueueItem; hold: string | null }
 export class PlanQueueRemoteTurns {
   private readonly paths = new Map<string, RemoteTurnPaths>();
   private readonly reservationTurns = new Map<string, string>();
+  /** Jobs the scheduler has sent to start on a computer whose place `arrange` has not saved yet (item id to node id). */
+  private readonly reserved = new Map<string, string>();
   private readonly removals: PendingRemovals;
   /** Placement decisions go one at a time, so two jobs started together cannot both take a computer's last place. */
   private placing: Promise<unknown> = Promise.resolve();
   private readonly watch: AwayWatch;
-  constructor(private readonly host: Pick<PlanQueueFlowHost, 'getItem' | 'save' | 'getRun' | 'store' | 'history'>, private readonly deps: PlanQueueRemoteDeps,
+  constructor(private readonly host: Pick<PlanQueueFlowHost, 'getItem' | 'save' | 'getRun' | 'store' | 'history' | 'transition'>, private readonly deps: PlanQueueRemoteDeps,
     private readonly captureCapabilities: (caller: string, report: PlanQueueReportReadyArgs) => Promise<void>) {
     this.removals = new PendingRemovals(deps.removalsFile);
     this.watch = new AwayWatch(deps.awayCheckMs ?? AWAY_CHECK_MS);
   }
 
-  /** How many jobs hold a place on this computer, across every run. */
-  jobsOn(nodeId: string): number {
-    return this.host.store.listActiveRuns().flatMap(run => this.host.store.listItems(run.id))
-      .filter(item => item.remote?.nodeId === nodeId && ACTIVE_JOB_STATES.has(item.state)).length;
+  /** How many jobs hold a place on this computer, across every run, and those just sent to start there except `excluding`. */
+  jobsOn(nodeId: string, excluding?: string): number {
+    const items = this.host.store.listActiveRuns().flatMap(run => this.host.store.listItems(run.id));
+    const saved = items.filter(item => item.remote?.nodeId === nodeId && ACTIVE_JOB_STATES.has(item.state));
+    // A place counts only while its job is still being prepared: one that failed to prepare and went back to waiting holds none.
+    const preparing = new Set(items.filter(item => item.state === 'preparing' && !item.remote).map(item => item.id));
+    const pending = [...this.reserved].filter(([id, node]) => node === nodeId && id !== excluding && preparing.has(id)).length;
+    return saved.length + pending;
   }
 
   /** The prompt's view of the current turn's folders, or undefined for a job that runs here. */
@@ -102,17 +110,32 @@ export class PlanQueueRemoteTurns {
   private placementFor(item: PlanQueueItem, run: PlanQueueRun): Placement {
     try {
       return placeJob({ run, item, computers: this.deps.computers().list(), nodes: this.deps.nodes,
-        jobsOn: nodeId => this.jobsOn(nodeId), projectKey: this.deps.jobs.projectKey(run.workspaceCwd) });
+        jobsOn: nodeId => this.jobsOn(nodeId, item.id), projectKey: this.deps.jobs.projectKey(run.workspaceCwd), useThisMac: this.deps.useThisMac() });
     } catch (error) {
       // The saved Computers settings could not be read: run here rather than guess.
       return { kind: 'here', reason: `This job runs on this Mac because the Computers settings could not be read (${error instanceof Error ? error.message : String(error)}).` };
     }
   }
 
-  /** True when this job's next turn would go to another computer (the scheduler then counts it apart from this Mac's own limits). */
-  runsElsewhere(item: PlanQueueItem, run: PlanQueueRun): boolean {
-    if (item.remote) return !this.isAway(item);
-    return this.placementFor(item, run).kind === 'there';
+  /**
+   * Where this job's next turn would go. `there`: another computer, so the scheduler counts it apart from this Mac's own
+   * limits. `here`: this Mac. `wait`: this Mac is switched off for jobs and every computer that could take the job is
+   * busy, paused or away, so it must not start yet. A job already on a computer stays there (its away rules apply).
+   */
+  computerPlacement(item: PlanQueueItem, run: PlanQueueRun): { kind: 'there' | 'here' } | { kind: 'wait'; reason: string } {
+    if (item.remote) return { kind: this.isAway(item) ? 'here' : 'there' };
+    const placement = this.placementFor(item, run);
+    return placement.kind === 'wait' ? placement : { kind: placement.kind };
+  }
+
+  /**
+   * The scheduler is starting this job: if it goes to another computer, count its place now, because `arrange` only
+   * saves it after the job's folder is made, and the next job decided in the same pass would otherwise see the place free.
+   */
+  reservePlace(item: PlanQueueItem, run: PlanQueueRun): void {
+    if (item.remote) return;
+    const placement = this.placementFor(item, run);
+    if (placement.kind === 'there') this.reserved.set(item.id, placement.computer.nodeId);
   }
 
   /**
@@ -128,8 +151,16 @@ export class PlanQueueRemoteTurns {
     if (!current.remote) {
       const placed = await this.serially(async () => {
         const placement = this.placementFor(item, run);
-        if (placement.kind === 'here') {
-          if (placement.reason) recordTiming(this.host.history, item, TIMING_REASONS.placement, { where: 'here', note: placement.reason });
+        this.reserved.delete(item.id);
+        if (placement.kind === 'wait' && item.state === 'preparing') {
+          // The computers filled up (or went away) after the scheduler chose this job. This Mac is switched off for jobs, so the
+          // job goes back to waiting, with the reason, and the caller (`PlanQueueRemoteFlow.arrange`) sees it is queued and stops.
+          return this.host.transition(this.host.getItem(item.id), 'queued', { detail: placement.reason });
+        }
+        if (placement.kind !== 'there') {
+          // 'wait' reaches here only for a job already running (a restart or a new worker): its folder is made and it has
+          // work in progress, so it carries on here this turn and says so.
+          if (placement.reason) recordTiming(this.host.history, item, TIMING_REASONS.placement, { where: 'here', note: placement.kind === 'wait' ? `This turn runs on this Mac because the computers filled up as it started. ${placement.reason}` : placement.reason });
           return null;
         }
         // Saved before the next placement decides, so the next sees this place taken.
@@ -142,6 +173,7 @@ export class PlanQueueRemoteTurns {
         return saved;
       });
       if (!placed) return item;
+      if (placed.state === 'queued') return placed;
       current = placed;
     }
     try { return await this.send(current, run, true); }
@@ -335,8 +367,9 @@ export class PlanQueueRemoteTurns {
     return saved;
   }
 
-  /** Ten minutes away: the job carries on here. */
+  /** Ten minutes away: the job carries on here, unless this Mac is switched off for jobs, when it keeps waiting for its computer. */
   awayExpired(item: PlanQueueItem): boolean {
+    if (!this.deps.useThisMac()) return false;
     const since = item.remote?.awaySince;
     return since !== undefined && since !== null && (this.deps.now ?? Date.now)() - since >= (this.deps.awayLimitMs ?? AWAY_LIMIT_MS);
   }

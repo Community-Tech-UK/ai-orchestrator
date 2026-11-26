@@ -17,6 +17,8 @@ export interface AdmissionContext {
   remote?: boolean;
   /** Runs on another computer: still counts against the "at once" limits, but this Mac's load doesn't matter to it. */
   otherComputer?: boolean;
+  /** Asked at every check: why the work must wait for a computer to be free (in words), or null when it may start. */
+  waitingForComputer?: () => string | null;
   activeCount?: number;
 }
 interface AdmissionOptions { cpuCount?: () => number; loadAverage?: () => number[] }
@@ -116,6 +118,8 @@ export class WorkAdmission extends EventEmitter {
       return { allowed: false, reason: 'held', detail: 'Holding new work. It will start after Release.' };
     }
     if (context.remote) return { allowed: true };
+    const waitingFor = context.waitingForComputer?.();
+    if (waitingFor) return { allowed: false, reason: 'computer-busy', detail: waitingFor };
     const limits = this.getLimits();
     const cap = this.cap(kind, limits);
     const count = cap === null ? 0 : context.activeCount ?? (kind === 'automation-run' || kind === 'repo-job'

@@ -202,6 +202,7 @@ export class PlanQueueItemFlow {
    */
   startItem(queued: PlanQueueItem): Promise<void> {
     this.host.transition(queued, 'preparing');
+    this.host.remote?.reservePlace(queued, this.host.getRun(queued.runId)); // before the scheduler decides the next job
     return this.withItemLock(queued.id, async () => {
       let item = this.host.getItem(queued.id);
       if (item.state !== 'preparing') return;
@@ -739,8 +740,8 @@ export class PlanQueueItemFlow {
     return this.landingChain;
   }
 
-  /** True when this job's next turn would go to another computer, which the scheduler counts apart from this Mac's own limits. */
-  willRunElsewhere(item: PlanQueueItem, run: PlanQueueRun): boolean { return this.host.remote?.runsElsewhere(item, run) ?? false; }
+  /** Where this job's next turn would go: another computer (counted apart from this Mac's limits), here, or nowhere yet (see `computerPlacement` in the remote turns). */
+  computerPlacement(item: PlanQueueItem, run: PlanQueueRun): { kind: 'there' | 'here' } | { kind: 'wait'; reason: string } { return this.host.remote?.computerPlacement(item, run) ?? { kind: 'here' }; }
 
   /** After a restart: check on a job held because its computer was away. */
   watchAway(itemId: string): void {

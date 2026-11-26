@@ -23,6 +23,7 @@ import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
 import * as path from 'node:path';
 import { getQueueJobComputers } from '../computers/queue-job-computers';
+import { readUseThisMac } from '../computers/test-machine-file';
 import { getWorkerNodeConnectionServer } from '../remote-node/worker-node-connection';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 import { getPlanQueueDataDir } from './plan-queue-data-dir';
@@ -31,6 +32,15 @@ import { RemoteQueueJobs } from './remote/queue-job-remote';
 const logger = getLogger('PlanQueueBootstrap');
 let planQueueStore: PlanQueueStore | null = null;
 let stopSpendRecorder: (() => void) | undefined;
+
+/** The Computers page's "Use this Mac" switch, read from its file at each decision. A file that can't be read leaves it on, as a missing one does. */
+function readThisMacSwitch(): boolean {
+  try { return readUseThisMac(); }
+  catch (error) {
+    logger.warn('Plan queue: the test machine settings could not be read; treating this Mac as switched on', { error: error instanceof Error ? error.message : String(error) });
+    return true;
+  }
+}
 
 export function getPlanQueueStoreIfInitialized(): PlanQueueStore | null {
   return planQueueStore;
@@ -89,6 +99,7 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
         isConnected: nodeId => getWorkerNodeConnectionServer().isNodeConnected(nodeId),
         capabilities: nodeId => getWorkerNodeRegistry().getNode(nodeId)?.capabilities,
       },
+      useThisMac: readThisMacSwitch,
       removalsFile: path.join(getPlanQueueDataDir(), 'queue-job-removals.json'),
     },
     postNote: (parentId, text) => instanceManager.emitSystemMessage(parentId, text, { source: 'plan-queue' }),

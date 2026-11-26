@@ -27,6 +27,7 @@ let fx: Fixture;
 let root: string;
 let jobFolder: string;
 let connected = true;
+let thisMac = true;
 let computers: QueueJobComputer[];
 let rows: Map<string, PlanQueueItem>;
 let events: { reason: string | null; detailHead: string | null }[];
@@ -46,6 +47,7 @@ const current = (): PlanQueueItem => rows.get(JOB)!;
 
 beforeEach(() => {
   connected = true;
+  thisMac = true;
   fx = makeFixture();
   root = realpathSync(fx.mac);
   _setPlanQueueDataDirForTesting(join(fx.dir, 'data'));
@@ -67,12 +69,13 @@ beforeEach(() => {
   ids = 0;
   turns = new PlanQueueRemoteTurns({
     getItem: id => rows.get(id)!, save: item => { rows.set(item.id, item); return item; }, getRun: () => run,
+    transition: (item, to, patch) => { const next = { ...item, ...patch, state: to }; rows.set(item.id, next); return next; },
     store: { listActiveRuns: () => [run], listItems: () => [...rows.values()] } as never,
     history: { recordEvent: (event: { reason: string | null; detailHead: string | null }) => { events.push(event); } } as never,
   }, {
     jobs, computers: () => ({ list: () => computers }),
     nodes: { isConnected: () => connected, capabilities: () => ({ queueJobs: 1, signIns: [{ provider: 'claude', profileId: 'legacy', state: 'signed-in' }] }) as WorkerNodeCapabilities },
-    newTurnId: () => `turn-${++ids}`, awayLimitMs: 1000, now: () => 5000,
+    useThisMac: () => thisMac, newTurnId: () => `turn-${++ids}`, awayLimitMs: 1000, now: () => 5000,
   }, async () => undefined);
 });
 afterEach(() => { _setPlanQueueDataDirForTesting(null); turns.shutdown(); fx.dispose(); });
@@ -118,9 +121,9 @@ describe('starting a turn on another computer', () => {
 
   it('runs a job here when the Computers settings cannot be read', async () => {
     const broken = new PlanQueueRemoteTurns(
-      { getItem: id => rows.get(id)!, save: item => item, getRun: () => run, store: { listActiveRuns: () => [], listItems: () => [] } as never,
+      { getItem: id => rows.get(id)!, save: item => item, getRun: () => run, transition: item => item, store: { listActiveRuns: () => [], listItems: () => [] } as never,
         history: { recordEvent: (event: { reason: string | null; detailHead: string | null }) => { events.push(event); } } as never },
-      { jobs: {} as never, computers: () => { throw new Error('unreadable'); }, nodes: { isConnected: () => true, capabilities: () => undefined } }, async () => undefined);
+      { jobs: {} as never, computers: () => { throw new Error('unreadable'); }, nodes: { isConnected: () => true, capabilities: () => undefined }, useThisMac: () => true }, async () => undefined);
     expect((await broken.arrange(current(), run)).remote).toBeUndefined();
     expect(events.at(-1)!.detailHead).toContain('could not be read (unreadable)');
   });
@@ -385,5 +388,98 @@ describe('leaving the computer', () => {
     expect(turns.awayExpired(marked)).toBe(false);
     expect(turns.awayExpired({ ...marked, remote: { ...marked.remote!, awaySince: 3000 } })).toBe(true);
     turns.stopWatching(JOB);
+  });
+});
+
+describe('with "Use this Mac when the others are busy or away" off', () => {
+  beforeEach(() => { thisMac = false; });
+  const waitReason = (item: PlanQueueItem, forRun: PlanQueueRun): string | null => {
+    const placement = turns.computerPlacement(item, forRun);
+    return placement.kind === 'wait' ? placement.reason : null;
+  };
+
+  it('holds a job whose only computer is away, with the reason, instead of running it here', () => {
+    connected = false;
+    expect(waitReason(current(), run)).toContain('Waiting for a computer: the Windows PC is away. This Mac is switched off for jobs.');
+  });
+
+  it('reports where a job goes: there, here when the computer is away, or nowhere yet', async () => {
+    expect(turns.computerPlacement(current(), run)).toEqual({ kind: 'there' });
+    connected = false;
+    expect(turns.computerPlacement(current(), run)).toMatchObject({ kind: 'wait' });
+    thisMac = true;
+    expect(turns.computerPlacement(current(), run)).toEqual({ kind: 'here' });
+    connected = true;
+    thisMac = false;
+    rows.set(JOB, await turns.arrange(current(), run));
+    connected = false;
+    expect(turns.computerPlacement(current(), run)).toEqual({ kind: 'here' });
+    turns.stopWatching(JOB);
+  });
+
+  it('holds nothing when the switch is on, or a computer can take the job, or the job is already on one', async () => {
+    connected = false;
+    thisMac = true;
+    expect(waitReason(current(), run)).toBeNull();
+    thisMac = false;
+    connected = true;
+    expect(waitReason(current(), run)).toBeNull();
+    rows.set(JOB, await turns.arrange(current(), run));
+    connected = false;
+    expect(waitReason(current(), run)).toBeNull();
+    turns.stopWatching(JOB);
+  });
+
+  it('counts a place the scheduler reserved, so the next job decided in the same pass waits', () => {
+    computers[0]!.jobsAtOnce = 1;
+    const second = newPlanQueueItem('job-two', 'run', join(root, PLAN), 2, { state: 'queued' });
+    rows.set('job-two', second);
+    turns.reservePlace(current(), run);
+    // The first job is still being prepared, so its place counts against the next.
+    rows.set(JOB, { ...current(), state: 'preparing' });
+    expect(waitReason(second, run)).toContain('already has 1 job (its limit)');
+    // Its own reservation never counts against itself when it is placed.
+    expect(waitReason(rows.get(JOB)!, run)).toBeNull();
+  });
+
+  it('forgets a reservation once its job is no longer being prepared', () => {
+    computers[0]!.jobsAtOnce = 1;
+    const second = newPlanQueueItem('job-two', 'run', join(root, PLAN), 2, { state: 'queued' });
+    turns.reservePlace(current(), run);
+    rows.set(JOB, { ...current(), state: 'queued' });
+    expect(waitReason(second, run)).toBeNull();
+  });
+
+  it('keeps waiting for a computer that stays away, instead of carrying on here after ten minutes', async () => {
+    rows.set(JOB, await turns.arrange(current(), run));
+    const away = { ...current(), remote: { ...current().remote!, awaySince: 3000 } };
+    expect(turns.awayExpired(away)).toBe(false);
+    thisMac = true;
+    expect(turns.awayExpired(away)).toBe(true);
+    turns.stopWatching(JOB);
+  });
+
+  it('puts a job being started back to waiting, with the reason, when its computer goes away after the scheduler chose it', async () => {
+    rows.set(JOB, { ...current(), state: 'preparing' });
+    connected = false;
+    const result = await turns.arrange(current(), run);
+    expect(result.state).toBe('queued');
+    expect(result.remote).toBeUndefined();
+    expect(result.detail).toContain('Waiting for a computer: the Windows PC is away');
+    expect(rows.get(JOB)!.state).toBe('queued');
+  });
+
+  it('lets a job that is already running carry on here when the computers fill up, and says so', async () => {
+    connected = false;
+    const result = await turns.arrange(current(), run);
+    expect(result.state).toBe('working');
+    expect(result.remote).toBeUndefined();
+    expect(events.at(-1)!.detailHead).toContain('the computers filled up as it started');
+  });
+
+  it('says on the timeline that it runs here when no computer is set to take jobs', async () => {
+    computers[0]!.takesJobs = false;
+    expect((await turns.arrange(current(), run)).remote).toBeUndefined();
+    expect(events.at(-1)!.detailHead).toContain('no other computer is set to take Plan Queue jobs');
   });
 });

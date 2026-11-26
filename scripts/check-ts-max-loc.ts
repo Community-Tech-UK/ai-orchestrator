@@ -101,7 +101,7 @@ const ALLOWLIST: Record<string, number> = {
   // silently downgrades).
   // Re-tightened 837 -> 749: terminal-run bookkeeping extracted to
   // automation-runner-terminal.ts.
-  'src/main/automations/automation-runner.ts': 823, // raised 749 -> 823 (2026-11-06): Phase 1 token levers merged on top of main's own growth
+  'src/main/automations/automation-runner.ts': 860, // raised 749 -> 823 (2026-11-06): Phase 1 token levers merged on top of main's own growth; 823 -> 835: admission waits for the test Mac when "Use this Mac" is off (mac-still-pinned part B); 835 -> 860: a job whose computer fills up after admission goes back to waiting
   // Main process — browser gateway
   // Raised 2284 -> 2400 for the execute_fill_plan + fill_credential service
   // methods (delegators to browser-form-fill-operations) + the credential

@@ -19,7 +19,7 @@ import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & Partial<Pick<PlanQueueItemFlow, 'willRunElsewhere'>> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'>;
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & Partial<Pick<PlanQueueItemFlow, 'computerPlacement'>> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'>;
     recoveryCopies: Pick<PlanQueueRecoveryCopies, 'sweepDue'>;
     landingRetries: Pick<PlanQueueLandingRetries, 'retryDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
@@ -148,12 +148,24 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           const itemHold = holdOf(item);
           if (itemHold?.setAside) { host.transition(item, 'parked', { heldAt: null, parkReason: 'needs-james', detail: itemHold.note }); continue; }
           if (itemHold) continue;
-          const elsewhere = flow.willRunElsewhere?.(item, run) ?? false;
-          if (overloaded && !elsewhere) continue;
+          const placement = flow.computerPlacement?.(item, run);
+          const elsewhere = placement?.kind === 'there';
+          const computerWait = placement?.kind === 'wait' ? placement.reason : null;
+          // This Mac's load doesn't matter to a job waiting for another computer: it shows that reason below.
+          if (overloaded && !elsewhere && !computerWait) continue;
           // A step job waits for the step before it to land. If that one was skipped, there is nothing to build on.
           const hold = stepHold(items, item);
           if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
           if (hold) continue;
+          // This Mac is switched off for jobs and every computer that could take this one is busy, paused or away: hold it, with the reason.
+          if (computerWait) {
+            const waiting = host.getItem(item.id);
+            if (waiting.state === 'queued' && waiting.detail !== computerWait && (!waiting.detail || waiting.detail.startsWith('Waiting for '))) {
+              store.upsertItem({ ...waiting, detail: computerWait, updatedAt: Date.now() }); explainedRuns.add(waiting.runId);
+            }
+            store.waits.blocked(item.id);
+            continue;
+          }
           // The run hold is the reason to show, so the folder note is written only when nothing else stops this job,
           // and a folder note left from before the hold started is taken off once a folder is free again.
           const runHeld = sourceHolds(run) || !flow.breaker.canStart(run);

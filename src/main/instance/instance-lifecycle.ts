@@ -106,7 +106,7 @@ import { createModelSelectionDegradationNotice, type ModelSelectionDegradation }
 import { resolveSpawnReasoningEffort } from './lifecycle/reasoning-effort-resolution';
 import { ModelSelectionResolver } from './lifecycle/model-selection-resolver';
 import { InstanceSpawnPreflightChain } from './lifecycle/instance-spawn-preflight-chain';
-import { resolveNewSessionPlacement, stayedHereMessage } from './lifecycle/default-computer-placement';
+import { refuseToRunHereWhileWaiting, resolveNewSessionPlacement, stayedHereMessage } from './lifecycle/default-computer-placement';
 import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import {
   removeInstanceBrowserToolsMode,
@@ -1306,6 +1306,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       config.agentId || null
     );
 
+    // A job that may only use other computers, and whose computers have just filled up, waits instead of starting here.
+    // Checked before the session exists so nothing appears; the same check runs again when the session is placed.
+    if (config.computerRule) refuseToRunHereWhileWaiting(config, resolveNewSessionPlacement(config, this.settings.getAll().defaultCli, resolvedAgent.modelOverride));
+
     const instance = buildInstanceRecord(config, resolvedAgent, {
       defaultYoloMode: this.settings.getAll().defaultYoloMode,
       defaultFailoverProviders: this.settings.getAll().sessionFailoverProviders,
@@ -1521,7 +1525,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         const localModelTarget = config.modelRuntimeTarget?.kind === 'local-model'
           ? config.modelRuntimeTarget
           : null;
-        const { location: executionLocation, stayedHereBecause, accountProfileId: placedAccountProfileId } = resolveNewSessionPlacement(config, settingsAll.defaultCli, resolvedAgent.modelOverride);
+        const placement = resolveNewSessionPlacement(config, settingsAll.defaultCli, resolvedAgent.modelOverride);
+        refuseToRunHereWhileWaiting(config, placement);
+        const { location: executionLocation, stayedHereBecause, accountProfileId: placedAccountProfileId } = placement;
         if (stayedHereBecause) {
           const placementNotice: OutputMessage = {
             id: generateId(),

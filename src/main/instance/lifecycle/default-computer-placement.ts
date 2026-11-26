@@ -22,36 +22,41 @@ export interface SessionPlacement {
   accountProfileId?: string;
   /** Set when the session asked for another computer and ended up on this Mac: one plain sentence saying why. */
   stayedHereBecause?: string;
+  /** True with `stayedHereBecause` when the computers are only busy, paused or away, so waiting for one could work. */
+  mightWaitForComputer?: boolean;
 }
 
-/** The first thing that rules out every computer, in the order the session needs them. Null when one can run it. */
+/** Why no computer can run the session, and whether that may pass (busy, paused, away) or is lasting (no tool, sign-in or folder). */
+interface NoComputer { reason: string; soon: boolean }
+
+/** The first thing that rules out every computer, in the order the session needs them. */
 function whyNoComputer(
   nodes: readonly WorkerNodeInfo[],
   choices: ReturnType<PlacementRegistry['getComputerChoices']>,
   tool: 'claude' | 'codex',
   profileId: string,
   folder: string,
-): string {
-  if (nodes.length === 0) return 'no other computer is connected';
-  const takes = nodes.filter(node => {
-    const choice = choices.find(entry => entry.id === node.id);
-    return !choice?.paused && choice?.sessions !== false;
-  });
-  if (takes.length === 0) return 'no other computer is set to take agent sessions';
+): NoComputer {
+  if (nodes.length === 0) return { reason: 'no other computer is connected', soon: true };
+  const choiceOf = (node: WorkerNodeInfo) => choices.find(entry => entry.id === node.id);
+  const takes = nodes.filter(node => !choiceOf(node)?.paused && choiceOf(node)?.sessions !== false);
+  if (takes.length === 0) {
+    return { reason: 'no other computer is set to take agent sessions', soon: nodes.some(node => choiceOf(node)?.paused) };
+  }
   const room = takes.filter(node => node.activeInstances < node.capabilities.maxConcurrentInstances);
-  if (room.length === 0) return 'every other computer that takes sessions is full';
+  if (room.length === 0) return { reason: 'every other computer that takes sessions is full', soon: true };
   const hasTool = room.filter(node => node.capabilities.supportedClis.includes(tool));
-  if (hasTool.length === 0) return `${providerName(tool)} isn't installed on any other computer that has room`;
+  if (hasTool.length === 0) return { reason: `${providerName(tool)} isn't installed on any other computer that has room`, soon: false };
   const states = hasTool.map(node => nodeSignInState(node.capabilities, tool, profileId));
   if (!states.includes('signed-in')) {
     return states.every(state => state === 'signed-out')
-      ? `${providerName(tool)} isn't signed in on any other computer that has room`
-      : `Harness can't tell yet whether ${providerName(tool)} is signed in on the other computers`;
+      ? { reason: `${providerName(tool)} isn't signed in on any other computer that has room`, soon: false }
+      : { reason: `Harness can't tell yet whether ${providerName(tool)} is signed in on the other computers`, soon: true };
   }
   if (!hasTool.some(node => nodeSignInState(node.capabilities, tool, profileId) === 'signed-in' && nodeHasFolder(node.capabilities, folder))) {
-    return "no other computer that's signed in has this folder";
+    return { reason: "no other computer that's signed in has this folder", soon: false };
   }
-  return 'no other computer suited it';
+  return { reason: 'no other computer suited it', soon: false };
 }
 
 /**
@@ -74,10 +79,11 @@ export function resolveNewSessionPlacement(
   if (!config.preferOtherComputer || config.forceNodeId || config.nodePlacement || config.modelRuntimeTarget) {
     return { location: resolveExecutionLocation(config, registryOverride) };
   }
-  const here = (reason: string): SessionPlacement => {
+  const here = (reason: string, mightWait = false): SessionPlacement => {
     logger.info('Session stays on this Mac', { reason });
-    return { location: { type: 'local' }, stayedHereBecause: reason };
+    return { location: { type: 'local' }, stayedHereBecause: reason, ...(mightWait ? { mightWaitForComputer: true } : {}) };
   };
+  if (config.computerRule?.stayHere) return here(config.computerRule.stayHere);
   const requested = config.provider && config.provider !== 'auto' ? config.provider : settingsDefaultCli;
   if (requested !== 'claude' && requested !== 'codex') {
     return here('only Claude and Codex sessions can start on another computer by themselves');
@@ -111,13 +117,30 @@ export function resolveNewSessionPlacement(
     requiresCli: requested,
     requiresSignIn: { provider: requested, profileId },
     requiresFolderUnder: config.workingDirectory,
+    ...(config.computerRule ? { limitToNodeIds: config.computerRule.onlyNodeIds } : {}),
   });
   if (node) {
     logger.info('Resolved execution location', { type: 'remote', reason: 'defaultComputer', nodeId: node.id });
     return { location: { type: 'remote', nodeId: node.id }, accountProfileId: profileId };
   }
-  const why = whyNoComputer(registry.getHealthyNodes(), registry.getComputerChoices(), requested, profileId, config.workingDirectory);
-  return here(why);
+  const candidates = registry.getHealthyNodes().filter(candidate => !config.computerRule || config.computerRule.onlyNodeIds.includes(candidate.id));
+  const why = whyNoComputer(candidates, registry.getComputerChoices(), requested, profileId, config.workingDirectory);
+  return here(why.reason, why.soon);
+}
+
+/**
+ * The session may use only the computers its `computerRule` names, and every one that could take it is busy, paused or
+ * away. Starting it here would break the rule, so creation refuses and the caller puts the job back to waiting.
+ */
+export class ComputerBusyError extends Error {
+  constructor(reason: string) { super(`Waiting for the test Mac: ${reason}`); this.name = 'ComputerBusyError'; }
+}
+
+/** Throws `ComputerBusyError` when `placement` would put a rule-bound session on this Mac only because the computers are busy. */
+export function refuseToRunHereWhileWaiting(config: InstanceCreateConfig, placement: SessionPlacement): void {
+  if (config.computerRule && placement.location.type === 'local' && placement.mightWaitForComputer) {
+    throw new ComputerBusyError(placement.stayedHereBecause ?? 'the computers are busy');
+  }
 }
 
 /** The one quiet line a session shows when it asked for another computer and stayed here. */

@@ -6468,7 +6468,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3747
+      "lines": 3753
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -7471,15 +7471,15 @@
       "lines": 953
     },
     {
+      "path": "src/shared/types/instance.types.ts",
+      "lines": 953
+    },
+    {
       "path": "src/main/core/config/settings-control-policy.ts",
       "lines": 947
     },
     {
       "path": "src/renderer/app/features/tasks/tasks-page.component.ts",
-      "lines": 947
-    },
-    {
-      "path": "src/shared/types/instance.types.ts",
       "lines": 947
     },
     {
@@ -7492,7 +7492,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 940
+      "lines": 941
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -7561,6 +7561,10 @@
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 911
+    },
+    {
+      "path": "src/main/automations/automation-runner.ts",
+      "lines": 909
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
@@ -7676,10 +7680,6 @@
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase4c-tooltips-finish_plan_completed.md",
-      "lines": 874
-    },
-    {
-      "path": "src/main/automations/automation-runner.ts",
       "lines": 874
     },
     {

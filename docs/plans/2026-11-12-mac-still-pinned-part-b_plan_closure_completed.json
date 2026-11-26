@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-12-mac-still-pinned-part-b_plan.md",
+      "sha256": "36df622df16497b4f49a2ab408bb27f7d889409b812a7abff7013cb465ba5cd8",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-12-mac-still-pinned-part-b_history.md",
+      "sha256": "a6e7dd5ab751240d080fe550ec00245508dfe2355d4d5af7167d738280d0c101",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-12-mac-still-pinned-part-b_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-12-mac-still-pinned-part-b_plan_completed.md",
+      "sha256": "e0cb42f67ed557257c656115cf7bf83c30cf5a98fa60a3080fcc7555a9692d70"
+    },
+    {
+      "relativePath": "2026-11-12-mac-still-pinned-part-b_plan_history_82446009129cec775be4bc1f7e63346bb59bf6817d245d5ee041869665c30335_completed.md",
+      "sha256": "b1e9e39c2e6d28bb7c4bed474495407611302b2a3114fc21d2464cc60a7d0793"
+    }
+  ]
+}

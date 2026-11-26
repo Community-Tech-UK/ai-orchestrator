@@ -12,7 +12,7 @@ vi.mock('../../../providers/account-pool/provider-account-routing-service', () =
 }));
 
 import { WorkerNodeRegistry } from '../../../remote-node/worker-node-registry';
-import { resolveNewSessionPlacement, stayedHereMessage } from '../default-computer-placement';
+import { ComputerBusyError, refuseToRunHereWhileWaiting, resolveNewSessionPlacement, stayedHereMessage } from '../default-computer-placement';
 import type { InstanceCreateConfig } from '../../../../shared/types/instance.types';
 import type { WorkerNodeCapabilities, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 
@@ -76,7 +76,7 @@ describe('resolveNewSessionPlacement', () => {
   ])('stays here and says why: %s', (_name, arrange, reason) => {
     if (_name !== 'no other computer is connected') registry.registerNode(node('pc'));
     arrange();
-    expect(resolveNewSessionPlacement(config(), 'claude', undefined, registry)).toEqual({ location: { type: 'local' }, stayedHereBecause: reason });
+    expect(resolveNewSessionPlacement(config(), 'claude', undefined, registry)).toMatchObject({ location: { type: 'local' }, stayedHereBecause: reason });
   });
 
   it('stays here when every computer that takes sessions is full', () => {
@@ -168,5 +168,70 @@ describe('resolveNewSessionPlacement', () => {
 
   it('says why in one plain sentence', () => {
     expect(stayedHereMessage('no other computer is connected')).toBe('Running on this Mac: no other computer is connected.');
+  });
+
+  describe('with a rule from "Use this Mac" being off', () => {
+    const ONLY_MAC = { onlyNodeIds: ['mac'] };
+    const macFolder = '/Users/suas/work';
+    const mac = (caps: Partial<WorkerNodeCapabilities> = {}, info: Partial<WorkerNodeInfo> = {}) => node('mac', { platform: 'darwin', workingDirectories: [macFolder], ...caps }, info);
+    const macConfig = (rule = ONLY_MAC) => config({ workingDirectory: `${macFolder}/notes`, computerRule: rule });
+
+    it('chooses only a computer the rule names, even when another is better placed', () => {
+      registry.registerNode(node('pc', { workingDirectories: [macFolder] }));
+      registry.registerNode(mac());
+      registry.setComputerChoices([{ id: 'pc', paused: false, sessions: true }, { id: 'mac', paused: false, sessions: true }]);
+      expect(resolveNewSessionPlacement(macConfig(), 'claude', undefined, registry).location).toEqual({ type: 'remote', nodeId: 'mac' });
+    });
+
+    it('never falls to another connected computer when the named one is full, and says a wait could work', () => {
+      registry.registerNode(node('pc', { workingDirectories: [macFolder] }));
+      registry.registerNode(mac({ maxConcurrentInstances: 1 }, { activeInstances: 1 }));
+      expect(resolveNewSessionPlacement(macConfig(), 'claude', undefined, registry)).toEqual({
+        location: { type: 'local' }, stayedHereBecause: 'every other computer that takes sessions is full', mightWaitForComputer: true });
+    });
+
+    it('says a wait could work when the named computer is away or paused', () => {
+      registry.registerNode(node('pc', { workingDirectories: [macFolder] }));
+      expect(resolveNewSessionPlacement(macConfig(), 'claude', undefined, registry)).toMatchObject({ stayedHereBecause: 'no other computer is connected', mightWaitForComputer: true });
+      registry.registerNode(mac());
+      registry.setComputerChoices([{ id: 'mac', paused: true, sessions: true }]);
+      expect(resolveNewSessionPlacement(macConfig(), 'claude', undefined, registry)).toMatchObject({ mightWaitForComputer: true });
+    });
+
+    it('refuses to start a rule-bound session here while the named computer is only busy, but not when waiting would not help', () => {
+      registry.registerNode(mac({ maxConcurrentInstances: 1 }, { activeInstances: 1 }));
+      const full = macConfig();
+      expect(() => refuseToRunHereWhileWaiting(full, resolveNewSessionPlacement(full, 'claude', undefined, registry))).toThrow(ComputerBusyError);
+      registry.registerNode(mac({ supportedClis: ['codex'] }));
+      expect(() => refuseToRunHereWhileWaiting(full, resolveNewSessionPlacement(full, 'claude', undefined, registry))).not.toThrow();
+      // No rule: a session that asked for a computer and found them busy still starts here, as before.
+      registry.registerNode(mac({ maxConcurrentInstances: 1 }, { activeInstances: 1 }));
+      const plain = config({ workingDirectory: `${macFolder}/notes` });
+      expect(() => refuseToRunHereWhileWaiting(plain, resolveNewSessionPlacement(plain, 'claude', undefined, registry))).not.toThrow();
+    });
+
+    it.each([
+      ['its sessions switch is off', () => registry.setComputerChoices([{ id: 'mac', paused: false, sessions: false }])],
+      ['the tool is missing there', () => registry.registerNode(mac({ supportedClis: ['codex'] }))],
+      ['the tool is signed out there', () => registry.registerNode(mac({ signIns: [{ provider: 'claude', profileId: 'legacy', state: 'signed-out' }] }))],
+      ['the folder is not there', () => registry.registerNode(mac({ workingDirectories: ['/elsewhere'] }))],
+    ])('says waiting would not help when %s', (_name, arrange) => {
+      registry.registerNode(mac());
+      arrange();
+      const placement = resolveNewSessionPlacement(macConfig(), 'claude', undefined, registry);
+      expect(placement.location).toEqual({ type: 'local' });
+      expect(placement.mightWaitForComputer).toBeUndefined();
+    });
+
+    it('stays here with the rule\'s own reason, without asking the pool or the computers', () => {
+      registry.registerNode(mac());
+      expect(resolveNewSessionPlacement(macConfig({ onlyNodeIds: [], stayHere: 'it works in a Git repository' } as never), 'claude', undefined, registry)).toEqual({
+        location: { type: 'local' }, stayedHereBecause: 'it works in a Git repository' });
+    });
+
+    it('changes nothing for a session without a rule', () => {
+      registry.registerNode(node('pc'));
+      expect(resolveNewSessionPlacement(config(), 'claude', undefined, registry).mightWaitForComputer).toBeUndefined();
+    });
   });
 });

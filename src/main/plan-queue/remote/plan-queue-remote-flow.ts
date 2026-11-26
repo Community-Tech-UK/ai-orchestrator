@@ -38,7 +38,7 @@ export class PlanQueueRemoteFlow {
    * A turn starts: place the job or send it again. See `PlanQueueRemoteTurns.arrange`. A job that still has an
    * uncollected turn on its computer (a pause or park that could not collect it, kept there on purpose) has that work
    * taken back and saved first, because sending again resets the far folder and would overwrite it. Returns null when
-   * that left the job held or parked, and the caller must stop.
+   * that left the job held or parked, or waiting for a computer again, and the caller must stop.
    */
   async arrange(item: PlanQueueItem, run: PlanQueueRun): Promise<PlanQueueItem | null> {
     let current = item;
@@ -48,7 +48,9 @@ export class PlanQueueRemoteFlow {
       if (saved.hold) { await this.deps.hold(saved.item, saved.hold); return null; }
       current = saved.item;
     }
-    return this.deps.turns.arrange(current, run);
+    const arranged = await this.deps.turns.arrange(current, run);
+    // Put back to waiting because the computers filled up as it started: nothing starts on this Mac.
+    return arranged.state === 'queued' ? null : arranged;
   }
 
   /**

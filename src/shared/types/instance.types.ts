@@ -821,6 +821,12 @@ export interface InstanceCreateConfig extends AutomationAuthorityScope {
    */
   admittedAsOtherComputer?: boolean;
 
+  /**
+   * Set with `preferOtherComputer` when "Use this Mac when the others are busy or away" is off: which computers may be
+   * chosen (the test Mac only), or why the session must stay here (`stayHere`, one plain sentence).
+   */
+  computerRule?: { onlyNodeIds: readonly string[]; stayHere?: string };
+
   /** Internal provenance/runtime metadata for orchestration, automation, and recovery flows. */
   metadata?: Record<string, unknown>;
 }

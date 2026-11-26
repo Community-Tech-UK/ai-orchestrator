@@ -10,8 +10,9 @@ import { AutomationRunLimits } from './automation-run-limits';
 import type { AutomationResult } from '@contracts/schemas/automation';
 import { harnessStopDetailsOf } from '../../shared/utils/harness-stop';
 import { getLogger } from '../logging/logger';
-import { getWorkAdmission } from '../work-admission/work-admission';
-import { automationPrefersOtherComputer, automationRunsOnOtherComputer } from './automation-computer-preference';
+import { ComputerBusyError } from '../instance/lifecycle/default-computer-placement';
+import { getWorkAdmission, type AdmissionContext } from '../work-admission/work-admission';
+import { automationComputerRule, automationPrefersOtherComputer, computerRuleConfig, automationRunsOnOtherComputer, automationWaitReason } from './automation-computer-preference';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getInstanceProviderLimitHandler, type ProviderLimitParkedEvent } from '../instance/instance-provider-limit-handler';
 import type { Instance } from '../../shared/types/instance.types';
@@ -73,6 +74,8 @@ import { AutomationPauseStartup } from './automation-pause-startup';
 import { isAutomaticStartupCancelled, type AutomaticStartup } from '../work-admission/automatic-startup';
 
 const logger = getLogger('AutomationRunner');
+/** How long a job that lost its computer after admission waits before asking again. */
+const COMPUTER_RETRY_MS = 5_000;
 
 export type { RetrySchedulerCallback } from './automation-runner-types';
 
@@ -204,7 +207,7 @@ export class AutomationRunner {
     const preflightSkipReason = this.hasStoppingRun(automationId) ? 'Previous scheduled job could not be stopped. Stop its sessions before running it again.' : automation
       ? this.automaticProviderExclusionReason(automation.action, automation.destination.kind)
       : undefined;
-    const otherComputer = automation ? await this.runsOnOtherComputer(automation.action, automation.destination.kind) : false;
+    const admission = automation ? await this.admissionContext(automation.action, automation.destination.kind) : {};
     const decision = this.store.decideAndInsertRun(
       automation,
       options.trigger,
@@ -217,7 +220,7 @@ export class AutomationRunner {
         maxAttempts: this.maxRetryAttempts,
         attempt: 1,
         promptOverride,
-        admissionHeld: !getWorkAdmission().check('automation-run', { otherComputer }).allowed,
+        admissionHeld: !getWorkAdmission().check('automation-run', admission).allowed,
         ...(preflightSkipReason ? { preflightSkipReason } : {}),
       },
     );
@@ -258,9 +261,9 @@ export class AutomationRunner {
     this.promotingPending = true;
     let claimed: ClaimedAutomationRun | null;
     try {
-      const elsewhere = new Map<string, boolean>(); // the store's check is synchronous, so read each run's computer first
-      for (const run of this.store.listPendingRuns(automationId)) elsewhere.set(run.id, !!run.configSnapshot && await this.runsOnOtherComputer(run.configSnapshot.action, run.configSnapshot.destination.kind));
-      claimed = this.store.claimNextPending(automationId, this.now(), run => (run.attempt > 1 || !this.hasStoppingRun(run.automationId)) && getWorkAdmission().check('automation-run', { otherComputer: elsewhere.get(run.id) ?? false }).allowed);
+      const contexts = new Map<string, AdmissionContext>(); // the store's check is synchronous, so read each run's computer first
+      for (const run of this.store.listPendingRuns(automationId)) if (run.configSnapshot) contexts.set(run.id, await this.admissionContext(run.configSnapshot.action, run.configSnapshot.destination.kind));
+      claimed = this.store.claimNextPending(automationId, this.now(), run => (run.attempt > 1 || !this.hasStoppingRun(run.automationId)) && getWorkAdmission().check('automation-run', contexts.get(run.id) ?? {}).allowed);
     }
     finally { this.promotingPending = false; }
     if (!claimed) {
@@ -345,7 +348,7 @@ export class AutomationRunner {
   private async dispatchRunOnce(claimed: ClaimedAutomationRun, manager: InstanceManager, startup: AutomaticStartup, receipt: { threadDispatched: boolean }): Promise<void> {
     if (this.refuseRetryWhileStopping(claimed.run) || this.dispatchDeadline?.expireIfElapsed(claimed.run)) return;
     // Read the account the run will really be created with (never-use and use-last lists), not the pool's default pick.
-    const context = { otherComputer: await this.runsOnOtherComputer(claimed.snapshot.action, claimed.snapshot.destination.kind) };
+    const context = await this.admissionContext(claimed.snapshot.action, claimed.snapshot.destination.kind);
     startup.signal.throwIfAborted();
     if (!getWorkAdmission().check('timed-wakeup', context).allowed) {
       getWorkAdmission().defer(`automation-dispatch:${claimed.run.id}`, 'timed-wakeup', async () => {
@@ -424,7 +427,7 @@ export class AutomationRunner {
         ...spawnTarget,
         ...(accountPreferences ? { accountPreferences } : {}),
         forceNodeId: claimed.snapshot.action.forceNodeId,
-        ...(automationPrefersOtherComputer(claimed.snapshot.action) ? { preferOtherComputer: true } : {}),
+        ...(automationPrefersOtherComputer(claimed.snapshot.action) ? { preferOtherComputer: true, ...computerRuleConfig(claimed.snapshot.action) } : {}),
         ...(context.otherComputer && automationPrefersOtherComputer(claimed.snapshot.action) ? { admittedAsOtherComputer: true } : {}),
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
         ...(contained ? { containedExecution: true } : {}),
@@ -461,12 +464,20 @@ export class AutomationRunner {
           }
           return;
         }
+        if (error instanceof ComputerBusyError) {
+          // Its computers filled up while it was starting. The failed start has already removed the session; it goes back to waiting.
+          this.untrackInstances([instance.id]);
+          this.store.attachInstance(claimed.run.id, null, this.now());
+          this.waitForComputerAgain(claimed, manager, context);
+          return;
+        }
         if (error && !isAutomaticStartupCancelled(error)) this.failTrackedInstance(instance.id,
           `Automation dispatch failed: ${error instanceof Error ? error.message : String(error)}`);
       };
       void instance.readyPromise?.then(() => settled(), settled);
     } catch (error) {
       if (startup.signal.aborted) throw error;
+      if (error instanceof ComputerBusyError) { this.waitForComputerAgain(claimed, manager, context); return; }
       const failed = this.store.terminalizeRun(
         claimed.run.id,
         'failed',
@@ -478,6 +489,18 @@ export class AutomationRunner {
         this.handleTerminalRun(failed);
       }
     }
+  }
+
+  /**
+   * The test Mac filled up, paused or went away after the job was admitted, so the session was not started. The run stays
+   * running with no session and starts again when admission allows; a short pause keeps a disagreement between the two
+   * placement reads from becoming a tight loop.
+   */
+  private waitForComputerAgain(claimed: ClaimedAutomationRun, manager: InstanceManager, context: AdmissionContext): void {
+    getWorkAdmission().defer(`automation-dispatch:${claimed.run.id}`, 'timed-wakeup', async () => {
+      await new Promise<void>(resolve => { setTimeout(resolve, COMPUTER_RETRY_MS).unref(); });
+      if (this.store.getRun(claimed.run.id)?.status === 'running') await this.dispatchRun(claimed, manager);
+    }, context);
   }
 
   private trackInstance(instanceId: string, run: AutomationRun): void {
@@ -624,6 +647,18 @@ export class AutomationRunner {
       this.handleTerminalRun(failed, { retryable: false });
     }
     return true;
+  }
+
+  /**
+   * What admission needs to know about the job: whether it runs on another computer, and, when "Use this Mac" is off,
+   * why it must wait for the test Mac. The wait is asked again at every check, so a computer coming free starts it.
+   */
+  async admissionContext(action: AutomationAction, destinationKind: AutomationDestination['kind']): Promise<AdmissionContext> {
+    const otherComputer = await this.runsOnOtherComputer(action, destinationKind);
+    if (destinationKind === 'thread' || !automationPrefersOtherComputer(action) || !automationComputerRule(action)) return { otherComputer };
+    const defaults = this.automationModelDefaults();
+    const preferences = await this.accountPreferencesFor(resolveAutomationSpawnTarget(action, defaults), action.forceNodeId);
+    return { otherComputer, waitingForComputer: () => automationWaitReason(action, defaults, preferences) };
   }
 
   /** Whether the job will run elsewhere, on the account it is created with. Waking an existing session never moves it unless a computer is named. */

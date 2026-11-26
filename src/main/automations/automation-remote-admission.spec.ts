@@ -7,14 +7,19 @@ import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admissio
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import { AutomationStore } from './automation-store';
 import { AutomationRunner } from './automation-runner';
+import { ComputerBusyError } from '../instance/lifecycle/default-computer-placement';
 import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-orchestrator-test' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 // The account rules read settings; their own spec covers them.
-const preference = vi.hoisted(() => ({ on: false, elsewhere: false, elsewhereOnlyAvoiding: false, avoid: [] as string[] }));
+const preference = vi.hoisted(() => ({ on: false, elsewhere: false, elsewhereOnlyAvoiding: false, avoid: [] as string[], rule: false, waitReason: null as string | null }));
 vi.mock('./automation-computer-preference', () => ({
-  automationPrefersOtherComputer: () => preference.on,
+  automationPrefersOtherComputer: (action: { forceNodeId?: string }) => preference.on && !action.forceNodeId,
+  // "Use this Mac" off: the job is limited to the test Mac, and waits while it is busy or away.
+  automationComputerRule: () => (preference.rule ? { onlyNodeIds: ['mac-id'] } : undefined),
+  computerRuleConfig: () => (preference.rule ? { computerRule: { onlyNodeIds: ['mac-id'] } } : {}),
+  automationWaitReason: () => preference.waitReason,
   // A computer can take the job only on an account it is signed in to; the never-use list rules that one out.
   automationRunsOnOtherComputer: (action: { forceNodeId?: string }, _defaults: unknown, accountPreferences?: { avoid: string[] }) =>
     Boolean(action.forceNodeId) || (preference.on && (preference.elsewhereOnlyAvoiding
@@ -28,7 +33,7 @@ vi.mock('./automation-account-rules', () => ({
 
 const databases: ReturnType<typeof defaultDriverFactory>[] = [];
 const admissions: WorkAdmission[] = [];
-afterEach(() => { preference.on = false; preference.elsewhere = false; preference.elsewhereOnlyAvoiding = false; preference.avoid = []; admissions.splice(0).forEach(admission => admission.dispose()); vi.restoreAllMocks(); WorkAdmission._resetForTesting(); databases.splice(0).forEach(db => db.close()); });
+afterEach(() => { preference.rule = false; preference.waitReason = null; preference.on = false; preference.elsewhere = false; preference.elsewhereOnlyAvoiding = false; preference.avoid = []; admissions.splice(0).forEach(admission => admission.dispose()); vi.restoreAllMocks(); WorkAdmission._resetForTesting(); databases.splice(0).forEach(db => db.close()); });
 
 const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
@@ -104,6 +109,25 @@ describe('asking for another computer', () => {
     const config = (createInstance.mock.calls[0] as unknown as [Record<string, unknown>])[0];
     expect(config['preferOtherComputer']).toBe(on ? true : undefined);
     expect(config).toMatchObject(expected);
+  });
+
+  it('puts a job back to waiting, instead of failing or starting here, when its computer fills up after it was admitted', async () => {
+    preference.on = true;
+    preference.rule = true;
+    preference.elsewhere = true;
+    const { store, runner, createInstance, create } = await setup(1);
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      createInstance.mockRejectedValueOnce(new ComputerBusyError('every other computer that takes sessions is full'));
+      const job = await create(false);
+      await runner.fire(job.id, { trigger: 'scheduled', scheduledAt: 1000 });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(createInstance).toHaveBeenCalledTimes(1);
+      expect((createInstance.mock.calls[0] as unknown as [Record<string, unknown>])[0]).toMatchObject({ computerRule: { onlyNodeIds: ['mac-id'] } });
+      expect(store.listActiveRuns().find(run => run.automationId === job.id)?.status).toBe('running');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(createInstance).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
 
   it('does not hold a job that a free computer can take because this Mac is busy', async () => {
@@ -195,5 +219,39 @@ describe('asking for another computer', () => {
     store.decideAndInsertRun(local, 'scheduled', 1000, 1000, { admissionHeld: true });
     await runner.promotePendingIfAny();
     expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  describe('with "Use this Mac" off', () => {
+    const waiting = 'Waiting for the test Mac: the test Mac is away';
+
+    it('holds the first fire while the test Mac is away, even though this Mac is idle', async () => {
+      preference.on = true; preference.rule = true; preference.waitReason = waiting;
+      const { runner, createInstance, create } = await setup(2);
+      getWorkAdmission().setWorkloadLevel(5);
+      const local = await create(false);
+      const outcome = await runner.fire(local.id, { trigger: 'scheduled', scheduledAt: 1000 });
+      expect(outcome.status).toBe('queued');
+      expect(createInstance).not.toHaveBeenCalled();
+    });
+
+    it('starts the held job, with the rule, once the test Mac is free', async () => {
+      preference.on = true; preference.rule = true; preference.elsewhere = true; preference.waitReason = waiting;
+      const { store, runner, createInstance, create } = await setup(2);
+      const local = await create(false);
+      store.decideAndInsertRun(local, 'scheduled', 1000, 1000, { admissionHeld: true });
+      await runner.promotePendingIfAny();
+      expect(createInstance).not.toHaveBeenCalled();
+      preference.waitReason = null;
+      await runner.promotePendingIfAny();
+      expect(createInstance).toHaveBeenCalledWith(expect.objectContaining({ preferOtherComputer: true, computerRule: { onlyNodeIds: ['mac-id'] } }));
+    });
+
+    it('never holds a job pinned to a computer', async () => {
+      preference.on = true; preference.rule = true; preference.waitReason = waiting;
+      const { runner, createInstance, create } = await setup(2);
+      const remote = await create(true);
+      await runner.fire(remote.id, { trigger: 'scheduled', scheduledAt: 1000 });
+      await vi.waitFor(() => expect(createInstance).toHaveBeenCalled());
+    });
   });
 });

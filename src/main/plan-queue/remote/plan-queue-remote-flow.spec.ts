@@ -143,6 +143,13 @@ describe('starting a turn for a job whose last turn was kept on its computer', (
     expect(s.turns.arrange).toHaveBeenCalled();
   });
 
+  it('stops when the job was put back to waiting because the computers filled up as it started', async () => {
+    const s = setup();
+    s.item().remote = undefined;
+    s.turns.arrange.mockImplementation(async (it: PlanQueueItem) => ({ ...it, state: 'queued' }));
+    expect(await s.flow.arrange(s.item(), run as never)).toBeNull();
+  });
+
   it('stops, without sending, when the computer is away again: the job is held and the work stays there', async () => {
     const s = setup({ saveRound: async () => { throw new QueueJobLinkError('away', 'the Windows PC is away'); } });
     expect(await s.flow.arrange(s.item(), run as never)).toBeNull();

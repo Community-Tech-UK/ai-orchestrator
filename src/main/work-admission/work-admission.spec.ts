@@ -121,4 +121,18 @@ describe('work admission', () => {
     const limits = limitsFor(level, 4);
     expect(limits).toMatchObject({ queueJobs: null, queueChecks: null, helperAgents: null, loopRounds: null, scheduledJobs: null, loadPerCore: null });
   });
+
+  it('holds work that is waiting for a computer, with the reason, and starts it when one is free', () => {
+    const admission = new WorkAdmission({ cpuCount: () => 4, loadAverage: () => [0, 0, 0] });
+    let reason: string | null = 'Waiting for the test Mac: the test Mac is away';
+    const context = { otherComputer: true, waitingForComputer: () => reason };
+    expect(admission.check('automation-run', context)).toEqual({ allowed: false, reason: 'computer-busy', detail: 'Waiting for the test Mac: the test Mac is away' });
+    let fired = 0;
+    admission.defer('wake', 'timed-wakeup', () => { fired++; }, context);
+    expect(fired).toBe(0);
+    reason = null;
+    admission.notifyChanged();
+    expect(fired).toBe(1);
+    expect(admission.check('automation-run', context)).toEqual({ allowed: true });
+  });
 });
