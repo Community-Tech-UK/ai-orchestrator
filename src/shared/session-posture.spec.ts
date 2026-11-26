@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describePostureSentence, postureFromInstance } from './session-posture';
+import { CAPABILITY_WORDS, capabilityLine, describePostureSentence, postureFromInstance } from './session-posture';
 describe('session posture', () => {
   it.each([
     [{ agentId: 'build', yoloMode: true, hardened: true }, 'Acts without asking · edits only inside this folder · web allowed'],
@@ -20,5 +20,10 @@ describe('session posture', () => {
       .toBe('Asks before acting · can edit files · web allowed · secrets filtered · no browser tools · runs on Windows PC');
     expect(describePostureSentence(postureFromInstance(instance))).toMatch(/runs on node-1$/);
     expect(describePostureSentence(postureFromInstance({ agentId: 'build', browserToolsMode: 'deferred' }))).not.toContain('browser');
+  });
+  it('words capability states from one table', () => {
+    expect(capabilityLine('Fast', CAPABILITY_WORDS.unavailable('Copilot'))).toBe('Fast: not available for Copilot');
+    expect(capabilityLine('Desktop control', CAPABILITY_WORDS['off-in-settings'])).toBe('Desktop control: off in Settings');
+    expect(CAPABILITY_WORDS.queued('Auto-approve', 'on')).toBe('Auto-approve → on after this reply');
   });
 });

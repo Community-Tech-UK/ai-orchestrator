@@ -106,7 +106,7 @@ import { ColdCacheChipComponent } from './cold-cache-chip.component';
 import { ColdCacheResumeService } from './cold-cache-resume.service';
 import { setTextareaValueAtEnd } from './input-panel-textarea';
 import { ComposerQuotaNoticeComponent } from './composer-quota-notice.component';
-import { describePostureSentence, postureFromInstance } from '../../../../shared/session-posture';
+import { CAPABILITY_WORDS, describePostureSentence, postureFromInstance } from '../../../../shared/session-posture';
 import { ComposerBannersComponent } from './composer-banners.component';
 import { ToolLoopBannerComponent } from './tool-loop-banner.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
@@ -1822,7 +1822,7 @@ export class InputPanelComponent implements OnDestroy {
   });
   readonly hardenedLabel = computed(() => {
     if (!this.hardenedUnavailable()) return this.draftHardened() ? 'on' : 'off';
-    return `not available for ${hardenedProviderName(this.selectedProvider())}`;
+    return CAPABILITY_WORDS.unavailable(hardenedProviderName(this.selectedProvider()));
   });
   readonly hardenedTitle = computed(() => {
     if (this.hardenedUnavailable()) {

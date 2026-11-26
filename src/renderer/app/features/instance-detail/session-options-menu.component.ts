@@ -7,6 +7,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { providerName } from '../../../../shared/display-names';
+import { CAPABILITY_WORDS, capabilityLine } from '../../../../shared/session-posture';
 import { InstanceStore, type Instance } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -48,7 +49,7 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
         </div>
         @if (fastUnavailable()) {
           <div class="option">
-            <span class="unavailable">Fast: not available for {{ providerLabel() }}</span>
+            <span class="unavailable">{{ fastUnavailableLine() }}</span>
             <small>The provider refused it, so it stays off until you restart Harness</small>
           </div>
         } @else if (supportsFast()) {
@@ -65,7 +66,7 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
           </div>
         } @else {
           <div class="option">
-            <span class="unavailable">Desktop control: off in Settings</span>
+            <span class="unavailable">{{ desktopControlOffLine }}</span>
             <button type="button" class="link" (click)="openComputerUseSettings()">Open Computer Use settings</button>
           </div>
         }
@@ -116,6 +117,8 @@ export class SessionOptionsMenuComponent {
   protected readonly posture = computed(() =>
     sessionPostureSentence(this.instance(), this.settings(), id => this.nodes.nodeById(id)?.name));
   /** The provider refused Fast earlier in this run; the row keeps saying so after the toast is gone. */
+  protected readonly desktopControlOffLine = capabilityLine('Desktop control', CAPABILITY_WORDS['off-in-settings']);
+  protected readonly fastUnavailableLine = computed(() => capabilityLine('Fast', CAPABILITY_WORDS.unavailable(this.providerLabel())));
   protected readonly fastUnavailable = computed(() => this.instances.fastUnavailableProviders().has(this.instance().provider));
   protected readonly providerLabel = computed(() => providerName(this.instance().provider));
   protected readonly modeName = computed(() => agentModeName(this.instance().agentId));
@@ -123,7 +126,7 @@ export class SessionOptionsMenuComponent {
   /** A queued Auto-approve flip keeps its arrow wording. */
   protected readonly yoloQueued = computed(() => {
     const { pendingYoloMode, yoloMode } = this.instance();
-    return pendingYoloMode !== undefined && pendingYoloMode !== yoloMode ? `Auto-approve → ${pendingYoloMode ? 'on' : 'off'} after this reply` : null;
+    return pendingYoloMode !== undefined && pendingYoloMode !== yoloMode ? CAPABILITY_WORDS.queued('Auto-approve', pendingYoloMode ? 'on' : 'off') : null;
   });
 
   protected readonly yoloTooltip = computed(() => {

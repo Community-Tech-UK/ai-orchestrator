@@ -23,6 +23,7 @@ import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import type { Instance } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { CAPABILITY_WORDS } from '../../../../shared/session-posture';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
@@ -90,7 +91,7 @@ export class InstanceHeaderComponent {
   /** The Auto-approve chip text, with the queued flip spelled out; `null` while it is off and nothing is queued. */
   readonly yoloLabel = computed(() => {
     const inst = this.instance();
-    if (this.yoloPending()) return `Auto-approve → ${inst.pendingYoloMode ? 'on' : 'off'} after this reply`;
+    if (this.yoloPending()) return CAPABILITY_WORDS.queued('Auto-approve', inst.pendingYoloMode ? 'on' : 'off');
     return inst.yoloMode ? 'Auto-approve' : null;
   });
   /** What the session may do, worked out from its real mode, Auto-approve and Hardened state; shown in the chip's hover. */

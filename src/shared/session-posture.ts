@@ -14,12 +14,21 @@ export interface SessionPostureInput {
   computerUseMode?: string;
 }
 
+/**
+ * One vocabulary for capability states. Each phrase reads after "<Setting>: ",
+ * which `capabilityLine` adds; `queued` carries its own setting name.
+ */
 export const CAPABILITY_WORDS = {
-  checking: 'Checking…',
-  unavailable: (provider: string) => `Not available for ${provider}`,
+  checking: 'checking…',
+  unavailable: (provider: string) => `not available for ${provider}`,
   queued: (setting: string, value: string) => `${setting} → ${value} after this reply`,
-  'off-in-settings': 'Off in Settings',
+  'off-in-settings': 'off in Settings',
 } as const;
+
+/** "Fast: not available for Copilot": a setting name, then one of the capability phrases. */
+export function capabilityLine(setting: string, phrase: string): string {
+  return `${setting}: ${phrase}`;
+}
 
 /**
  * `nodeName` turns the worker's id into the name people know it by; without it
