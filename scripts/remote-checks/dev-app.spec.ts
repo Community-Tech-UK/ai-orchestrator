@@ -99,8 +99,18 @@ case "$cmd" in
       *) echo 'AIO_REMOTE_RESULT {"status":"stopped","processGone":true,"folderGone":true,"nodeId":"11111111-2222-4333-8444-555555555555"}' ;;
     esac
     ;;
-  # A real tunnel lasts as long as the copy; this one lasts until the test ends it.
-  *' devapp-hold '*) [ "$scenario" = no-tunnel ] && exit 255; echo held; exec sleep 30 ;;
+  # A real tunnel lasts as long as the copy; this one lasts until the test ends it. In slow-tunnel the first connection
+  # takes longer to say held than the test allows, as a busy far computer's can.
+  *' devapp-hold '*)
+    echo $$ >> "$FAKE_DIR/hold-pids"
+    case "$scenario" in no-tunnel | no-tunnel-probe-lost) exit 255 ;; esac
+    if [ "$scenario" = slow-tunnel ] && [ ! -e "$FAKE_DIR/slow-seen" ]; then touch "$FAKE_DIR/slow-seen"; sleep 8; fi
+    echo held; exec sleep 30 ;;
+  # Whether the copy answers on its own computer: yes, unless the test made a probe-silent file.
+  *' devapp-probe '*)
+    [ "$scenario" = no-tunnel-probe-lost ] && exit 255
+    if [ -f "$FAKE_DIR/probe-silent" ]; then echo 'AIO_REMOTE_RESULT {"status":"silent","reason":"nothing answers on its debugging port there"}'
+    else echo 'AIO_REMOTE_RESULT {"status":"answers","reason":""}'; fi ;;
   *' devapp-stop '*) [ "$scenario" = failed-cleanup ] && exit 255; rm -f "$FAKE_DIR/copy-$host"; echo "stopped the Harness copy on port ${'$'}{cmd##* }" ;;
   *) exec bash -c "$cmd" ;;
 esac
@@ -170,20 +180,21 @@ function setUp(config: Record<string, unknown> | null = {}, { pc = false, liveTe
 type Setup = ReturnType<typeof setUp>;
 
 async function run(setup: Setup, argv: string[], {
-  scenario = 'pass', cwd = setup.root, answers = true, here = QUIET, localLoad = () => here, workerScenario = 'pass',
+  scenario = 'pass', cwd = setup.root, answers = true as boolean | ((port: number) => Promise<boolean>), here = QUIET, localLoad = () => here, workerScenario = 'pass',
   secretInput = undefined as (Readable & { isTTY?: boolean }) | undefined,
   onWrite = (_text: string) => { /* optional scheduler observation */ },
   evaluate = async (_port: number, _expression: string): Promise<unknown> => 'Win32',
+  env = {} as NodeJS.ProcessEnv,
 } = {}) {
   writeFileSync(join(setup.fake, 'scenario'), scenario);
   writeFileSync(join(setup.fake, 'worker-scenario'), workerScenario);
   let output = '';
   const code = await main(argv, {
     cwd,
-    env: { ...process.env, AIO_REMOTE_CHECKS_DIR: setup.dir, AIO_DEVAPP_RECHECK_MS: '20' },
+    env: { ...process.env, AIO_REMOTE_CHECKS_DIR: setup.dir, AIO_DEVAPP_RECHECK_MS: '20', ...env },
     write: (text) => { output += text; onWrite(text); },
     commonDir: join(setup.root, '.git'),
-    answers: async () => answers,
+    answers: typeof answers === 'function' ? answers : async () => answers,
     localLoad,
     ...(secretInput ? { secretInput } : {}),
     evaluate,
@@ -794,14 +805,95 @@ describe('dev-app start', () => {
     expect(output).toContain('cleanup of the failed copy could not be confirmed');
   }, LIMIT);
 
-  it('stops the far copy when the connection back to it does not open', async () => {
+  const startArgs = (port: number) => ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec'];
+  const holdPids = (setup: Setup) => readFileSync(join(setup.fake, 'hold-pids'), 'utf8').trim().split('\n').map(Number);
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const holds = (sshLog: string) => sshLog.split('\n').filter(line => line.includes(' devapp-hold ')).length;
+
+  it('tries the connection back to the copy three times, then stops the far copy and says why each try failed', async () => {
     const setup = setUp();
     const port = await freePort();
-    const { code, output, sshLog } = await run(setup, ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec'], { scenario: 'no-tunnel' });
+    const { code, output, sshLog } = await run(setup, startArgs(port), { scenario: 'no-tunnel' });
     expect(code).toBe(1);
     expect(output).toContain('the connection to it from here did not work');
+    expect(output).toContain('trying again (2 of 3)');
+    expect(output).toContain('trying again (3 of 3)');
+    for (const attempt of [1, 2, 3]) expect(output).toContain(`attempt ${attempt}: the connection to the far end ended before it was ready`);
+    // The far computer was asked whether the copy answers there, so the failure says which side is at fault.
+    expect(sshLog).toContain(` devapp-probe ${port}`);
+    expect(output).toContain('the copy does answer on the test Mac itself, so it is the connection from this Mac that fails');
+    expect(holds(sshLog)).toBe(3);
     expect(sshLog).toContain(` devapp-stop ${port}`);
     expect(existsSync(join(setup.dir, 'dev-apps', `${port}.json`))).toBe(false);
+    // The reasons stay in the port's tunnel log, for whoever looks afterwards.
+    const log = readFileSync(join(setup.dir, 'dev-apps', `${port}.tunnel.log`), 'utf8');
+    expect(log).toContain('attempt 3:');
+    expect(log).toContain('the copy does answer on the test Mac itself');
+    expect(runLog(setup).at(-1)).toMatchObject({ exitCode: 1, fellBackBecause: 'the tunnel did not open' });
+  }, LIMIT);
+
+  it('says the copy itself is silent when the far computer cannot reach its debugging port either', async () => {
+    const setup = setUp();
+    writeFileSync(join(setup.fake, 'probe-silent'), '');
+    const { code, output } = await run(setup, startArgs(await freePort()), { scenario: 'no-tunnel' });
+    expect(code).toBe(1);
+    expect(output).toContain('the copy does not answer on the test Mac either (nothing answers on its debugging port there)');
+  }, LIMIT);
+
+  it('says so when the far computer cannot be asked about the copy', async () => {
+    const setup = setUp();
+    const { output } = await run(setup, startArgs(await freePort()), { scenario: 'no-tunnel-probe-lost' });
+    expect(output).toContain('the test Mac could not be asked whether the copy answers there');
+  }, LIMIT);
+
+  it('gives a slow tunnel up and tries again, and the copy is kept when the second connection answers', async () => {
+    const setup = setUp();
+    const port = await freePort();
+    const { code, output, sshLog } = await run(setup, startArgs(port), {
+      scenario: 'slow-tunnel', env: { AIO_DEVAPP_TUNNEL_WAIT_MS: '1500' },
+    });
+    expect(code).toBe(0);
+    expect(output).toContain('the far end did not say it was ready within 2 seconds');
+    expect(output).toContain('trying again (2 of 3)');
+    expect(output).toContain('Harness is running on the test Mac');
+    expect(holds(sshLog)).toBe(2);
+    expect(sshLog).not.toContain(' devapp-stop ');
+    expect(sshLog).not.toContain(' devapp-probe ');
+    // The slow tunnel was stopped, so it cannot connect later and hold the port; the record names the one that worked.
+    const [slow, worked] = holdPids(setup);
+    const { tunnelPid } = JSON.parse(readFileSync(join(setup.dir, 'dev-apps', `${port}.json`), 'utf8')) as { tunnelPid: number };
+    expect(tunnelPid).toBe(worked);
+    expect(alive(slow)).toBe(false);
+    expect(alive(worked)).toBe(true);
+    process.kill(worked);
+  }, LIMIT);
+
+  it('stops a tunnel that nothing answers behind and tries again, keeping the copy when the next one answers', async () => {
+    const setup = setUp();
+    const port = await freePort();
+    const seen: number[] = [];
+    const { code, output, sshLog } = await run(setup, startArgs(port), {
+      answers: async (asked) => { seen.push(asked); return seen.length > 1; },
+    });
+    expect(code).toBe(0);
+    expect(output).toContain('attempt 1: the connection opened but nothing answered behind it');
+    expect(output).toContain('trying again (2 of 3)');
+    expect(holds(sshLog)).toBe(2);
+    expect(sshLog).not.toContain(' devapp-stop ');
+    const [first, second] = holdPids(setup);
+    expect(alive(first)).toBe(false);
+    process.kill(second);
+  }, LIMIT);
+
+  it('stops the far copy when nothing ever answers through the tunnel, and leaves no tunnel running', async () => {
+    const setup = setUp();
+    const port = await freePort();
+    const { code, output, sshLog } = await run(setup, startArgs(port), { answers: false });
+    expect(code).toBe(1);
+    for (const attempt of [1, 2, 3]) expect(output).toContain(`attempt ${attempt}: the connection opened but nothing answered behind it`);
+    expect(holds(sshLog)).toBe(3);
+    expect(sshLog).toContain(` devapp-stop ${port}`);
+    expect(holdPids(setup).some(alive)).toBe(false);
   }, LIMIT);
 
   it('joins its own running copy, reusing the connection already here', async () => {
@@ -1142,6 +1234,30 @@ describe('remote-run.sh dev-app commands', () => {
     expect(load.load).toBeGreaterThanOrEqual(0);
     expect(load.cores).toBeGreaterThan(0);
     expect(load).toMatchObject({ copies: 0, limit: 3, copy: null });
+  });
+
+  it('says whether a copy\'s debugging port answers on this machine, for the launcher\'s failure report', async () => {
+    const far = farMachine();
+    expect(far(['devapp-probe']).status).toBe(4);
+    expect(far(['devapp-probe', '80']).status).toBe(4);
+    // Asked from a child process that does not block this one, so the server below can answer it.
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'dev-app-far-')));
+    temps.push(base);
+    copyFileSync(join(__dirname, 'remote-run.sh'), join(base, 'remote-run.sh'));
+    const probe = (port: number) => new Promise<{ status: string }>((resolve) => {
+      const child = spawn('bash', [join(base, 'remote-run.sh'), 'devapp-probe', String(port)]);
+      let out = '';
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.on('close', () => resolve(JSON.parse(out.trim().slice('AIO_REMOTE_RESULT '.length)) as { status: string }));
+    });
+    const server = createHttpServer((request, response) => {
+      response.writeHead(request.url === '/json/version' ? 200 : 404);
+      response.end('{}');
+    });
+    const port = await new Promise<number>(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as { port: number }).port)));
+    expect(await probe(port)).toMatchObject({ status: 'answers' });
+    await new Promise(resolve => server.close(resolve));
+    expect(await probe(port)).toMatchObject({ status: 'silent' });
   });
 
   describe('devapp-providers', () => {

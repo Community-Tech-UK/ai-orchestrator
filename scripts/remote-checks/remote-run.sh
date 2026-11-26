@@ -11,6 +11,7 @@
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
 #   devapp-start <port> <commit>             start a live test's Harness copy (data folder on stdin); see below
 #   devapp-hold|devapp-stop <port>           the tunnel's far end; stop a copy
+#   devapp-probe <port>                      does the copy's debugging port answer here? (one result line)
 #   devapp-shell <port>                      run a script from stdin beside a copy
 #   devapp-status                            list the copies here
 #   devapp-worker-start <port> <coordinator> a disposable Windows worker for the copy on <port> (token on stdin); see below
@@ -1300,6 +1301,18 @@ cmd_devapp_hold() {
   while devapp_alive "$dir" && [ "$(devapp_state "$dir")" = ready ]; do sleep 5; done
 }
 
+# devapp-probe <port>: says whether the copy's debugging port answers on this computer's loopback, which is where the tunnel's
+# far end reaches it (on a Windows desktop copy, through the relay). dev-app.js asks when its tunnel does not work, to say
+# whether the copy or the connection to it is at fault. The reasons are fixed phrases.
+cmd_devapp_probe() {
+  devapp_port_ok "${1:-}" || exit 4
+  if curl -fsS -m 5 "http://127.0.0.1:$1/json/version" > /dev/null 2>&1; then
+    devapp_result answers ''
+  else
+    devapp_result silent 'nothing answers on its debugging port there'
+  fi
+}
+
 # devapp-shell <port>, with a script on stdin: runs it in the copy's checkout with the copy's data folder named in
 # AIO_DEV_USER_DATA_PATH, for reading its logs and database.
 cmd_devapp_shell() {
@@ -1745,6 +1758,7 @@ case "$command_name" in
   devapp-win-install) cmd_devapp_win_install "$@" ;;
   devapp-serve) cmd_devapp_serve "$@" ;;
   devapp-hold) cmd_devapp_hold "$@" ;;
+  devapp-probe) cmd_devapp_probe "$@" ;;
   devapp-shell) cmd_devapp_shell "$@" ;;
   devapp-stop) cmd_devapp_stop "$@" ;;
   devapp-status) cmd_devapp_status ;;
@@ -1753,5 +1767,5 @@ case "$command_name" in
   devapp-worker-do) cmd_devapp_worker_do "$@" ;;
   devapp-worker-stop) cmd_devapp_worker_stop "$@" ;;
   devapp-providers) cmd_devapp_providers ;;
-  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load|devapp-providers|devapp-worker-start|devapp-worker-stop" >&2; exit 2 ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-probe|devapp-shell|devapp-stop|devapp-status|devapp-load|devapp-providers|devapp-worker-start|devapp-worker-stop" >&2; exit 2 ;;
 esac

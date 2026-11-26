@@ -9,7 +9,9 @@
  * busy if the start would join it; replacing it means a fresh build, which goes to a computer that isn't busy. When
  * every one is busy, start looks again every 2 minutes until one isn't: it never gives up for being busy. A tunnel then
  * carries this Mac's debugging port to the copy's, so the agent drives it over CDP at http://127.0.0.1:<port> exactly
- * as it would a copy started here. The tunnel closes by itself when the copy stops.
+ * as it would a copy started here. The tunnel closes by itself when the copy stops. A tunnel that is slow to come up, or
+ * that nothing answers behind, is stopped and tried again (3 tries); if all fail the copy is stopped and the failure
+ * names each try's reason and whether the copy itself answers on its computer, in the port's tunnel.log.
  *
  *   node <Harness checkout>/scripts/remote-checks/dev-app.js start --port <debugging port> --data /tmp/aio-lt-<name>
  *   node .../dev-app.js shell --port <debugging port> '<command>'   # runs beside the copy, its data folder in
@@ -57,7 +59,11 @@ const RESULT_PREFIX = 'AIO_REMOTE_RESULT ';
 /** Covers a first install of every package, both builds and Harness starting. */
 const START_LIMIT_MS = 25 * 60_000;
 const SHELL_LIMIT_MS = 10 * 60_000;
-const TUNNEL_WAIT_MS = 20_000;
+/** How long one try at the tunnel waits for the far end to say `held`; AIO_DEVAPP_TUNNEL_WAIT_MS changes it. */
+const TUNNEL_WAIT_MS = 30_000;
+/** A tunnel that does not come up, or that nothing answers behind, is tried again this many times before the copy is given up on. */
+const TUNNEL_ATTEMPTS = 3;
+const PROBE_LIMIT_MS = 30_000;
 const PORT_FREE_WAIT_MS = 15_000;
 const ANSWER_WAIT_MS = 15_000;
 /** Busy from this 5-minute load per processor: the first step of src/main/runtime/system-load-monitor.ts. */
@@ -445,15 +451,25 @@ function streamStart(machine, remoteCommand, data, write) {
   });
 }
 
+function tunnelLogPath(env, port) {
+  return path.join(stateDir(env), `${port}.tunnel.log`);
+}
+
+function tunnelWaitMs(env) {
+  const value = Number(env.AIO_DEVAPP_TUNNEL_WAIT_MS);
+  return Number.isFinite(value) && value > 0 ? value : TUNNEL_WAIT_MS;
+}
+
 /**
  * Opens the tunnel from this Mac's port to the copy's, as a process of its own that outlives this command. Its far end
- * (devapp-hold) says `held` once the forward is in place, and lasts as long as the copy. Resolves with the tunnel's
- * process id once it has, or null.
+ * (devapp-hold) says `held` once the forward is in place, and lasts as long as the copy. Its output and the reason for
+ * any failure go to `logPath`, which is only ever added to. Resolves `{ pid }` once the far end has spoken, or
+ * `{ pid: null, failure }`. A tunnel that did not speak in time is stopped here, so it cannot connect later and hold the
+ * port against the next start; the process id is the one this call just made, never a recorded one.
  */
-async function openTunnel(machine, script, port, env) {
-  fs.mkdirSync(stateDir(env), { recursive: true });
-  const logPath = path.join(stateDir(env), `${port}.tunnel.log`);
-  const out = fs.openSync(logPath, 'w');
+async function openTunnel(machine, script, port, logPath, waitMs) {
+  const from = fs.statSync(logPath).size;
+  const out = fs.openSync(logPath, 'a');
   const child = spawn(machine.ssh || 'ssh', [
     ...(machine.sshConfig ? ['-F', machine.sshConfig] : []), ...SSH_OPTIONS,
     '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${port}:127.0.0.1:${port}`,
@@ -461,16 +477,70 @@ async function openTunnel(machine, script, port, env) {
   ], { detached: true, stdio: ['ignore', out, out] });
   fs.closeSync(out);
   let exited = false;
+  let spawnError = null;
   child.on('exit', () => { exited = true; });
-  child.on('error', () => { exited = true; });
+  child.on('error', (err) => { exited = true; spawnError = err.message; });
   child.unref();
-  const deadline = Date.now() + TUNNEL_WAIT_MS;
+  const printed = () => fs.readFileSync(logPath).subarray(from).toString('utf8').trim();
+  const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    if (/^held$/m.test(fs.readFileSync(logPath, 'utf8'))) return child.pid;
-    if (exited) return null;
+    const text = printed();
+    if (/^held$/m.test(text)) return { pid: child.pid };
+    if (exited) {
+      const lastLine = text.split('\n').pop();
+      return { pid: null, failure: `the connection to the far end ended before it was ready${spawnError ? ` (${spawnError})` : lastLine ? ` (${lastLine})` : ''}` };
+    }
     await sleep(200);
   }
-  return null;
+  try { process.kill(child.pid); } catch { /* it ended at the last moment */ }
+  return { pid: null, failure: `the far end did not say it was ready within ${Math.round(waitMs / 1000)} seconds` };
+}
+
+/** Asks the far computer whether the copy's debugging port answers there, where the tunnel's far end reaches it. */
+async function probeFar(machine, script, port) {
+  const ran = await sshCommand(machine, `bash ${script} devapp-probe ${port}`, { timeoutMs: PROBE_LIMIT_MS });
+  const result = ran.code !== 0 || ran.timedOut ? null : resultOf(ran.stdout);
+  if (result?.status === 'answers') return `the copy does answer on ${machine.label} itself, so it is the connection from this Mac that fails`;
+  if (result?.status === 'silent') return `the copy does not answer on ${machine.label} either (${result.reason})`;
+  return `${machine.label} could not be asked whether the copy answers there`;
+}
+
+/**
+ * Brings up the tunnel from this Mac's port to the copy's and checks the copy answers through it, trying again when it does
+ * not (a slow far computer is the usual cause). `remember(pid)` is told each tunnel that comes up. Resolves `{ ok: true }`, or
+ * `{ ok: false, why }` with every attempt's reason and what the far computer says of the copy itself; the same lines are
+ * added to the tunnel's log, which stays for whoever reads it afterwards.
+ */
+async function connectTunnel({ machine, script, port, env, answers, write, remember }) {
+  fs.mkdirSync(stateDir(env), { recursive: true });
+  const logPath = tunnelLogPath(env, port);
+  fs.writeFileSync(logPath, '');
+  const faults = [];
+  const note = (text) => {
+    faults.push(text);
+    fs.appendFileSync(logPath, `dev-app: ${text}\n`);
+  };
+  for (let attempt = 1; attempt <= TUNNEL_ATTEMPTS; attempt += 1) {
+    if (attempt > 1) {
+      write(`dev-app: the connection to ${machine.label} did not come up (${faults[faults.length - 1]}); trying again (${attempt} of ${TUNNEL_ATTEMPTS}).\n`);
+      if (!await waitForFreePort(port)) {
+        note(`port ${port} here was not free again after attempt ${attempt - 1}`);
+        break;
+      }
+    }
+    const opened = await openTunnel(machine, script, port, logPath, tunnelWaitMs(env));
+    if (opened.pid) {
+      remember(opened.pid);
+      if (await answers(port)) return { ok: true };
+      // Stopped here so that the next try, or the next start, finds the port free.
+      try { process.kill(opened.pid); } catch { /* it had already ended */ }
+      note(`attempt ${attempt}: the connection opened but nothing answered behind it on port ${port}`);
+    } else {
+      note(`attempt ${attempt}: ${opened.failure}`);
+    }
+  }
+  note(await probeFar(machine, script, port));
+  return { ok: false, why: faults.join('; ') };
 }
 
 function isRunning(pid) {
@@ -548,11 +618,10 @@ async function startOn({ machine, script, own, previous, root, snapshot, options
       await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
       return { code: 1, reason: 'the port was in use here' };
     }
-    const tunnelPid = await openTunnel(machine, script, port, env);
-    if (tunnelPid) remember(tunnelPid);
-    if (!tunnelPid || !await answers(port)) {
-      write(`dev-app: Harness started on ${machine.label}, but the connection to it from here did not work. `
-        + `See ${path.join(stateDir(env), `${port}.tunnel.log`)}.\n`);
+    const tunnel = await connectTunnel({ machine, script, port, env, answers, write, remember });
+    if (!tunnel.ok) {
+      write(`dev-app: Harness started on ${machine.label}, but the connection to it from here did not work: ${tunnel.why}. `
+        + `The same is in ${tunnelLogPath(env, port)}.\n`);
       await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
       fs.rmSync(stateFile(env, port), { force: true });
       return { code: 1, reason: 'the tunnel did not open' };
@@ -787,7 +856,7 @@ async function stop({ options, env, write }) {
     return 1;
   }
   fs.rmSync(stateFile(env, options.port), { force: true });
-  fs.rmSync(path.join(stateDir(env), `${options.port}.tunnel.log`), { force: true });
+  fs.rmSync(tunnelLogPath(env, options.port), { force: true });
   write(sent.stdout);
   if (!await waitForFreePort(options.port)) write(`dev-app: port ${options.port} is still in use here; something else may hold it.\n`);
   return 0;

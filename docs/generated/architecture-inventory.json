@@ -6618,6 +6618,10 @@
       "lines": 1784
     },
     {
+      "path": "scripts/remote-checks/dev-app.spec.ts",
+      "lines": 1743
+    },
+    {
       "path": "src/main/orchestration/default-invokers.ts",
       "lines": 1730
     },
@@ -6648,10 +6652,6 @@
     {
       "path": "docs/_archive/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.spec.ts",
-      "lines": 1627
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements_completed.md",
@@ -7018,6 +7018,10 @@
       "lines": 1198
     },
     {
+      "path": "scripts/remote-checks/dev-app.js",
+      "lines": 1192
+    },
+    {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 1192
     },
@@ -7120,10 +7124,6 @@
     {
       "path": "docs/_archive/superpowers/plans/2026-04-20-ai-orchestrator-cross-repo-remediation-plan_completed.md",
       "lines": 1126
-    },
-    {
-      "path": "scripts/remote-checks/dev-app.js",
-      "lines": 1123
     },
     {
       "path": "src/main/app/compaction-runtime.spec.ts",
