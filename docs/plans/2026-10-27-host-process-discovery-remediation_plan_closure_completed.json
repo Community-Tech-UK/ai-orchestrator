@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_plan.md",
+      "sha256": "5de9f88a7e7cecf61a21db7bd1b1a53aac8d57be2dc93dfa4490d4b075c87596",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_history.md",
+      "sha256": "f08f126f09f6aff339722568cbee080b23119139534c7235aad0d68de4f23762",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_plan_completed.md",
+      "sha256": "d92d938a0da81b50c7503cea974fc4364b241a8f73383ee065c164792f6ed61c"
+    },
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_plan_history_4ddfc8f0df6b395c7d803cae56c373798b1cbcc2bb14c07b60d92c362885b7f6_completed.md",
+      "sha256": "4fea732c9f176fc3e6940ed8ee04450efe8d57c8d0288e95b5e0c8790d2c3e57"
+    }
+  ]
+}
