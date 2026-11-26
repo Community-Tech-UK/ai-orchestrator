@@ -652,6 +652,23 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     prepare.mockRestore();
   });
 
+  it('leaves all five jobs queued, none set aside and the run not held, while no work folder is free', async () => {
+    const names = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+    for (const name of names) planDoc(`2026-01-01-${name}`);
+    fake.scripts.worker = never;
+    const prepare = vi.spyOn(coordinator.worktrees, 'prepare').mockRejectedValue(new WorktreeCapacityError('Maximum concurrent worktrees (5) reached'));
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 5 } });
+    await coordinator._whenSettledForTesting();
+    expect(prepare).toHaveBeenCalledTimes(5);
+    const items = store.listItems(run.id);
+    expect(items).toHaveLength(5);
+    for (const item of items) expect(item).toMatchObject({ state: 'queued', round: 0, parkReason: null, detail: 'Waiting for a free work folder (0 in use)' });
+    expect(store.getRun(run.id)!.status).toBe('running');
+    expect(store.getRun(run.id)!.holdReason ?? null).toBeNull();
+    expect(fake.created.filter(instance => instance.role === 'worker')).toEqual([]);
+    prepare.mockRestore();
+  });
+
   it('counts queue work against the same limit on its own: a full shared limit does not stop it, and its checkouts never use that limit up', async () => {
     planDoc('2026-01-01-limit-one');
     planDoc('2026-01-01-limit-two');

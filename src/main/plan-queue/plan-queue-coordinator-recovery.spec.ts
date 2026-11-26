@@ -183,6 +183,34 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     expect(git(['show', 'main:2026-01-01-alpha_plan.feature.txt'])).toBe('built 2026-01-01-alpha_plan');
   });
 
+  it('parks a job as restart-loop after three restarts with no round finished in between, and sends no fourth worker', async () => {
+    planDoc('2026-01-01-alpha');
+    fake.scripts.worker = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForState(0, run.id, 'working');
+    const itemId = run.items[0].id;
+    const parent = fake.created.find((i) => i.role === 'parent')!;
+    const restartCounts = () => store.history.listEvents(itemId, 100).filter(event => event.reason === 'restart-resume').length;
+
+    // Each restart counts once and respawns the worker, which never gets as far as finishing a round.
+    for (const expected of [1, 2]) {
+      fake.created.unshift(parent); // `restart` looks the parent up in the instances it is replacing
+      const next = await restart(null, { scripts: { worker: never } });
+      await vi.waitFor(() => expect(next.created.some((i) => i.role === 'worker')).toBe(true), { timeout: 15_000, interval: 25 });
+      await vi.waitFor(() => expect(restartCounts()).toBe(expected), { timeout: 15_000, interval: 25 });
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'working', parkReason: null, round: 0 });
+    }
+
+    fake.created.unshift(parent);
+    const third = await restart(null, { scripts: { worker: never } });
+    await vi.waitFor(() => expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('parked'), { timeout: 15_000, interval: 25 });
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({
+      parkReason: 'restart-loop', detail: 'Restarted 3 times without progress. Check the saved work, then Resume.',
+    });
+    expect(third.created.filter((i) => i.role === 'worker')).toHaveLength(0);
+    expect(restartCounts()).toBe(3);
+  });
+
   it('finishes parking a job Harness stopped when the app ended mid-park, without respawning its worker', async () => {
     planDoc('2026-01-01-alpha');
     const parent = fake.addParent();

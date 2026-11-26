@@ -7543,6 +7543,10 @@
       "lines": 919
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
+      "lines": 916
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 915
     },
@@ -7595,7 +7599,7 @@
       "lines": 900
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
+      "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
       "lines": 899
     },
     {
@@ -7681,10 +7685,6 @@
     {
       "path": "docs/plans/2026-10-10-oct-phase4c-tooltips-finish_plan_completed.md",
       "lines": 874
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
-      "lines": 871
     },
     {
       "path": "src/main/instance/__tests__/instance-lifecycle-system-prompt-contract.spec.ts",

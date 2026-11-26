@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { failureOwner, normaliseFailure } from './plan-queue-failure-class';
+import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
+import { classifyQueuePreparationError, failureOwner, normaliseFailure } from './plan-queue-failure-class';
 
 describe('failureOwner, using wording from real stored failures', () => {
   it.each([
@@ -33,5 +34,38 @@ describe('normaliseFailure', () => {
 
   it('keeps different faults apart', () => {
     expect(normaliseFailure('disk unavailable')).not.toBe(normaliseFailure('network unavailable'));
+  });
+});
+
+describe('classifyQueuePreparationError', () => {
+  it('goes by error type first, even when the wording is unrecognisable, and sees a type held as the cause', () => {
+    expect(classifyQueuePreparationError(new WorktreeCapacityError('no room'))).toBe('transient-capacity');
+    expect(classifyQueuePreparationError(new Error('Could not prepare', { cause: new WorktreeCapacityError('no room') }))).toBe('transient-capacity');
+  });
+
+  it.each(['EAGAIN', 'EMFILE', 'ENFILE', 'EBUSY'])('goes by the error code %s before any wording', (code) => {
+    expect(classifyQueuePreparationError(Object.assign(new Error('spawn failed'), { code }))).toBe('transient-capacity');
+  });
+
+  // The wording is only a fallback, for errors Harness throws as plain `Error`s. These strings pin it.
+  it.each([
+    'Maximum concurrent worktrees (5) reached',
+    'Instance creation is paused by the resource governor (instance-limit).',
+    'The load gate is closed: the machine is too busy to start another job',
+    'Provider codex is at capacity',
+    'provider claude concurrency limit reached',
+    'too many concurrent sessions',
+  ])('treats "%s" as capacity that frees up by itself', (message) => {
+    expect(classifyQueuePreparationError(new Error(message))).toBe('transient-capacity');
+  });
+
+  it.each([
+    new Error('The document has no acceptance criteria'),
+    new Error('git worktree add failed: fatal: invalid reference: main'),
+    Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+    'a thrown string',
+    null,
+  ])('leaves %s with the job', (error) => {
+    expect(classifyQueuePreparationError(error)).toBe('this-job');
   });
 });
