@@ -155,6 +155,20 @@ describe('coordinator document selection', () => {
     expect(store.listItems(run.id)[0].state).toBe('discovered');
   });
 
+  it.each(['docs/plans/target_plan.md', 'docs/plans/*_plan.md'])('saves the selection %s on the run, so a later read of the run still has it', async (glob) => {
+    vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+    write('docs/plans/target_plan.md');
+    const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'plans', glob });
+    expect(new PlanQueueStore(db).getRun(run.id)?.config.glob).toBe(glob);
+  });
+
+  it('leaves the selection out of the saved run when none was given', async () => {
+    vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+    write('docs/plans/target_plan.md');
+    const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'plans' });
+    expect(new PlanQueueStore(db).getRun(run.id)?.config.glob).toBeUndefined();
+  });
+
   it('does not persist a run or claim items when wildcard discovery is incomplete', async () => {
     for (let i = 0; i < 5_001; i++) write(`docs/plans/a-${String(i).padStart(5, '0')}_plan.md`);
     await expect(coordinator.startRun({ parentInstanceId: 'parent', kind: 'plans' })).rejects.toThrow(/incomplete/i);
