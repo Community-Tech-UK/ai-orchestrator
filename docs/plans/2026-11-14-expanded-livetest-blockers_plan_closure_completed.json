@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-14-expanded-livetest-blockers_plan.md",
+      "sha256": "d4595c3ed7f8ed6c6945ddb72f408b30346c8a469e6220c6187e4d01e6843840",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-14-expanded-livetest-blockers_history.md",
+      "sha256": "fc2412bf83188fbc5c4a1e913d84851905b675639e1d0d72cfd562cdc55ab9aa",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-14-expanded-livetest-blockers_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-14-expanded-livetest-blockers_plan_completed.md",
+      "sha256": "b2ac1ea22449adc01f4905217c2f7b0fa2dcd2d5cdb6dedacea31a90aa946074"
+    },
+    {
+      "relativePath": "2026-11-14-expanded-livetest-blockers_plan_history_96fd16ff7261f35d112ba7fe8b04cda5cd910de81210ef7075aac5de55003084_completed.md",
+      "sha256": "083a0d38ff5e2ae7999e4ad2d88079b78346bedcb0d046ddc91b0f1ceb3f0051"
+    }
+  ]
+}
