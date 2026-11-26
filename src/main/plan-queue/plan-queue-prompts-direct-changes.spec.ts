@@ -37,6 +37,14 @@ describe('plan queue prompts and changes made directly on main', () => {
     expect(buildConflictPrompt('main', ['src/shell.ts'])).toContain('is a direct change: keep it even if your plan disagrees');
   });
 
+  it('tells a worker resolving a merge clash to prefer the base branch and regenerate generated files, naming no repository command', () => {
+    const prompt = buildConflictPrompt('main', ['src/preload/generated/channels.ts']);
+    expect(prompt).toContain('prefer the base branch\'s');
+    expect(prompt).toContain('Regenerate generated files with the repository\'s own generators instead of merging them by hand');
+    expect(prompt).toContain('and the repository\'s gates');
+    expect(prompt).not.toContain('npm run');
+  });
+
   it('names stale_plan_text in both report instructions and the checker\'s example call, which stays a valid PASS', () => {
     expect(reportReadyTask('item')).toContain('`stale_plan_text`');
     expect(reportFileTask('item', { reportFile: '/r.json' })).toContain('`stale_plan_text`');

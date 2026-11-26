@@ -102,7 +102,8 @@ const BUDGET = {
   // no longer repeats the autonomy rules in its own bullet; ceilings round up to 100 (see the 14 Nov note above).
   queueLivetestWorker: { chars: 7500, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
-  queueConflict: { chars: 800, render: () => buildConflictPrompt('main', ['fixture.ts']) },
+  // 26 Nov: the conflict prompt gained Phase B Step 8(i) (prefer the base branch; regenerate generated files with the repository's own generators). Measured: conflict 1,020, continue + conflict 1,189, resume + conflicts 8,837; ceilings round up to 100.
+  queueConflict: { chars: 1100, render: () => buildConflictPrompt('main', ['fixture.ts']) },
   queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
   queueActiveDocuments: { chars: 1000, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
   // The resumed worker carries that same dependency-preserving rule (3,759 chars).
@@ -116,8 +117,8 @@ const BUDGET = {
   // step-up 4,888 (livetest 4,853), verifier reminder 1,284. Existing caps stay.
   // 8 Nov (replay onto main with the Oct-2 stack): the stack's Status-block, root-history, foreground-checks and step-scope rules sit on top of main's deferred-checks wording. Measured: worker 5,189, resume 5,631, resume + conflicts 6,207, step-up 7,221, livetest step-up 7,224, triage 4,763; ceilings round up to 100.
   queueContinue: { chars: 200, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') },
-  queueContinueConflict: { chars: 1000, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueResumeConflict: { chars: 8600, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueContinueConflict: { chars: 1300, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueResumeConflict: { chars: 8900, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
   queueStepUp: { chars: 9600, render: () => buildStepUpPrompt(queue, 3, findings) },
   queueLivetestStepUp: { chars: 9700, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
   queueWorkerReminder: { chars: 2300, render: () => buildWorkerReminderPrompt(item.id, 1, 2, WORKER_WAIT_RULE) },

@@ -305,7 +305,10 @@ export function buildConflictPrompt(baseBranch: string, conflictFiles: readonly 
     '',
     'A base-branch side from a commit without the "Landed by Plan Queue" line is a direct change: keep it even if your plan disagrees, and list the plan sentence under `stale_plan_text`.',
     '',
-    'Task: resolve every conflict so both sides\' intent survives, remove all conflict markers, `git add` the resolved files, re-run the targeted checks, then ' + REPORT_AGAIN + ' and stop. Do not commit and do not abort the merge; the coordinator finishes it.',
+    // Without this a worker hand-merges committed generated output (IPC channels, aliases, architecture inventory) and ships a stale copy.
+    'Where both sides changed the same behaviour, prefer the base branch\'s. Regenerate generated files with the repository\'s own generators instead of merging them by hand (the plan\'s Status block or the repository\'s AGENTS.md names them).',
+    '',
+    'Task: resolve every conflict so both sides\' intent survives, remove all conflict markers, `git add` the resolved files, re-run the targeted checks and the repository\'s gates, then ' + REPORT_AGAIN + ' and stop. Do not commit and do not abort the merge; the coordinator finishes it.',
   ].join('\n');
 }
 
