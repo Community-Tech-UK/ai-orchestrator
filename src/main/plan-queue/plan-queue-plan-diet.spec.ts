@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CLOSE_SMALL_SUMMARY_BYTES, closeSmallDocument, dietPointerLine, maybeDietDocument, splitDatedJournalSections } from './plan-queue-plan-diet';
+import { CLOSE_SMALL_SUMMARY_BYTES, DIET_GROWTH_BYTES, closeSmallDocument, dietAtCheckpoint, dietPointerLine, documentHistoryPath, maybeDietDocument, splitDatedJournalSections } from './plan-queue-plan-diet';
+import type { PlanQueueHistoryStore } from './plan-queue-history-store';
+import type { PlanQueueItem } from './plan-queue.types';
 import { renameDocumentsInPlace } from './plan-queue-doc-close';
 
 const roots: string[] = [];
@@ -122,6 +124,54 @@ describe('checkpoint plan diet', () => {
     expect(kept).toContain('- [ ] Keep this requirement');
     expect(moved).toContain('First journal'); expect(moved).toContain('Third journal');
     expect(Buffer.byteLength(kept) + Buffer.byteLength(moved)).toBe(Buffer.byteLength(content) + Buffer.byteLength(dietPointerLine('work_history.md')));
+  });
+  describe('when the diet runs', () => {
+    const oneStatus = '# Plan\n## Status\nActive\n## As built\n### 2026-10-28\nFirst journal\n';
+    const setup = (text: string) => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'queue-diet-'))); roots.push(root);
+      const documentPath = join(root, 'work_plan.md'); const historyPath = join(root, 'work_history.md');
+      writeFileSync(documentPath, text);
+      return { documentPath, historyPath };
+    };
+    it('leaves a document with one status block that has not grown by more than 8 KB', async () => {
+      const paths = setup(oneStatus + 'x'.repeat(DIET_GROWTH_BYTES - 1));
+      const start = Buffer.byteLength(oneStatus);
+      expect(await maybeDietDocument({ ...paths, bytesAtJobStart: start })).toMatchObject({ moved: false, reason: 'within the size budget' });
+      expect(readFileSync(paths.documentPath, 'utf8')).toContain('First journal');
+      expect(() => readFileSync(paths.historyPath)).toThrow();
+    });
+    it('moves the journal once the document grew by more than 8 KB, even with one status block', async () => {
+      const text = oneStatus + 'x'.repeat(DIET_GROWTH_BYTES + 1);
+      const paths = setup(text);
+      expect(await maybeDietDocument({ ...paths, bytesAtJobStart: Buffer.byteLength(oneStatus) })).toMatchObject({ moved: true });
+      expect(readFileSync(paths.historyPath, 'utf8')).toContain('First journal');
+      expect(readFileSync(paths.documentPath, 'utf8')).toContain(dietPointerLine('work_history.md'));
+    });
+    it('does nothing for one status block when no start size was recorded', async () => {
+      const paths = setup(oneStatus + 'x'.repeat(DIET_GROWTH_BYTES * 2));
+      expect(await maybeDietDocument({ ...paths, bytesAtJobStart: null })).toMatchObject({ moved: false });
+    });
+    it('appends to an existing history file without losing what it holds', async () => {
+      const paths = setup(content);
+      writeFileSync(paths.historyPath, 'Earlier evidence');
+      await maybeDietDocument({ ...paths, bytesAtJobStart: Buffer.byteLength(content) });
+      const history = readFileSync(paths.historyPath, 'utf8');
+      expect(history.startsWith('Earlier evidence\n### 2026-10-28')).toBe(true);
+    });
+    it('runs from the checkpoint with the size pinned at job start, and records the transformation', async () => {
+      const paths = setup(content);
+      const recorded: unknown[] = [];
+      const memory = { getPin: () => ({ documentBytes: Buffer.byteLength(content) }),
+        recordDocumentTransformation: (_item: unknown, change: unknown) => { recorded.push(change); } } as unknown as PlanQueueHistoryStore;
+      await dietAtCheckpoint({ id: 'item-1', sourceRef: paths.documentPath } as PlanQueueItem, memory);
+      expect(documentHistoryPath(paths.documentPath)).toBe(paths.historyPath);
+      expect(readFileSync(paths.historyPath, 'utf8')).toContain('Third journal');
+      expect(recorded).toHaveLength(1);
+    });
+    it('never blocks the checkpoint when the diet cannot run', async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'queue-diet-'))); roots.push(root);
+      await expect(dietAtCheckpoint({ id: 'item-1', sourceRef: join(root, 'gone_plan.md') } as PlanQueueItem)).resolves.toBeUndefined();
+    });
   });
   it('does not overwrite a concurrent document edit or create a history on that attempt', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'queue-diet-'))); roots.push(root);
