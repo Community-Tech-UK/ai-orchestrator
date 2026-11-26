@@ -133,7 +133,12 @@ describe('deliverInitialPromptAfterSpawn', () => {
     const notice = deps.buffered[0];
     expect(notice.type).toBe('system');
     expect(notice.metadata?.['initialPromptFailed']).toBe(true);
-    expect(notice.content).toContain('context-cost recovery paused');
+    // Plain words on screen; the provider's own text stays behind Details.
+    expect(notice.content).toContain('could not be delivered');
+    expect(notice.content).not.toContain('context-cost recovery paused');
+    expect(notice.metadata?.['errorPresentation']).toMatchObject({
+      rawDetail: expect.stringContaining('context-cost recovery paused'),
+    });
     expect(deps.emitted[0]).toBe(notice);
   });
 
@@ -152,6 +157,18 @@ describe('deliverInitialPromptAfterSpawn', () => {
     expect(deps.queueUpdate).toHaveBeenCalledOnce();
     expect(deps.buffered).toHaveLength(0);
     expect(deps.emitted).toHaveLength(0);
+  });
+
+  it('never shows a status code or bracketed method name in the notice', async () => {
+    const instance = makeInstance('busy');
+    const deps = makeDeps();
+    const send = vi.fn().mockRejectedValue(new Error('[turn/start] request failed with status 502 Bad Gateway'));
+
+    await deliverInitialPromptAfterSpawn(instance, new AbortController().signal, send, deps);
+
+    const notice = deps.buffered[0];
+    expect(notice.content).not.toMatch(/502|\[turn\/start\]|Bad Gateway/);
+    expect(notice.metadata?.['errorPresentation']).toMatchObject({ rawDetail: expect.stringContaining('502') });
   });
 
   it('rethrows on an in-flight abort so the caller can roll back a deliberate teardown', async () => {

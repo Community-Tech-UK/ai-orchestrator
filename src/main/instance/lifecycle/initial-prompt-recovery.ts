@@ -3,6 +3,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { isSurfacedToUserError } from '../../cli/adapters/surfaced-error';
 import { getLogger } from '../../logging/logger';
+import { presentFailure } from '../instance-failure-presentation';
 import { errorDiagnostic } from '../../logging/source-diagnostics';
 import { getTurnFileBaselineService } from '../../vcs/turn-file-baseline';
 import { GlobalPauseService } from '../../global-pause/global-pause-service';
@@ -181,13 +182,12 @@ export async function deliverInitialPromptAfterSpawn(
       return;
     }
     if (signal.aborted || isAutomaticStartupCancelled(error)) throw error;
-    const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(
       'Initial prompt failed after successful spawn; preserving session',
       undefined,
       { instanceId: instance.id, ...errorDiagnostic(error) },
     );
-    preserveSession(instance, errorMessage, deps, !isSurfacedToUserError(error));
+    preserveSession(instance, error, deps, !isSurfacedToUserError(error));
   }
 }
 
@@ -217,7 +217,7 @@ async function queueInitialPromptForResume(instance: Instance): Promise<void> {
  */
 function preserveSession(
   instance: Instance,
-  errorMessage: string,
+  error: unknown,
   deps: InitialPromptRecoveryDeps,
   postNotice: boolean,
 ): void {
@@ -236,14 +236,23 @@ function preserveSession(
   deps.queueUpdate(instance);
   if (!postNotice) return;
 
+  // The provider's own text is the real reason: presentFailure puts a plain sentence on screen and keeps
+  // the cleaned reason under Details (errorPresentation.rawDetail).
+  const failure = presentFailure({
+    error,
+    message: error instanceof Error ? error.message : String(error),
+    instance,
+    lead: 'The first message could not be delivered, but the session was kept open. Send it again.',
+  });
   const notice: OutputMessage = {
     id: generateId(),
     timestamp: Date.now(),
     type: 'system',
-    content: `The initial message could not be delivered and the session was kept open. Reason: ${errorMessage}`,
+    content: failure.content,
     metadata: {
       source: 'initial-prompt-failed',
       initialPromptFailed: true,
+      ...failure.metadata,
     },
   };
   deps.addToOutputBuffer(instance, notice);
