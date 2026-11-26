@@ -93,6 +93,8 @@ export interface CheckerPromptInput {
   pin: PlanQueueItemPin | undefined;
   /** Files changed on the base branch since the job began that this job must keep (`plan-queue-direct-changes.ts`). */
   directChanges: readonly DirectChange[];
+  /** Whether the Queue linked this item to a capability repair, the only kind of item that reports a runtime probe. */
+  ownsRepair: boolean;
 }
 
 export interface QueueWorkSource {

@@ -32,7 +32,7 @@ beforeEach(() => {
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null });
   store.upsertItem(newPlanQueueItem('item', 'run', sourceRef, 1, { state: 'verifying', branchName: 'queue/test',
     checkpointCommit: 'head', worktreePath: root, workerInstanceId: 'worker' }));
-  host = { history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
+  host = { store, history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
     save: (item: PlanQueueItem) => { store.upsertItem(item); return item; }, checksAdmitted: () => true,
     tracker: { isShuttingDown: () => false }, worktrees: {
       withBaseline: async (_repo: string, _sha: string, action: (cwd: string) => Promise<unknown>) => action('/baseline') },
@@ -204,6 +204,12 @@ describe('queue verification policy', () => {
     await policy.prepare(host.getItem('item'));
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix', prompt: expect.stringContaining('Nothing changed') });
     expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'park', reason: 'no-progress' });
+  });
+
+  it('tells the checker an item with no capability repair link needs no runtime probe', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
+    expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('not a Queue-linked capability repair');
   });
 
   it.each([false, true])('rechecks a changed source after invalidating a PASS (new policy: %s)', async restart => {

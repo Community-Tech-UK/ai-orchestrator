@@ -25,13 +25,20 @@ export function capabilityRules(repoRoot?: string, remote = false): string[] {
   ];
 }
 
-export function capabilityCheckerRules(item: PlanQueueItem, repoRoot: string): string[] {
-  const launcher = hasHarnessRuntimeLauncher(repoRoot);
+/**
+ * `ownsRepair` is whether the Queue linked this very item to a capability repair. Only such an item can report a probe
+ * (`reportProbe` refuses any other), so only it is asked for one; a plan that merely describes or changes the repair
+ * feature is reviewed like any other job.
+ */
+export function capabilityCheckerRules(item: PlanQueueItem, repoRoot: string, ownsRepair: boolean): string[] {
+  const launcher = hasHarnessRuntimeLauncher(repoRoot) && ownsRepair;
   return [
     ...capabilityRules(repoRoot),
     `- Read plan_queue_status for run_id "${item.runId}". When this item retries checks linked to a repair, verify each exact check and call plan_queue_report_capability_check with item_id "${item.id}", repair_id, exact check text and concrete evidence before your normal verdict. A passing check may resolve even when another check in the document still needs genuine human action.`,
-    ...(launcher ? ['- If this is a capability repair plan, independent PASS requires a current runtime probe. In the reviewed worktree, read the checkpoint tree with `git rev-parse HEAD^{tree}`. Start the authorised remote copy with the repository dev-app launcher’s `--checked-tree` option. Preserve its actual `AIO_DEV_APP_RECEIPT` JSON; do not manufacture or substitute the expected tree when it differs.',
+    ...(launcher ? ['- This item is a Queue-linked capability repair, so independent PASS requires a current runtime probe. In the reviewed worktree, read the checkpoint tree with `git rev-parse HEAD^{tree}`. Start the authorised remote copy with the repository dev-app launcher’s `--checked-tree` option. Preserve its actual `AIO_DEV_APP_RECEIPT` JSON; do not manufacture or substitute the expected tree when it differs.',
     '- Read application name, version and isPackaged from the running copy and execute the exact new control. Stop the owned copy afterward. Write an ignored, bounded JSON receipt in your worktree. Its launch field contains the actual launcher object; runtime contains application, version and isPackaged; operation and result contain the exact probe and observed outcome; observedAt contains Unix milliseconds. No tracked file edits. Hash the receipt bytes with SHA-256, then call plan_queue_report_capability_probe using that relative receiptPath, receiptSha256, computer, runtimeBuild (actual launch tree), testedTree (reviewed checkpoint tree), observedAt, operation and result. The tool retains the evidence before cleanup. If these do not match, keep the repair unverified; never claim its original check passed.']
-      : ['- This repository has no Harness runtime launcher, so a capability repair here needs no runtime probe or launch receipt, even where its plan asks for one. Review it against its plan and this project’s own checks like any other job; do not report the missing launcher as a capability gap.']),
+      : [ownsRepair
+        ? '- This repository has no Harness runtime launcher, so a capability repair here needs no runtime probe or launch receipt, even where its plan asks for one. Review it against its plan and this project’s own checks like any other job; do not report the missing launcher as a capability gap.'
+        : '- This item is not a Queue-linked capability repair, so it needs no runtime probe or launch receipt, even if its plan mentions one; `plan_queue_report_capability_probe` refuses it. Review it like any other job; do not report the missing probe as a finding or capability gap.']),
   ];
 }

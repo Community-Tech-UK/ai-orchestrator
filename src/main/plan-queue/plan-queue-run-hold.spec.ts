@@ -53,7 +53,8 @@ beforeEach(() => {
   roles = new Map([['worker', { role: 'worker', runId: run.id, itemId: item.id }], ['checker', { role: 'verifier', runId: run.id, itemId: item.id }]]);
   host = {
     store: { listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory],
-      listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [] } as unknown as PlanQueueFlowHost['store'],
+      listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [],
+      capabilities: { forRepairItem: () => undefined } } as unknown as PlanQueueFlowHost['store'],
     history: { getPin: () => null, recordPinIfAbsent: vi.fn(), listEvents: () => [], listVerdicts: () => [] } as unknown as PlanQueueFlowHost['history'],
     checksAdmitted: () => true, setRunHold: vi.fn(),
     getRun: () => run, getItem: () => item,

@@ -395,6 +395,8 @@ interface VerifierPromptContext {
   diffStat?: string;
   /** Changes made directly on the base branch that stand over the plan text. */
   directChanges?: readonly DirectChange[];
+  /** Whether the Queue linked this item to a capability repair; only then is a runtime probe asked for. */
+  ownsRepair?: boolean;
 }
 
 /** How a checker treats the worktree it reviews, for a plan and for a ticket alike. */
@@ -448,7 +450,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     ...VERIFIER_REVIEW_RULES,
     '',
     'Judge against these criteria:',
-    ...capabilityCheckerRules(ctx.item, ctx.repoRoot),
+    ...capabilityCheckerRules(ctx.item, ctx.repoRoot, ctx.ownsRepair ?? false),
     ...criteria,
     ...briefRules(ctx.brief),
     ...directChangesSection(ctx.directChanges, 'verifier'),

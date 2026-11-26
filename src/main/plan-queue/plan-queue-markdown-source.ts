@@ -103,7 +103,7 @@ export const markdownWorkSource: QueueWorkSource = {
   trimAtCheckpoint: (item, memory) => dietAtCheckpoint(item, memory),
   workerPrompts: markdownWorkerPrompts,
   stepUpInstruction: (failedRounds, findings) => buildStepUpInstruction(failedRounds, findings),
-  async checkerPrompt({ run, item, baseBranch, receipts, diffStat, earlierRounds, pin, directChanges }) {
+  async checkerPrompt({ run, item, baseBranch, receipts, diffStat, earlierRounds, pin, directChanges, ownsRepair }) {
     const current = (await fs.readFile(item.sourceRef)).toString('utf8');
     const relative = path.relative(run.workspaceCwd, item.sourceRef);
     const documentDiff = item.baseCommit && !relative.startsWith('..')
@@ -113,7 +113,7 @@ export const markdownWorkSource: QueueWorkSource = {
       // The checker reads the plan's Status and open work and a change summary, then sections by line range.
       diffStat: bounded(diffStat, PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
       ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.sourceRef, item.section) } : {}),
-      directChanges,
+      directChanges, ownsRepair,
       earlierRounds,
       documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
         changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: documentDiff }) : undefined });

@@ -460,7 +460,7 @@ describe('ownership proof failures retain their real cause', () => {
       config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [] },
       workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
     const host = {
-      getItem: () => item, getRun: () => run, worktrees: service,
+      getItem: () => item, getRun: () => run, worktrees: service, store: { capabilities: { forRepairItem: () => undefined } },
       save: (next: PlanQueueItem) => (item = next),
       transition: (next: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem>) => (item = { ...next, ...patch, state }),
       history: { listEvents: () => [], listVerdicts: () => [], getPin: () => null },

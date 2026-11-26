@@ -192,6 +192,6 @@ export class PlanQueueVerification {
     return source.checkerPrompt({ run, item, baseBranch, receipts,
       diffStat: await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!),
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined, pin: this.host.history.getPin(item.id) ?? undefined,
-      directChanges: await directChangesForItem(run, item) });
+      directChanges: await directChangesForItem(run, item), ownsRepair: !!this.host.store.capabilities.forRepairItem(item.id) });
   }
 }

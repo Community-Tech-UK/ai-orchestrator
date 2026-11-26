@@ -761,11 +761,20 @@ describe('runtime probe only where Harness can produce one', () => {
 
   it('tells the checker a repair without Harness\'s launcher needs no probe, and not to report the launcher as missing', async () => {
     await repairUnderReview();
-    const rules = capabilityCheckerRules(coordinator.getItem('repair-item'), repo).join('\n');
+    const rules = capabilityCheckerRules(coordinator.getItem('repair-item'), repo, true).join('\n');
     expect(rules).toContain('needs no runtime probe or launch receipt');
     expect(rules).toContain('do not report the missing launcher as a capability gap');
     expect(rules).not.toContain('must wait');
     addLauncher();
-    expect(capabilityCheckerRules(coordinator.getItem('repair-item'), repo).join('\n')).toContain('independent PASS requires a current runtime probe');
+    expect(capabilityCheckerRules(coordinator.getItem('repair-item'), repo, true).join('\n')).toContain('independent PASS requires a current runtime probe');
+  });
+
+  it('asks for no probe from an item the Queue did not link to a repair, even with the launcher', async () => {
+    await repairUnderReview();
+    addLauncher();
+    const rules = capabilityCheckerRules(coordinator.getItem('repair-item'), repo, false).join('\n');
+    expect(rules).toContain('not a Queue-linked capability repair');
+    expect(rules).not.toContain('independent PASS requires a current runtime probe');
+    expect(rules).not.toContain('--checked-tree');
   });
 });

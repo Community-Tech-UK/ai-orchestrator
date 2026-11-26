@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-14-livetest-capability-repair_plan.md",
+      "sha256": "137ab4afa0fc89f4561949cb29e34ac7c7b40f424ebbd34402bea3f056e71644",
+      "retire": true
+    },
+    {
+      "relativePath": "../specs/2026-11-14-livetest-capability-repair_spec_planned.md",
+      "sha256": "41c68503b301b0474ddfc543c3601ca7da1d4022fd7da9ab1b9f34084cfd82a0",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-14-livetest-capability-repair_history.md",
+      "sha256": "5147c1efcf9be8cc9c298a269faf9b51b146ea41300b2588abaa69fafb05990a",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-14-livetest-capability-repair_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-14-livetest-capability-repair_plan_completed.md",
+      "sha256": "5d03c7f24f1ce95a42fb2ea6ffb52d36d989bfd31812c4abd7d8407cd44a0ef5"
+    },
+    {
+      "relativePath": "2026-11-14-livetest-capability-repair_plan_history_636904a90e68e85090176544d2baa7c713cfc39515e9e825d7e7faa290567b89_completed.md",
+      "sha256": "af15e65c977cef5edf32ad58cfec736bc8eb1e6b4d88a49c48489d22dec32a91"
+    },
+    {
+      "relativePath": "../specs/2026-11-14-livetest-capability-repair_spec_completed.md",
+      "sha256": "d98535b1d0809c937fb77f6c2576a3a3d9642aadd4ff55ff08bae37d842a51f6"
+    }
+  ]
+}
