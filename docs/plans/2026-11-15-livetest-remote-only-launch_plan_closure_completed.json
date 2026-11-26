@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-15-livetest-remote-only-launch_plan.md",
+      "sha256": "3f3cfd6b6979ef434f3b2d89ed57848aaca37be1c6ab2c44684826a09b6ef956",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-15-livetest-remote-only-launch_history.md",
+      "sha256": "81b183444f247495512987b82517beda850d2ed2d10f6e9b665f3fc0faa6faef",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-15-livetest-remote-only-launch_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-15-livetest-remote-only-launch_plan_completed.md",
+      "sha256": "64f92259e26ab5e6933af2a44b83e8a69973124dc3f4cc20e602b29ca76394c6"
+    },
+    {
+      "relativePath": "2026-11-15-livetest-remote-only-launch_plan_history_3bfdd32f2a1af4ec1462b8b6fb3fb4e7d3783e70ac50e0735d4fa407f5b35091_completed.md",
+      "sha256": "686b0f7905611cb03ab5857aa275cf9f642ddd32153e37f44a984de8b50ce3a5"
+    }
+  ]
+}
