@@ -5,6 +5,7 @@
  * their ceilings are `ADVISORY_CHAR_BUDGETS` in `context/budgeted-system-prompt.ts`.
  */
 export const PROMPT_SURFACES = [
+  'schedulingReminder', 'consensusReminder',
   'child', 'childWindows',
   'loopFirst', 'loopContinuation', 'loopReanchor',
   'reviewLoopFirst', 'reviewLoopContinuation', 'reviewLoopReanchor',
@@ -16,7 +17,7 @@ export const PROMPT_SURFACES = [
   'structuredReview', 'tieredReview', 'structuredRepair', 'tieredRepair',
   'pingPongReview', 'pingPongRepair',
   'localStructuredReview', 'localTieredReview', 'localReviewRepair',
-  'codexStandingNotes', 'rtk', 'toolLoopStopNote', 'summaryHelper', 'subqueryHelper', 'titleSystem', 'titleRequest',
+  'codexStandingNotes', 'rtk', 'toolLoopStopNote', 'waitingCheckIn', 'watcherJudgeSystem', 'summaryHelper', 'subqueryHelper', 'titleSystem', 'titleRequest',
 ] as const;
 
 export type PromptSurface = typeof PROMPT_SURFACES[number];

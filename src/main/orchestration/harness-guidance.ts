@@ -9,6 +9,7 @@
  */
 
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
 import { buildActiveGoalContext } from '../commands/goal-command';
@@ -33,7 +34,11 @@ export interface HarnessGuidanceSelection {
   text: string | null;
   added: HarnessGuidanceSection[];
   repeated: HarnessGuidanceSection[];
+  /** The text each selected section put into the message (full rules or the one-line repeat), in order. */
+  injected: Array<{ section: HarnessGuidanceSection; text: string }>;
 }
+
+const GUIDANCE_SURFACE = { scheduling: 'schedulingReminder', consensus: 'consensusReminder' } as const;
 
 export interface HarnessGuidanceHandle {
   text: string | null;
@@ -104,31 +109,32 @@ export function selectHarnessGuidance(
   const stripped = textForIntentMatching(message);
   const added: HarnessGuidanceSection[] = [];
   const repeated: HarnessGuidanceSection[] = [];
-  const parts: string[] = [];
+  const injected: HarnessGuidanceSelection['injected'] = [];
 
   if (detectsSchedulingIntent(stripped)) {
     if (delivered.has('scheduling')) {
       repeated.push('scheduling');
-      parts.push(SCHEDULING_RULES_REPEAT_LINE);
+      injected.push({ section: 'scheduling', text: SCHEDULING_RULES_REPEAT_LINE });
     } else {
       added.push('scheduling');
-      parts.push(buildSchedulingRules(now, timeZone));
+      injected.push({ section: 'scheduling', text: buildSchedulingRules(now, timeZone) });
     }
   }
   if (detectsConsensusIntent(stripped)) {
     if (delivered.has('consensus')) {
       repeated.push('consensus');
-      parts.push(CONSENSUS_RULES_REPEAT_LINE);
+      injected.push({ section: 'consensus', text: CONSENSUS_RULES_REPEAT_LINE });
     } else {
       added.push('consensus');
-      parts.push(CONSENSUS_RULES);
+      injected.push({ section: 'consensus', text: CONSENSUS_RULES });
     }
   }
 
   return {
-    text: parts.length > 0 ? parts.join('\n\n') : null,
+    text: injected.length > 0 ? injected.map((part) => part.text).join('\n\n') : null,
     added,
     repeated,
+    injected,
   };
 }
 
@@ -497,6 +503,9 @@ class HarnessGuidance {
           repeated: selection.repeated,
           chars: text.length,
         });
+        for (const part of selection.injected) {
+          logPromptInjection(GUIDANCE_SURFACE[part.section], part.text, instance.id);
+        }
       },
     };
   }

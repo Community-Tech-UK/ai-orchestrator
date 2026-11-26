@@ -5,6 +5,9 @@ import { InstanceContinuationDispatch } from './instance-continuation-dispatch';
 import { InstanceWaitingCheckIn, WAITING_CHECK_IN_DELAYS_MS } from './instance-waiting-check-in';
 import type { Instance } from '../../shared/types/instance.types';
 
+const logInjection = vi.hoisted(() => vi.fn());
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection: logInjection }));
+
 const MINUTE = 60_000;
 const WAITING = "The page works. I'm waiting for the PC's result.";
 
@@ -27,6 +30,7 @@ describe('InstanceWaitingCheckIn', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sendInput.mockReset();
+    logInjection.mockClear();
     sendInput.mockImplementation(async (_id, _prompt, _attachments, options) => {
       options?.beforeProviderDispatch?.();
       instance.requestCount += 1;
@@ -55,6 +59,13 @@ describe('InstanceWaitingCheckIn', () => {
     expect(sendInput).toHaveBeenCalledTimes(1);
     expect(sendInput.mock.calls[0]?.[1]).toContain("I'm waiting for the PC's result.");
     expect(sendInput.mock.calls[0]?.[3]).toMatchObject({ autoContinuation: true, internalSource: 'waiting-check-in' });
+  });
+
+  it('logs the size of each check-in it sends', async () => {
+    finishTurn();
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    expect(logInjection).toHaveBeenCalledTimes(1);
+    expect(logInjection).toHaveBeenCalledWith('waitingCheckIn', sendInput.mock.calls[0]?.[1], 'root');
   });
 
   it('backs off, then gives up after the last check-in', async () => {

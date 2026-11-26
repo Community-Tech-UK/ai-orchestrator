@@ -241,6 +241,13 @@ describe('SessionWatcher', () => {
     expect(logRows()).toMatchObject([{ event: 'stop', outcome: 'sent', action: 'carry_on', basis: 'planned_work', judge: { model: 'haiku' } }]);
   });
 
+  it('logs the size of the judge system prompt once per judged stop', async () => {
+    complete();
+    await answer(verdictJson());
+    await settled();
+    expect(logDebug).toHaveBeenCalledWith('Prompt injected', { surface: 'watcherJudgeSystem', characters: judgeCalls[0].prompt.system.length, session: 'root' });
+  });
+
   it('flags a session that needs the user, with the agent\'s own words', async () => {
     instance.outputBuffer = conversation('Everything is committed locally.\n\nShall I push it to GitHub?');
     complete();

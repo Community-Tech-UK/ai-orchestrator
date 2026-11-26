@@ -4,6 +4,7 @@ import type { Instance } from '../../shared/types/instance.types';
 import type { InstanceAnnounceThenHaltContinuationHost } from '../instance/instance-announce-then-halt-continuation';
 import type { InstanceContinuationDispatch } from '../instance/instance-continuation-dispatch';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { buildWatcherBrief, mergeWatcherMessages } from './watcher-brief';
 import {
   hashSessionId, isBareGoAhead, isOutwardCommand, recordWatcherDecision, type WatcherOutcome, type WatcherStopRecord,
@@ -331,9 +332,11 @@ export class SessionWatcher extends EventEmitter {
       signal.addEventListener('abort', forward, { once: true });
       let raw: string;
       try {
+        const judgePrompt = buildWatcherJudgePrompt(brief, projectInstructions);
+        logPromptInjection('watcherJudgeSystem', judgePrompt.system, instanceId);
         // Raced against the abort itself: a judge that ignores it must not keep this slot for ever.
         const reply = await Promise.race([
-          this.deps.judge.judge(buildWatcherJudgePrompt(brief, projectInstructions), instanceId, call.signal),
+          this.deps.judge.judge(judgePrompt, instanceId, call.signal),
           new Promise<never>((_resolve, reject) => { call.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); }),
         ]);
         raw = reply.raw;

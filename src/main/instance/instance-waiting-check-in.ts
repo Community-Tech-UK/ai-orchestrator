@@ -1,6 +1,7 @@
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { detectWaitingOnWork } from '../orchestration/waiting-on-work-detector';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { readCompletionText, type InstanceAnnounceThenHaltContinuationHost } from './instance-announce-then-halt-continuation';
 import type { InstanceContinuationDispatch } from './instance-continuation-dispatch';
 
@@ -114,14 +115,16 @@ export class InstanceWaitingCheckIn {
   private async checkIn(instanceId: string, state: WaitingState, excerpt: string): Promise<void> {
     const instance = this.host.getInstance(instanceId);
     if (!instance || this.states.get(instanceId) !== state) return;
+    const prompt = buildWaitingCheckInPrompt(excerpt);
     const reservation = this.dispatch.reserve({
       instanceId, trigger: 'waiting-check-in', requestCount: instance.requestCount,
-      prompt: buildWaitingCheckInPrompt(excerpt), internalSource: 'waiting-check-in',
+      prompt, internalSource: 'waiting-check-in',
       isCurrent: () => this.started && this.states.get(instanceId) === state,
     });
     // Every due check counts, so tracked work, a pause or a busy session can't extend the series.
     state.attempts += 1;
     logger.info('Checking in on a session that stopped to wait', { instanceId, attempt: state.attempts, admitted: reservation !== undefined });
+    if (reservation) logPromptInjection('waitingCheckIn', prompt, instanceId);
     const sent = reservation
       ? await this.dispatch.dispatch(reservation, { settle: false }).catch(() => {
         logger.warn('Waiting check-in could not be sent', { instanceId });

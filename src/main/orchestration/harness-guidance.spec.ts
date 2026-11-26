@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const logInfo = vi.hoisted(() => vi.fn());
+const logDebug = vi.hoisted(() => vi.fn());
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
-    debug: vi.fn(),
+    debug: logDebug,
     error: vi.fn(),
     info: logInfo,
     warn: vi.fn(),
@@ -314,6 +315,25 @@ describe('"Harness guidance added" log', () => {
       repeated: [],
       chars: handle.text?.length,
     });
+  });
+
+  it('writes the per-injection debug line for each section once it is delivered, never before', () => {
+    logDebug.mockClear();
+    const instance = makeInstance();
+    const handle = getHarnessGuidance().takeHarnessGuidance(
+      instance,
+      'Schedule this daily, but first run a consensus check on the risky decision',
+      'first-message',
+    );
+    const injections = () => logDebug.mock.calls.filter(([message]) => message === 'Prompt injected').map(([, data]) => data);
+    expect(injections()).toHaveLength(0);
+    handle.commit();
+    handle.commit();
+    expect(injections()).toEqual([
+      { surface: 'schedulingReminder', characters: expect.any(Number), session: 'inst_test' },
+      { surface: 'consensusReminder', characters: expect.any(Number), session: 'inst_test' },
+    ]);
+    expect(injections().reduce((sum, entry) => sum + (entry as { characters: number }).characters, 0) + 2).toBe(handle.text?.length);
   });
 
   it('does not log again when the same message is selected again after a failed send', () => {
