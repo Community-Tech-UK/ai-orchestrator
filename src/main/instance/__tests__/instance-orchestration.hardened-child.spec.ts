@@ -125,6 +125,14 @@ describe('spawn_child hardened:true in the orchestration manager', () => {
     expect(shouldUseFastPath({ action: 'spawn_child', task: RETRIEVAL_TASK, hardened: true })).toBe(false);
   });
 
+  it('skips the search shortcut for a scout, which must run as a real child', () => {
+    const manager = setup([instance({ id: 'parent-1' })]);
+    const shouldUseFastPath = (command: SpawnChildCommand): boolean =>
+      (manager as unknown as { shouldUseFastPath: (c: SpawnChildCommand) => boolean }).shouldUseFastPath(command);
+
+    expect(shouldUseFastPath({ action: 'spawn_child', task: RETRIEVAL_TASK, role: 'scout' })).toBe(false);
+  });
+
   it('lets the parent read back which children are hardened, and only its own', () => {
     const jailed = instance({ id: 'child-jailed', parentId: 'parent-1', displayName: 'jailed', createdAt: 1, hardened: true });
     const plain = instance({ id: 'child-plain', parentId: 'parent-1', displayName: 'plain', createdAt: 2 });

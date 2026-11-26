@@ -1009,7 +1009,8 @@ export class InstanceOrchestrationManager {
 
   private shouldUseFastPath(command: SpawnChildCommand): boolean {
     // A hardened request is a request for a real jailed session; a search result would silently skip it.
-    if (command.model || command.agentId || command.hardened === true) return false;
+    // A scout request asks for a real child (balanced model, high effort, fan-out cost record).
+    if (command.model || command.agentId || command.hardened === true || command.role === 'scout') return false;
     if (!this.isRetrievalTask(command.task)) return false;
     return command.task.trim().length <= 220;
   }
