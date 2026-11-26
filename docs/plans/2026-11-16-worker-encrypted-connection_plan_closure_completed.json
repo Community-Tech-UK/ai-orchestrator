@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-16-worker-encrypted-connection_plan.md",
+      "sha256": "0ccb0ac32d0da3c7029f3b5776d284d5fd1adf7a343d5e8e52e2a71541f48777",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-16-worker-encrypted-connection_history.md",
+      "sha256": "bdfb615907f1c77d35cf182db5cf480e52ea0f209ccf53c1121617fb1ba643ae",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-16-worker-encrypted-connection_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-16-worker-encrypted-connection_plan_completed.md",
+      "sha256": "37b1c2e63aab81e53f1ab4d97edb566e698923c35fbe1b3bfe732cf8031ff96d"
+    },
+    {
+      "relativePath": "2026-11-16-worker-encrypted-connection_plan_history_9b214297c53b131dd49eacea565da7510b6557384b18c7ca1aa1e39c77389cd3_completed.md",
+      "sha256": "376858bd61910b8f690ad4e28600838e7b4aa4a09f5938f40467ad2817ae6a04"
+    }
+  ]
+}
