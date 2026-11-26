@@ -126,6 +126,10 @@ export interface PlanQueueArmAggregate {
   landedShare: number | null;
   meanVerifierRoundsPerItem: number | null;
   meanInputPerLandedItem: number | null;
+  /** Measured landed items whose every thread has a Codex credit reading. */
+  creditedLanded: number;
+  /** Mean micro-credits per landed item, over the credited ones. */
+  meanCreditsMicrosPerLandedItem: number | null;
   medianWallClockMsPerItem: number | null;
 }
 
@@ -160,6 +164,21 @@ export declare function readCostAttribution(dir: string | null, sinceMs: number,
 export declare function helperCountsFromLog(records: Array<Record<string, unknown>>): Map<string, number>;
 
 /**
+ * Codex's own credit reading (micro-credits) per root thread, from `thread-credits` records;
+ * the latest record per thread wins and a thread with none is absent.
+ */
+export declare function creditsFromLog(records: Array<Record<string, unknown>>): Map<string, number>;
+
+/**
+ * Which unit each comparison's verdict uses: credits once every measured landed item (plan queue) or
+ * chat thread in both arms has a reading, tokens otherwise.
+ */
+export declare function trialUnits(
+  chats: Record<string, unknown>,
+  planQueue: Record<string, unknown>,
+): { harnessWork: 'credits' | 'tokens'; chats: 'credits' | 'tokens' };
+
+/**
  * Plan-queue items measured from Harness's own records: `items` are
  * `plan_queue_items` rows (`id, state, round, created_at, updated_at`), `usage`
  * is readCostAttribution's result. No rollout is read. `untilMs` bounds the
@@ -177,6 +196,8 @@ export declare function aggregatePlanQueue(
     loggedHelperThreads?: Map<string, number>;
   },
   untilMs?: number,
+  /** Codex credit readings per root thread (`creditsFromLog`). */
+  credits?: Map<string, number>,
 ): {
   perArm: Record<string, PlanQueueArmAggregate>;
   mixedArmItems: string[];
@@ -199,6 +220,7 @@ export declare function aggregateKind(
   graph: { childrenOf: Map<string, unknown>; rolloutPath: Map<string, unknown>; loggedHelperThreads?: Map<string, number> },
   rollouts: Map<string, unknown>,
   attributed?: Map<string, unknown>,
+  credits?: Map<string, number>,
 ): Record<string, unknown>;
 
 export declare function buildComparisons(
@@ -208,6 +230,7 @@ export declare function buildComparisons(
   items: Array<Record<string, unknown>>,
   usage?: CostRecords,
   untilMs?: number,
+  credits?: Map<string, number>,
 ): {
   unassigned: Set<string>;
   ineligible: Set<string>;
@@ -223,7 +246,7 @@ export declare function buildComparisons(
  * (true for the pre-rebuild build's numeric `at` or control/candidate arms; the
  * arm itself is returned unchanged and is never mapped onto the current arms).
  */
-export declare function parsePolicyLog(dir: string, sinceMs: number, untilMs: number, recordType?: 'policy' | 'child-outcome' | 'review-outcome' | 'helper-count'): { entries: Array<Record<string, unknown> & { atMs: number; legacyFormat: boolean }>; unparsableLines: number };
+export declare function parsePolicyLog(dir: string, sinceMs: number, untilMs: number, recordType?: 'policy' | 'child-outcome' | 'review-outcome' | 'helper-count' | 'thread-credits'): { entries: Array<Record<string, unknown> & { atMs: number; legacyFormat: boolean }>; unparsableLines: number };
 export declare function queryRows(path: string, sql: string, params?: unknown[]): Array<Record<string, unknown>> | null;
 /**
  * The spawn graph as of the reporting window. A helper created at or after

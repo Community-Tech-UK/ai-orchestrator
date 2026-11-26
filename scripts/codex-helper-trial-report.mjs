@@ -25,6 +25,9 @@
  *    or after the cutoff is reported as outside the window and is neither
  *    decided nor unknown, exactly like an item still queued or running, so no
  *    outcome after `--until` can be counted against costs that stop there.
+ *  - Unit: Codex's own credit reading per root thread (`thread-credits` records, Step 11.1) replaces tokens
+ *    in the verdict once every measured landed item (plan queue) or chat thread in both arms has a reading;
+ *    until then the verdict stays in tokens and says how many readings are missing. Both are printed.
  *  - Scheduled-run outcomes: `automation_runs` rows joined by Harness instance
  *    id and automation id. A run's outcome is part of the window only when it
  *    settles before `--until` (`finished_at`), exactly like a plan-queue item,
@@ -130,7 +133,11 @@ export function parsePolicyLog(dir, sinceMs, untilMs, recordType = 'policy') {
       if (at < sinceMs || at >= untilMs) continue;
       if (rec.recordType === 'helper-count' && (!Number.isInteger(rec.helperThreads) || rec.helperThreads < 0
         || typeof rec.threadId !== 'string' || !rec.threadId)) { unparsableLines += 1; continue; }
-      if ((rec.recordType ?? 'policy') !== recordType) continue;
+      // Exposure records carry neither field. Other records are named by `recordType` (child and
+      // review outcomes, helper counts) or `event` (turn shares, required skills, thread credits).
+      if ((rec.recordType ?? rec.event ?? 'policy') !== recordType) continue;
+      if (recordType === 'thread-credits' && (typeof rec.threadId !== 'string' || !rec.threadId
+        || !nonNegative(rec.estimatedUsageCreditsMicros))) continue;
       entries.push({ ...rec, atMs: at, legacyFormat: numericAt || LEGACY_ARMS.has(rec.arm) });
     }
   }
@@ -325,6 +332,21 @@ export function helperCountsFromLog(helperRecords) {
     counts.set(record.threadId, Math.max(counts.get(record.threadId) ?? 0, value));
   }
   return counts;
+}
+
+/**
+ * Codex's own credit reading per root thread (Step 11.1), from the `thread-credits` records the adapter
+ * writes once as a thread ends. The reading is cumulative, so the latest record per thread wins. A thread
+ * with no record has no reading (a forced stop, an API-key login, an older Codex); it is never filled in.
+ * The unit is micro-credits, as Codex reports it.
+ */
+export function creditsFromLog(creditRecords) {
+  const latest = new Map();
+  for (const record of creditRecords) {
+    const kept = latest.get(record.threadId);
+    if (!kept || record.atMs >= kept.atMs) latest.set(record.threadId, record);
+  }
+  return new Map([...latest].map(([threadId, record]) => [threadId, record.estimatedUsageCreditsMicros]));
 }
 
 // ── Rollout parsing (no message text is read) ───────────────────────────────
@@ -719,6 +741,9 @@ function emptyRaw() {
     wallClocksMs: [],
     compactionsMidTask: 0,
     compactionsBetween: 0,
+    creditedThreads: 0,
+    creditMicros: 0,
+    creditedTurns: 0,
   };
 }
 
@@ -775,6 +800,8 @@ function finalizeRaw(raw) {
     compactionsMidTask: raw.compactionsMidTask,
     compactionsBetween: raw.compactionsBetween,
     totalInput,
+    creditedThreads: raw.creditedThreads,
+    meanCreditsMicrosPerTurn: raw.creditedTurns > 0 ? raw.creditMicros / raw.creditedTurns : null,
   };
 }
 
@@ -939,7 +966,7 @@ function classifyThreadExposure(logEntries) {
  * Aggregate one session kind's eligible threads by trial arm. A thread with
  * an unapplied or inconsistent resume contributes no turns to either arm.
  */
-export function aggregateKind(kind, logEntries, graph, rollouts, attributed = attributedRollouts(logEntries, graph, rollouts)) {
+export function aggregateKind(kind, logEntries, graph, rollouts, attributed = attributedRollouts(logEntries, graph, rollouts), credits = new Map()) {
   const { eligible } = classifyThreadExposure(logEntries);
   const threads = [...eligible.entries()].filter(([threadId, entry]) => entry.sessionKind === kind
     && !(entry.arm === 'off' && observedHelperThreads(threadId, graph) > 0)
@@ -950,6 +977,12 @@ export function aggregateKind(kind, logEntries, graph, rollouts, attributed = at
     raw.threads += 1;
     const rootRollout = attributed.get(entry.threadId);
     for (const turn of rootRollout.turns) foldTurn(raw, turn);
+    const threadCredits = credits.get(entry.threadId);
+    if (threadCredits !== undefined && rootRollout.turns.length > 0) {
+      raw.creditedThreads += 1;
+      raw.creditMicros += threadCredits;
+      raw.creditedTurns += rootRollout.turns.length;
+    }
     for (const comp of rootRollout.compactions) {
       if (comp.midTask) raw.compactionsMidTask += 1;
       else raw.compactionsBetween += 1;
@@ -1021,7 +1054,7 @@ function measurePlanQueueItem(item, instanceIds, threadsWithoutInstance, usage) 
  * matching the cost rows and policy records. Without `--until` (the default
  * `Number.MAX_SAFE_INTEGER`) every settled outcome counts, as before.
  */
-export function aggregatePlanQueue(logEntries, items, usage, graph, untilMs = Number.MAX_SAFE_INTEGER) {
+export function aggregatePlanQueue(logEntries, items, usage, graph, untilMs = Number.MAX_SAFE_INTEGER, credits = new Map()) {
   const exposure = classifyThreadExposure(logEntries);
   const armByKey = new Map();
   const threadsByKey = new Map();
@@ -1075,7 +1108,7 @@ export function aggregatePlanQueue(logEntries, items, usage, graph, untilMs = Nu
     const bucket = perArm.get(arm) ?? {
       items: 0, decided: 0, landed: 0, parked: 0, skipped: 0, rounds: 0,
       measuredItems: 0, measuredLanded: 0, unknown: 0, inFlight: 0, estimatedItems: 0,
-      settledAfterWindow: 0, inputPerLanded: [], wallClocksMs: [],
+      settledAfterWindow: 0, inputPerLanded: [], creditsPerLanded: [], wallClocksMs: [],
     };
     bucket.items += 1;
     bucket.rounds += item.round ?? 0;
@@ -1120,6 +1153,11 @@ export function aggregatePlanQueue(logEntries, items, usage, graph, untilMs = Nu
         if (item.state === 'landed') {
           bucket.measuredLanded += 1;
           bucket.inputPerLanded.push(itemInput);
+          // Credits count only when every thread of the item has a reading: a partial sum would undercount.
+          const readings = threadIds.map((id) => credits.get(id));
+          if (readings.length > 0 && readings.every((reading) => reading !== undefined)) {
+            bucket.creditsPerLanded.push(readings.reduce((sum, reading) => sum + reading, 0));
+          }
         }
         if (itemWallClock !== null) bucket.wallClocksMs.push(itemWallClock);
       }
@@ -1145,6 +1183,8 @@ export function aggregatePlanQueue(logEntries, items, usage, graph, untilMs = Nu
       landedShare: bucket.landed + bucket.parked > 0 ? bucket.landed / (bucket.landed + bucket.parked) : null,
       meanVerifierRoundsPerItem: bucket.items > 0 ? bucket.rounds / bucket.items : null,
       meanInputPerLandedItem: mean(bucket.inputPerLanded),
+      creditedLanded: bucket.creditsPerLanded.length,
+      meanCreditsMicrosPerLandedItem: mean(bucket.creditsPerLanded),
       medianWallClockMsPerItem: median(bucket.wallClocksMs),
     };
   }
@@ -1221,6 +1261,25 @@ function noteKindOutcomeRegressions(notes, kinds) {
  * Harness-work verdict only the plan-queue counts and plan-queue exposure age.
  * Unknown figures withhold the verdict they belong to and are never zero.
  */
+/**
+ * Step 11.1: the helper trial's unit is Codex's own credit reading per root thread. It is used for a
+ * comparison only when every measured landed item (plan queue) or every chat thread in both arms has a
+ * reading; a partly read arm would compare a complete group with an undercounted one, so the comparison
+ * stays in tokens and says why. Both figures are always printed.
+ */
+export function trialUnits(chats, planQueue) {
+  const queueReady = (arm) => arm && arm.measuredLanded > 0 && arm.creditedLanded === arm.measuredLanded
+    && arm.meanCreditsMicrosPerLandedItem > 0;
+  const chatReady = (arm) => arm && arm.threads > 0 && arm.creditedThreads === arm.threads && arm.meanCreditsMicrosPerTurn > 0;
+  const cheaper = chats?.cheaper ?? chats?.economy;
+  return {
+    harnessWork: queueReady(planQueue?.off) && queueReady(planQueue?.full) ? 'credits' : 'tokens',
+    chats: chatReady(cheaper) && chatReady(chats?.full) ? 'credits' : 'tokens',
+  };
+}
+
+const unitCoverageNote = (label, entries) => `${label}: credit readings cover ${entries.map(([arm, have, all]) => `${arm} ${have} of ${all}`).join(', ')}; measured in tokens until every one has a reading.`;
+
 export function computeVerdict({ chats, planQueue, kinds, counts }) {
   const notes = [];
   if (Object.keys(kinds?.review ?? {}).length) notes.push('Review verdict outcomes are unknown where exact typed receipts are missing or conflicting. Thread completion is a transport measure, not review quality.');
@@ -1312,7 +1371,11 @@ export function computeVerdict({ chats, planQueue, kinds, counts }) {
       || pqOff.meanInputPerLandedItem === null || pqFull.meanInputPerLandedItem === null
       || pqOff.landedShare === null || pqFull.landedShare === null) return 'pending';
     let verdict;
-    const tokenDrop = atRulePrecision(1 - pqOff.meanInputPerLandedItem / pqFull.meanInputPerLandedItem);
+    const credited = trialUnits(chats, planQueue).harnessWork === 'credits';
+    const tokenDrop = credited
+      ? atRulePrecision(1 - pqOff.meanCreditsMicrosPerLandedItem / pqFull.meanCreditsMicrosPerLandedItem)
+      : atRulePrecision(1 - pqOff.meanInputPerLandedItem / pqFull.meanInputPerLandedItem);
+    if (!credited) notes.push(unitCoverageNote('Harness work', [['Off', pqOff.creditedLanded ?? 0, pqOff.measuredLanded], ['Full', pqFull.creditedLanded ?? 0, pqFull.measuredLanded]]));
     const landedDropPoints = atRulePrecision((pqFull.landedShare - pqOff.landedShare) * 100);
     const wallRatio = atRulePrecision((pqOff.medianWallClockMsPerItem ?? 0) / (pqFull.medianWallClockMsPerItem ?? 1));
     const tokensOk = tokenDrop >= VERDICT_RULES.harnessWorkTokenDrop;
@@ -1325,7 +1388,7 @@ export function computeVerdict({ chats, planQueue, kinds, counts }) {
       notes.push('Tokens fall but landing drops more than 10 points: keep Full for the plan queue, use Off for loops (and for children, scheduled jobs and reviews while choice 2 stands and their outcomes hold).');
     } else {
       verdict = 'full-keeps-plan-queue';
-      notes.push(`Harness-work Off did not meet all three rules (token drop ${(tokenDrop * 100).toFixed(1)}% needs 25%, landed-share drop ${landedDropPoints.toFixed(1)} points needs ≤10, wall-clock ratio ${wallRatio.toFixed(2)} needs ≤1.5).`);
+      notes.push(`Harness-work Off did not meet all three rules (${credited ? 'credit' : 'token'} drop ${(tokenDrop * 100).toFixed(1)}% needs 25%, landed-share drop ${landedDropPoints.toFixed(1)} points needs ≤10, wall-clock ratio ${wallRatio.toFixed(2)} needs ≤1.5).`);
     }
     notes.push('With 20 items per group, a 10-point landing difference is a direction, not proof.');
     noteKindOutcomeRegressions(notes, kinds);
@@ -1355,15 +1418,19 @@ export function computeVerdict({ chats, planQueue, kinds, counts }) {
     if (counts.unknownChatThreads) notes.push(`${counts.unknownChatThreads} chat root(s) have unknown usage receipts; chat verdict withheld.`);
     if (counts.unknownChatThreads || !cheaper || !chatFull || cheaper.meanInputPerTurn === null || chatFull.meanInputPerTurn === null
       || cheaper.medianWallClockMs === null || chatFull.medianWallClockMs === null) return 'pending';
-    const tokenDrop = atRulePrecision(1 - cheaper.meanInputPerTurn / chatFull.meanInputPerTurn);
+    const credited = trialUnits(chats, planQueue).chats === 'credits';
+    const tokenDrop = credited
+      ? atRulePrecision(1 - cheaper.meanCreditsMicrosPerTurn / chatFull.meanCreditsMicrosPerTurn)
+      : atRulePrecision(1 - cheaper.meanInputPerTurn / chatFull.meanInputPerTurn);
+    if (!credited) notes.push(unitCoverageNote('Chats', [['Cheaper', cheaper.creditedThreads ?? 0, cheaper.threads], ['Full', chatFull.creditedThreads ?? 0, chatFull.threads]]));
     const wallRatio = atRulePrecision(cheaper.medianWallClockMs / chatFull.medianWallClockMs);
     const tokensOk = tokenDrop >= VERDICT_RULES.chatsTokenDrop;
     const wallOk = wallRatio <= VERDICT_RULES.chatsWallClockRatio;
     if (tokensOk && wallOk) {
-      notes.push('Chats: Cheaper meets the token and wall-clock rules. The interrupt-or-steer measure is not recorded in these sources; James answers whether the answers were worse before the default changes.');
+      notes.push(`Chats: Cheaper meets the ${credited ? 'credit' : 'token'} and wall-clock rules. The interrupt-or-steer measure is not recorded in these sources; James answers whether the answers were worse before the default changes.`);
       return 'cheaper-justified';
     }
-    notes.push(`Chats: Cheaper did not meet both rules (token drop ${(tokenDrop * 100).toFixed(1)}% needs 15%, wall-clock ratio ${wallRatio.toFixed(2)} needs ≤1.25). Full stays the chat default.`);
+    notes.push(`Chats: Cheaper did not meet both rules (${credited ? 'credit' : 'token'} drop ${(tokenDrop * 100).toFixed(1)}% needs 15%, wall-clock ratio ${wallRatio.toFixed(2)} needs ≤1.25). Full stays the chat default.`);
     return 'full-stays';
   }
 }
@@ -1445,6 +1512,21 @@ export function renderReport(data) {
   console.log('Review verdict counts use exact typed reviewer receipts where available; absent or conflicting evidence remains unknown. Eligible review exposures are counted independently of rollout availability; completed turns measure transport completion, not returned verdicts or review quality.\n');
   console.log('Thread completion is a turn-complete marker, not child success. Child outcomes use Harness exit records joined by instance and provider thread; unmatched records remain unknown. Child outcome counts include valid policy exposures independently of rollout availability; thread, turn and token columns cover fully measured rollouts only. Scheduled-run success uses decided automation_runs joined to an eligible Codex instance, with runs as the denominator; those outcome counts likewise include valid policy exposures independently of rollout availability, and an outcome is part of the window only when its run settles before --until: runs settled at or after the cutoff are outside this window (settledAfterWindow in the JSON), neither decided nor unknown, while a decided run whose start and finish timestamps are unusable or reversed is explicitly unknown. The share of chat turns James interrupted or steered is not recorded in the sources this report reads; his verdict at the end of the trial stands in for it.\n');
 
+  console.log('### Codex credit readings (the verdict\'s unit when every measured thread has one)\n');
+  console.log('Read from `account/usage/read` once as each root thread ends. A missing reading is shown as missing, never as zero. Whether Codex counts a root thread\'s helper threads inside its figure is not established here.\n');
+  console.log('| comparison | arm | threads or landed items read | of | mean credits |');
+  console.log('|---|---|---:|---:|---:|');
+  const fmtCredits = (micros) => (micros === null || micros === undefined ? '—' : (micros / 1_000_000).toFixed(2));
+  for (const arm of Object.keys(data.chats ?? {}).sort()) {
+    const a = data.chats[arm];
+    console.log(`| chats (per turn) | ${arm} | ${a.creditedThreads ?? 0} | ${a.threads} | ${fmtCredits(a.meanCreditsMicrosPerTurn)} |`);
+  }
+  for (const arm of Object.keys(data.planQueueArms ?? {}).sort()) {
+    const a = data.planQueueArms[arm];
+    console.log(`| plan queue (per landed item) | ${arm} | ${a.creditedLanded ?? 0} | ${a.measuredLanded} | ${fmtCredits(a.meanCreditsMicrosPerLandedItem)} |`);
+  }
+  console.log(`\nUnit used by the verdict: Harness work ${data.units?.harnessWork ?? 'tokens'}, chats ${data.units?.chats ?? 'tokens'}.\n`);
+
   console.log('### Verdict\n');
   console.log(`- Harness work: ${data.verdict.harnessWork}`);
   console.log(`- Chats: ${data.verdict.chats}`);
@@ -1459,15 +1541,15 @@ export function renderReport(data) {
  * Harness's own records (aggregatePlanQueue). */
 const HARNESS_KINDS = ['loop', 'child', 'automation', 'review'];
 
-export function buildComparisons(logEntries, graph, rollouts, items, usage = UNREADABLE_COST_RECORDS, untilMs = Number.MAX_SAFE_INTEGER) {
+export function buildComparisons(logEntries, graph, rollouts, items, usage = UNREADABLE_COST_RECORDS, untilMs = Number.MAX_SAFE_INTEGER, credits = new Map()) {
   const exposure = classifyThreadExposure(logEntries);
   const offGraphBreaches = observedOffBreaches(logEntries, graph);
   const attributed = attributedRollouts(logEntries, graph, rollouts);
   const unassigned = new Set(
     logEntries.filter((e) => !e.arm || e.arm === 'unassigned').map((e) => e.threadId),
   );
-  const chats = aggregateKind('chat', logEntries, graph, rollouts, attributed);
-  const planQueue = aggregatePlanQueue(logEntries, items, usage, graph, untilMs);
+  const chats = aggregateKind('chat', logEntries, graph, rollouts, attributed, credits);
+  const planQueue = aggregatePlanQueue(logEntries, items, usage, graph, untilMs, credits);
   const kindTable = {};
   for (const kind of HARNESS_KINDS) {
     kindTable[kind] = aggregateKind(kind, logEntries, graph, rollouts, attributed);
@@ -1706,11 +1788,14 @@ export async function runReport(argv = process.argv.slice(2)) {
     .filter((e) => e.sessionKind === 'plan-queue' && typeof e.instanceId === 'string' && e.instanceId)
     .map((e) => e.instanceId));
   const costDir = options.costDir ?? join(options.userData, 'cost-attribution');
+  // Codex's own credit readings, written as each root thread ends (Step 11.1). They are bounded by --until
+  // like every other record, so a reading written after the cutoff is missing, not guessed.
+  const credits = creditsFromLog(parsePolicyLog(policyDir, options.sinceMs, options.untilMs, 'thread-credits').entries);
   const usage = logEntries.some((e) => e.sessionKind === 'plan-queue')
     ? readCostAttribution(costDir, options.sinceMs, options.untilMs, queueInstanceIds)
     : { readable: true, byInstance: new Map(), files: 0, unparsableLines: 0 };
   const { unassigned, ineligible, offGraphBreaches, attributed, chats, kindTable, planQueue } =
-    buildComparisons(logEntries, graph, rollouts, items, usage, options.untilMs);
+    buildComparisons(logEntries, graph, rollouts, items, usage, options.untilMs, credits);
 
   // Harness-work combined per-turn figures: fold every harness-kind thread's
   // turns into one accumulator per arm (helpers attributed first).
@@ -1852,6 +1937,7 @@ export async function runReport(argv = process.argv.slice(2)) {
     unknownRollouts,
     damagedRollouts,
     unknownChatThreads,
+    units: trialUnits(chats, planQueue.perArm),
     verdict,
   };
 

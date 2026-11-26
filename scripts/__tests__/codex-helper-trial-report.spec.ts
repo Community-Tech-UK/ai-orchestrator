@@ -8,6 +8,7 @@ import {
   aggregatePlanQueue,
   buildComparisons,
   computeVerdict,
+  creditsFromLog,
   helperCountsFromLog,
   indexTurnContainment,
   parseArgs,
@@ -15,6 +16,7 @@ import {
   parseRolloutSync,
   readCostAttribution,
   readThreadGraph,
+  trialUnits,
   UNREADABLE_COST_RECORDS,
   VERDICT_RULES,
 } from '../codex-helper-trial-report.mjs';
@@ -2410,5 +2412,89 @@ describe.skipIf(!hasSqlite3())('plan queue from Harness records, with no rollout
       expect(report.verdict.notes.join(' ')).toContain('Automation outcome comparison unknown');
       expect(report.verdict.notes.join(' ')).not.toContain('"automation" completes more than 10 points worse');
     });
+  });
+});
+
+// ── Codex credit readings as the trial's unit (Oct-2 Phase D Step 11.1) ─────
+
+const creditRow = (at: string, threadId: string, credits: number | string) => ({
+  at, event: 'thread-credits', provider: 'codex', threadId, sessionKind: 'plan-queue', arm: 'off', armKey: 'item-1',
+  estimatedUsageCreditsMicros: credits, estimatedUsageUsdMicros: null, totalTokens: null, groups: [],
+});
+
+describe('Codex credit readings as the trial unit', () => {
+  it('reads thread-credits rows, keeps the latest per thread, skips malformed rows and never treats them as exposure', () => {
+    const dir = makeTempDir('codex-trial-credit-log-');
+    writeFileSync(join(dir, '2026-09-02.jsonl'), [
+      { at: '2026-09-02T10:00:00.000Z', provider: 'codex', threadId: 't-1', sessionKind: 'plan-queue', arm: 'off', level: 'off', armKey: 'item-1', applied: true },
+      creditRow('2026-09-02T10:01:00.000Z', 't-1', 4_000_000),
+      creditRow('2026-09-02T10:02:00.000Z', 't-1', 6_000_000),
+      creditRow('2026-09-02T10:03:00.000Z', 't-2', 'lots'),
+      { ...creditRow('2026-09-02T10:04:00.000Z', 't-3', 1_000_000), provider: 'claude' },
+    ].map((row) => JSON.stringify(row)).join('\n'));
+    const { entries } = parsePolicyLog(dir, 0, Number.MAX_SAFE_INTEGER, 'thread-credits');
+    expect([...creditsFromLog(entries)]).toEqual([['t-1', 6_000_000]]);
+    expect(parsePolicyLog(dir, 0, Number.MAX_SAFE_INTEGER).entries.map((row) => row['threadId'])).toEqual(['t-1']);
+    // A reading written at or after --until is outside the window.
+    const bounded = parsePolicyLog(dir, 0, Date.parse('2026-09-02T10:02:00.000Z'), 'thread-credits').entries;
+    expect([...creditsFromLog(bounded)]).toEqual([['t-1', 4_000_000]]);
+  });
+
+  it('sums a plan-queue item\'s thread readings only when every thread has one', () => {
+    const entries = [queueLog('w1', 'item-1', 'off'), queueLog('v1', 'item-1', 'off'), queueLog('w2', 'item-2', 'off')];
+    const usage = usageFor(['w1', 'v1', 'w2'].map((id) => costRow({ instanceId: `i-${id}`, input: 10, cacheRead: 90 })));
+    const items = [queueItem('item-1', 'landed'), queueItem('item-2', 'landed')];
+    const result = aggregatePlanQueue(entries, items, usage, emptyGraph(), Number.MAX_SAFE_INTEGER,
+      new Map([['w1', 3_000_000], ['v1', 2_000_000], ['w2', 9_000_000]]));
+    expect(result.perArm['off']).toMatchObject({ measuredLanded: 2, creditedLanded: 2, meanCreditsMicrosPerLandedItem: 7_000_000 });
+    const partial = aggregatePlanQueue(entries, items, usage, emptyGraph(), Number.MAX_SAFE_INTEGER,
+      new Map([['w1', 3_000_000], ['w2', 9_000_000]]));
+    expect(partial.perArm['off']).toMatchObject({ measuredLanded: 2, creditedLanded: 1, meanCreditsMicrosPerLandedItem: 9_000_000 });
+  });
+
+  it('gives a chat arm credits per turn from the threads that have a reading', () => {
+    const graph = { childrenOf: new Map<string, string[]>(), rolloutPath: new Map<string, string>() };
+    const rollouts = new Map([
+      ['a', trialRollout(trialTurn(0, 10, 100), trialTurn(20, 30, 100))],
+      ['b', trialRollout(trialTurn(0, 10, 100))],
+    ]);
+    const entries = ['a', 'b'].map((threadId) => ({ threadId, sessionKind: 'chat', level: 'full', arm: 'full', armKey: threadId, applied: true }));
+    const arm = (aggregateKind('chat', entries, graph, rollouts, undefined, new Map([['a', 6_000_000]])) as Record<string, Record<string, number>>)['full'];
+    expect(arm).toMatchObject({ threads: 2, creditedThreads: 1, meanCreditsMicrosPerTurn: 3_000_000 });
+  });
+
+  const withCredits = (off: number, full: number, ready = true) => ({
+    off: { meanInputPerLandedItem: 100, meanCreditsMicrosPerLandedItem: off, measuredLanded: 20, creditedLanded: ready ? 20 : 19,
+      landedShare: 0.5, medianWallClockMsPerItem: 1000 },
+    full: { meanInputPerLandedItem: 100, meanCreditsMicrosPerLandedItem: full, measuredLanded: 20, creditedLanded: 20,
+      landedShare: 0.5, medianWallClockMsPerItem: 1000 },
+  });
+  const chatArms = (cheaper: number, full: number) => ({
+    cheaper: { meanInputPerTurn: 100, meanCreditsMicrosPerTurn: cheaper, threads: 40, creditedThreads: 40, medianWallClockMs: 1000 },
+    full: { meanInputPerTurn: 100, meanCreditsMicrosPerTurn: full, threads: 40, creditedThreads: 40, medianWallClockMs: 1000 },
+  });
+
+  it('judges the verdict on credits when every measured item and chat thread has a reading, whatever the tokens say', () => {
+    const planQueue = withCredits(75, 100);
+    const chats = chatArms(85, 100);
+    expect(trialUnits(chats, planQueue)).toEqual({ harnessWork: 'credits', chats: 'credits' });
+    // Tokens are identical in both arms (no drop at all); only credits can justify Off and Cheaper.
+    const result = computeVerdict({ chats, planQueue, kinds: {}, counts: baseCounts() });
+    expect(result.harnessWork).toBe('off-justified');
+    expect(result.chats).toBe('cheaper-justified');
+    expect(result.notes.join(' ')).toContain('Cheaper meets the credit and wall-clock rules');
+    const tooSmall = computeVerdict({ chats: chatArms(86, 100), planQueue: withCredits(76, 100), kinds: {}, counts: baseCounts() });
+    expect(tooSmall.harnessWork).toBe('full-keeps-plan-queue');
+    expect(tooSmall.chats).toBe('full-stays');
+    expect(tooSmall.notes.join(' ')).toContain('credit drop 24.0% needs 25%');
+  });
+
+  it('stays in tokens, and says how many readings are missing, until every measured item has one', () => {
+    const planQueue = withCredits(1, 100, false);
+    expect(trialUnits({}, planQueue).harnessWork).toBe('tokens');
+    const result = computeVerdict({ chats: {}, planQueue, kinds: {}, counts: baseCounts() });
+    // Tokens are equal, so the token rule fails even though the partial credits look excellent.
+    expect(result.harnessWork).toBe('full-keeps-plan-queue');
+    expect(result.notes.join(' ')).toContain('Harness work: credit readings cover Off 19 of 20, Full 20 of 20; measured in tokens');
   });
 });

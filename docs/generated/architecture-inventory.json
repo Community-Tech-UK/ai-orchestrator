@@ -6470,12 +6470,12 @@
       "lines": 2502
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2450
+      "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
+      "lines": 2501
     },
     {
-      "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
-      "lines": 2415
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 2450
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
