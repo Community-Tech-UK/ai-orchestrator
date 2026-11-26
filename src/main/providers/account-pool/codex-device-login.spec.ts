@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { spawn as nativeSpawn } from 'node:child_process';
 import { PassThrough } from 'node:stream';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -265,6 +265,22 @@ describe('fresh native profile and spawn preparation', () => {
     expect(() => prepareCodexDeviceLoginHome('existing')).toThrow('fresh_profile_required');
     expect(() => prepareCodexDeviceLoginHome('linked')).toThrow('fresh_profile_required');
     expect(readFileSync(join(root, 'existing', 'auth.json'), 'utf8')).toBe('PLACEHOLDER_AUTH');
+  });
+
+  it('refuses a symlinked profiles root and creates nothing through it', () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), 'codex-device-login-elsewhere-'));
+    try {
+      symlinkSync(elsewhere, join(roots.current, 'codex-cli-profiles'));
+      expect(() => prepareCodexDeviceLoginHome('fresh')).toThrow('profile_preparation_failed');
+      expect(readdirSync(elsewhere)).toEqual([]);
+    } finally { rmSync(elsewhere, { recursive: true, force: true }); }
+  });
+
+  it('reports a failed preparation generically when the state root is unusable', () => {
+    const real = roots.current;
+    roots.current = join(real, 'missing-state-root');
+    try { expect(() => prepareCodexDeviceLoginHome('fresh')).toThrow('profile_preparation_failed'); }
+    finally { roots.current = real; }
   });
 
   it('pins file storage, disables shell spawning and strips ambient authentication', () => {
