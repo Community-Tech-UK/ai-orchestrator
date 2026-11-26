@@ -9,6 +9,7 @@ import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directi
  * - Live consensus score
  */
 
+import { formatMoneyPlain } from '../../../shared/utils/format-money';
 import {
   Component,
   inject,
@@ -18,7 +19,6 @@ import {
 } from '@angular/core';
 import { VerificationStore } from '../../../core/state/verification.store';
 import type { VerificationCost } from '../../../../../shared/types/verification.types';
-import { formatMoneyPlain } from '../../../shared/utils/format-money';
 
 @Component({
   selector: 'app-verification-monitor',

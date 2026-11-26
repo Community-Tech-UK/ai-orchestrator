@@ -94,6 +94,15 @@ describe('check-ts-max-loc', () => {
     );
   });
 
+  it('warns on an oversized untracked production module without failing the gate', () => {
+    const repoDir = createTrackedRepo({ 'src/small.ts': 1 });
+    writeFileSync(join(repoDir, 'src/new.ts'), makeTypeScriptLines(701));
+    const result = runLocCheck(repoDir);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('UNTRACKED WARNING: src/new.ts has 701 lines');
+    expect(result.output).toContain('TypeScript file size ratchet passed.');
+  });
+
   // The following tests use a real allowlisted path (preference-store.ts). They drive
   // the slack band via CHECK_TS_MAX_LOC_SLACK so they stay robust to the exact recorded
   // ceiling (they only assume the ceiling is below the 900-line fixture).

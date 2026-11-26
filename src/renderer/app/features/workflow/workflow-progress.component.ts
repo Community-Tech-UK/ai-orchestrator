@@ -155,6 +155,7 @@ interface PhaseWithStatus extends WorkflowPhase {
                         @if (exec.pendingGate.options && exec.pendingGate.options.length > 0) {
                           <select
                             class="gate-select"
+                            aria-label="Gate choice"
                             (change)="handleGateAction(exec.pendingGate.gateType, { selection: $any($event.target).value })"
                           >
                             <option value="" disabled selected>

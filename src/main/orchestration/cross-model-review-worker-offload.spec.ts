@@ -148,7 +148,7 @@ describe('actual Claude cross-model reviewer dispatch caps and routing', () => {
     expect(result).toMatchObject({ overallVerdict: 'APPROVE' });
     expect(state.quotaRefresh).toHaveBeenCalledExactlyOnceWith('claude', null);
     expect(create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      cliType: 'claude', options: expect.objectContaining({ maxTurns: 8, maxBudgetUsd: 1 }),
+      cliType: 'claude', options: expect.objectContaining({ maxTurns: 8, maxBudgetUsd: 1, noSessionPersistence: true }),
     }));
     // Phase 2 step 4g: the reviewer stays on the canonical adapter even when
     // spawn-worker offload is enabled — the proxy cannot enforce review policy.
@@ -161,6 +161,7 @@ describe('actual Claude cross-model reviewer dispatch caps and routing', () => {
     const dispatches = state.spawns.filter(args => !args.includes('--help') && !args.includes('--version'));
     expect(dispatches).toHaveLength(1);
     const args = dispatches[0];
+    expect(args).toContain('--no-session-persistence');
     expect(args.slice(args.indexOf('--max-turns'), args.indexOf('--max-turns') + 2)).toEqual(['--max-turns', '8']);
     expect(args.slice(args.indexOf('--max-budget-usd'), args.indexOf('--max-budget-usd') + 2)).toEqual(['--max-budget-usd', '1']);
   });

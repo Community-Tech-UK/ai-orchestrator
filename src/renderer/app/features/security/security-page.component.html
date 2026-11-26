@@ -206,7 +206,7 @@
             @if (redactedOutput()) {
               <div class="redacted-section">
                 <div class="results-title">Redacted output</div>
-                <textarea class="scan-textarea redacted" readonly [value]="redactedOutput()"></textarea>
+                <textarea aria-label="Redacted output" class="scan-textarea redacted" readonly [value]="redactedOutput()"></textarea>
               </div>
             }
           </div>
@@ -263,14 +263,14 @@
               <div class="env-card">
                 <div class="env-card-title">Test Variable</div>
                 <div class="test-row">
-                  <input
+                  <input aria-label="Filter by variable name"
                     class="filter-input flex-1"
                     type="text"
                     placeholder="VAR_NAME"
                     [value]="testVarName()"
                     (input)="onTestVarNameInput($event)"
                   />
-                  <input
+                  <input aria-label="Filter by value"
                     class="filter-input flex-1"
                     type="text"
                     placeholder="value"

@@ -9,6 +9,7 @@ const disabledConfig = [{ rules: {
   'ui-hints/no-hardcoded-shortcut': 'off',
   'ui-hints/no-native-title': ['off', { scope: 'controls' }],
   'ui-hints/icon-control-needs-name-and-tooltip': 'off',
+  'ui-hints/form-field-needs-name': 'error',
 } }];
 describe('lint severity follows ratchet totals', () => {
   it('has every rule registered and accepts the actual recorded state', () => { expect(checkLink(config, readBaseline('scripts/ui-hints/baseline'))).toEqual([]); });

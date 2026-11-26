@@ -212,6 +212,7 @@ export interface Instance {
   waitReason?: InstanceWaitReason;
   /** Live provider-owned background work; an idle session with this set is still waiting. */
   backgroundWork?: InstanceBackgroundWork;
+  nativeHelpers?: import('../../../../../shared/types/instance.types').NativeHelperSummary;
   /**
    * True when the instance's adapter self-manages context auto-compaction
    * (Claude CLI always; Codex in app-server mode). When set, the orchestrator

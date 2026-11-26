@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLogger } from '../../logging/logger';
 import { getWakeContextBuilder } from '../../memory/wake-context-builder';
+import { reviewWakeHintsForRoom } from '../../memory/wake-hint-review';
 import {
   WakeAddHintPayloadSchema,
   WakeGeneratePayloadSchema,
@@ -21,7 +22,7 @@ export function registerWakeContextHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const data = WakeGeneratePayloadSchema.parse(payload);
-        const context = builder.generateWakeContext(data.wing);
+        const context = builder.generateWakeContext(data.wing, { recordUsage: false });
         return { success: true, data: context };
       } catch (error) {
         logger.error('WAKE_GENERATE failed', error as Error);
@@ -42,7 +43,7 @@ export function registerWakeContextHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const data = WakeGeneratePayloadSchema.parse(payload);
-        const text = builder.getWakeUpText(data.wing);
+        const text = builder.getWakeUpText(data.wing, { recordUsage: false });
         return { success: true, data: text };
       } catch (error) {
         logger.error('WAKE_GET_TEXT failed', error as Error);
@@ -131,7 +132,7 @@ export function registerWakeContextHandlers(): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const data = WakeListHintsPayloadSchema.parse(payload);
-        const hints = builder.listHints(data.room);
+        const hints = await reviewWakeHintsForRoom(data.room);
         return { success: true, data: hints };
       } catch (error) {
         logger.error('WAKE_LIST_HINTS failed', error as Error);

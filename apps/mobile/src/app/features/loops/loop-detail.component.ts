@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { loopQuestionKindLabel, loopQuestionStatusLabel, loopStatusLabel } from '../../core/status';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
@@ -23,8 +23,17 @@ import { LoopStore } from './loop.store';
         <div class="actions">
           <button type="button" [disabled]="busy()" (click)="control('pause')">Pause</button>
           <button type="button" [disabled]="busy()" (click)="control('resume')">Resume</button>
-          <button type="button" class="danger" [disabled]="busy()" (click)="control('stop')">Stop</button>
+          <button type="button" class="danger" [disabled]="busy()" (click)="confirming.set(id())">Stop</button>
         </div>
+        @if (confirming() === id()) {
+          <div class="confirmation" role="group" aria-label="Confirm stopping loop">
+            <p>Stop this loop? Its work so far is kept.</p>
+            <div class="actions">
+              <button type="button" [disabled]="busy()" (click)="confirmStop()">Stop it</button>
+              <button type="button" (click)="confirming.set(null)">Keep going</button>
+            </div>
+          </div>
+        }
         @if (loops.error(); as message) { <p role="alert">{{ message }}</p> }
         @if (detail.run.lastIteration; as last) { <p>{{ last.summary }}</p> }
         <ul>
@@ -49,6 +58,7 @@ import { LoopStore } from './loop.store';
 })
 export class LoopDetailComponent {
   readonly id = input.required<string>();
+  protected readonly confirming = signal<string | null>(null);
   protected readonly loops = inject(LoopStore);
   protected readonly questionKindLabel = loopQuestionKindLabel;
   protected readonly questionStatusLabel = loopQuestionStatusLabel;
@@ -65,5 +75,10 @@ export class LoopDetailComponent {
 
   protected busy(): boolean { return this.loops.pendingId() === this.id(); }
   protected back(): void { void this.router.navigate(['/loops']); }
+  protected confirmStop(): void {
+    if (this.confirming() !== this.id() || this.busy()) return;
+    this.confirming.set(null);
+    void this.loops.control(this.id(), 'stop');
+  }
   protected control(action: 'pause' | 'resume' | 'stop'): void { void this.loops.control(this.id(), action); }
 }

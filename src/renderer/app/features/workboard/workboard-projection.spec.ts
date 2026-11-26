@@ -141,6 +141,7 @@ function input(overrides: Partial<WorkboardProjectionInput> = {}): WorkboardProj
     automationRuns: [],
     automations: [],
     repoJobs: [],
+    memoryReviews: [],
     now: NOW,
     ...overrides,
   };
@@ -217,6 +218,7 @@ describe('source-status → lane policy (exhaustive)', () => {
     running: 'working',
     pending: 'waiting',
     failed: 'needs-you',
+    'needs-attention': 'needs-you',
     succeeded: 'done',
     skipped: 'done',
     cancelled: 'done',

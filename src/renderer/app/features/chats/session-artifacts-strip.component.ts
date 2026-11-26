@@ -29,6 +29,7 @@ import {
   type Signal,
 } from '@angular/core';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { BackdropEscapeDirective } from '../../shared/backdrop-escape.directive';
 import type { Instance } from '../../core/state/instance/instance.types';
 import {
   applyStatusFilter,
@@ -64,7 +65,7 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
 @Component({
   selector: 'app-session-artifacts-strip',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, BackdropEscapeDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (entries().length > 0) {
@@ -184,10 +185,12 @@ const STATUS_SYMBOL: Record<ArtifactStatus, string> = {
         <button
           type="button"
           class="ctx-menu-backdrop"
-          data-ui-hints-exempt="backdrop"
+          tabindex="-1"
+          aria-hidden="true"
+          appBackdropEscape
+          (appBackdropEscape)="contextMenu.set(null)"
           aria-label="Close menu"
           (click)="contextMenu.set(null)"
-          (keydown.escape)="contextMenu.set(null)"
           (contextmenu)="$event.preventDefault(); contextMenu.set(null)"
         ></button>
         <div

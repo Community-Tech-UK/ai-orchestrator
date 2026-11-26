@@ -59,6 +59,7 @@ import type {
             type="range"
             min="0"
             max="100"
+            aria-label="Min Confidence"
             [value]="confidenceThreshold()"
             (input)="onConfidenceChange($event)"
             class="confidence-slider"
@@ -89,6 +90,7 @@ import type {
             <span class="filter-label">Category</span>
             <select
               class="category-select"
+              aria-label="Category"
               [value]="selectedCategory()"
               (change)="onCategoryChange($event)"
             >

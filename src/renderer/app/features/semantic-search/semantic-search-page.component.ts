@@ -58,6 +58,7 @@ interface IndexStats {
         <input
           class="query-input"
           type="text"
+          aria-label="Search query"
           [value]="query()"
           placeholder="Describe what you are looking for..."
           (input)="onQueryInput($event)"
@@ -89,6 +90,7 @@ interface IndexStats {
         <input
           class="pattern-input"
           type="text"
+          aria-label="File pattern"
           [value]="filePattern()"
           placeholder="File pattern (e.g. *.ts)"
           (input)="onFilePatternInput($event)"

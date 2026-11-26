@@ -96,12 +96,6 @@ const controlSurfaceRoutes: Routes = [
       import('./features/rlm/rlm-page.component').then((m) => m.RlmPageComponent),
   },
   {
-    path: 'training',
-    data: controlSurfaceRouteData('training'),
-    loadComponent: () =>
-      import('./features/training/training-page.component').then((m) => m.TrainingPageComponent),
-  },
-  {
     path: 'memory',
     data: controlSurfaceRouteData('memory'),
     loadComponent: () =>
@@ -266,12 +260,6 @@ const controlSurfaceRoutes: Routes = [
     data: controlSurfaceRouteData('remote-config'),
     loadComponent: () =>
       import('./features/remote-config/remote-config-page.component').then((m) => m.RemoteConfigPageComponent),
-  },
-  {
-    path: 'communication',
-    data: controlSurfaceRouteData('communication'),
-    loadComponent: () =>
-      import('./features/communication/communication-page.component').then((m) => m.CommunicationPageComponent),
   },
   {
     path: 'multi-edit',

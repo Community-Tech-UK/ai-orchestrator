@@ -82,7 +82,7 @@ class FakeCodebaseIpcService {
   standalone: true,
   imports: [ComposerAutocompleteComponent],
   template: `
-    <textarea #textarea></textarea>
+    <textarea #textarea aria-label="Message"></textarea>
     <app-composer-autocomplete
       [textarea]="textarea"
       [workspaceCwd]="workspaceCwd"

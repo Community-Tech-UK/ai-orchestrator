@@ -1,17 +1,8 @@
 /**
- * IPC channels for inter-instance communication, channel management,
+ * IPC channels for channel management,
  * reaction engine, remote observer, remote nodes, and remote filesystem.
  */
 export const COMMUNICATION_CHANNELS = {
-  // Cross-instance communication
-  COMM_REQUEST_TOKEN: 'comm:request-token',
-  COMM_SEND_MESSAGE: 'comm:send-message',
-  COMM_SUBSCRIBE: 'comm:subscribe',
-  COMM_CONTROL: 'comm:control-instance',
-  COMM_CREATE_BRIDGE: 'comm:create-bridge',
-  COMM_GET_MESSAGES: 'comm:get-messages',
-  COMM_GET_BRIDGES: 'comm:get-bridges',
-  COMM_DELETE_BRIDGE: 'comm:delete-bridge',
 
   // Channel management (request/response)
   CHANNEL_CONNECT: 'channel:connect',

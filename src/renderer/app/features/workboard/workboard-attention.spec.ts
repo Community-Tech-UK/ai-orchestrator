@@ -8,7 +8,7 @@ const paused: LoopRunSummaryPayload = {
   id: 'l', chatId: 'a', status: 'paused', workspaceCwd: '/work', initialPrompt: 'Build', iterationPrompt: null,
   totalIterations: 1, totalTokens: 0, totalCostCents: 0, startedAt: now, endedAt: null, endReason: null,
 };
-const input = (): WorkboardProjectionInput => ({ instances: [], loopRuns: [paused], automationRuns: [], automations: [], repoJobs: [], now });
+const input = (): WorkboardProjectionInput => ({ instances: [], loopRuns: [paused], automationRuns: [], automations: [], repoJobs: [], memoryReviews: [], now });
 
 describe('Needs-you projection policy', () => {
   it.each([

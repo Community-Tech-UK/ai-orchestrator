@@ -40,6 +40,7 @@ describe('native recovery diagnostics actual sink', () => {
       getActivityDetectors: () => mode === 'dispatch' ? new Map([[instance.id, { detect: vi.fn(async () => ({ state: 'exited' })) } as never]]) : new Map(),
       getInstance: () => instance, forEachInstance: (callback) => callback(instance, instance.id), getAdapter: () => adapter as never,
       queueUpdate, deleteAdapter, transitionState: vi.fn(), dispatchRecovery, hibernateInstance, terminateInstance, isLifecycleLocked: () => false,
+      sessionHostsActiveLoop: () => false,
     };
     const monitor = new IdleMonitor(deps);
     try {

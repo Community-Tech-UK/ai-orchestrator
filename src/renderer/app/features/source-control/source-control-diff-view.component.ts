@@ -198,6 +198,7 @@ function rowKey(hunkIndex: number, lineIndex: number): string {
             <textarea
               #commentTextarea
               class="diff-anno-editor-textarea"
+              aria-label="Review comment"
               placeholder="What should change here?"
               [value]="editor.commentDraft"
               (input)="onEditorInput($event)"

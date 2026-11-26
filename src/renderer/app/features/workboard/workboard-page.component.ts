@@ -32,8 +32,9 @@ const REFRESH_INTERVAL_MS = 4000;
 
 /**
  * The Workboard: a workspace-filtered, four-lane attention board that projects
- * instances, loop runs, automation runs, and repository jobs, with a detail pane
- * that reuses the existing instance transcript for instance-linked work.
+ * instances, loop runs, automation runs, repository jobs and memory reviews,
+ * with a detail pane that reuses the existing instance transcript for
+ * instance-linked work.
  *
  * Template and styles are inlined (rather than external files) so the component
  * renders under the JIT vitest harness — the same pattern as the Fleet dashboard
@@ -85,7 +86,7 @@ const REFRESH_INTERVAL_MS = 4000;
         </div>
       </header>
 
-      @if (store.loopError() || store.repoJobError() || store.automationError()) {
+      @if (store.loopError() || store.repoJobError() || store.automationError() || store.memoryReviewError()) {
         <div class="wb-source-errors">
           @if (store.loopError()) {
             <div class="wb-source-error" role="status">
@@ -103,6 +104,12 @@ const REFRESH_INTERVAL_MS = 4000;
             <div class="wb-source-error" role="status">
               <span>Automations: {{ store.automationError() }}</span>
               <button type="button" (click)="store.retryAutomations()">Retry</button>
+            </div>
+          }
+          @if (store.memoryReviewError()) {
+            <div class="wb-source-error" role="status">
+              <span>Memory reviews: {{ store.memoryReviewError() }}</span>
+              <button type="button" (click)="store.retryMemoryReviews()">Retry</button>
             </div>
           }
         </div>
@@ -386,8 +393,12 @@ export class WorkboardPageComponent {
 
   /** Announcement text for the polite live region (refresh failures only). */
   protected readonly liveAnnouncement = computed(() => {
-    const errors = [this.store.loopError(), this.store.repoJobError(), this.store.automationError()]
-      .filter((e): e is string => !!e);
+    const errors = [
+      this.store.loopError(),
+      this.store.repoJobError(),
+      this.store.automationError(),
+      this.store.memoryReviewError(),
+    ].filter((e): e is string => !!e);
     return errors.length ? `Some sources failed to refresh: ${errors.join('; ')}` : '';
   });
 

@@ -66,7 +66,7 @@ interface HookFormData {
             @for (rule of builtInRules(); track rule.id) {
               <div class="rule-item" [class.disabled]="!rule.enabled">
                 <div class="rule-info">
-                  <span class="rule-name">{{ rule.name }}</span>
+                  <span class="rule-name" [id]="'hook-rule-name-' + rule.id">{{ rule.name }}</span>
                   <span class="rule-event">{{ rule.event }}</span>
                   @if (rule.message) {
                     <span class="rule-message">{{ rule.message }}</span>
@@ -75,6 +75,7 @@ interface HookFormData {
                 <label class="toggle-switch">
                   <input
                     type="checkbox"
+                    [attr.aria-labelledby]="'hook-rule-name-' + rule.id"
                     [checked]="rule.enabled"
                     (change)="toggleBuiltIn(rule)"
                   />
@@ -96,7 +97,7 @@ interface HookFormData {
             @for (rule of customRules(); track rule.id) {
               <div class="rule-item" [class.disabled]="!rule.enabled">
                 <div class="rule-info">
-                  <span class="rule-name">{{ rule.name }}</span>
+                  <span class="rule-name" [id]="'hook-rule-name-' + rule.id">{{ rule.name }}</span>
                   <span class="rule-event">{{ rule.event }}</span>
                   <span class="rule-action" [class]="'action-' + rule.action">
                     {{ rule.action }}
@@ -118,6 +119,7 @@ interface HookFormData {
                   <label class="toggle-switch">
                     <input
                       type="checkbox"
+                      [attr.aria-labelledby]="'hook-rule-name-' + rule.id"
                       [checked]="rule.enabled"
                       (change)="toggleRule(rule)"
                     />
@@ -152,6 +154,7 @@ interface HookFormData {
                 <input
                   type="text"
                   class="form-input"
+                  aria-label="Name"
                   [value]="formData().name"
                   (input)="updateForm('name', $any($event.target).value)"
                   placeholder="My Hook"
@@ -164,6 +167,7 @@ interface HookFormData {
                 <input
                   type="text"
                   class="form-input"
+                  aria-label="Message (shown when triggered)"
                   [value]="formData().message"
                   (input)="updateForm('message', $any($event.target).value)"
                   placeholder="Warning message to display"
@@ -175,6 +179,7 @@ interface HookFormData {
                 <span class="form-label">Event</span>
                 <select
                   class="form-select"
+                  aria-label="Event"
                   [value]="formData().event"
                   (change)="updateForm('event', $any($event.target).value)"
                 >
@@ -190,6 +195,7 @@ interface HookFormData {
                 <input
                   type="text"
                   class="form-input"
+                  aria-label="Tool Matcher (optional, regex)"
                   [value]="formData().toolMatcher"
                   (input)="updateForm('toolMatcher', $any($event.target).value)"
                   placeholder="e.g., Bash|Edit|Write"
@@ -234,6 +240,7 @@ interface HookFormData {
                       <div class="condition-row">
                         <select
                           class="condition-field"
+                          aria-label="Condition field"
                           [value]="condition.field"
                           (change)="updateCondition(i, 'field', $any($event.target).value)"
                         >
@@ -261,6 +268,7 @@ interface HookFormData {
                         </select>
                         <select
                           class="condition-operator"
+                          aria-label="Condition operator"
                           [value]="condition.operator"
                           (change)="updateCondition(i, 'operator', $any($event.target).value)"
                         >
@@ -274,6 +282,7 @@ interface HookFormData {
                         <input
                           type="text"
                           class="condition-pattern"
+                          aria-label="Condition pattern"
                           [value]="condition.pattern"
                           (input)="updateCondition(i, 'pattern', $any($event.target).value)"
                           placeholder="pattern"
@@ -297,10 +306,11 @@ interface HookFormData {
 
               <!-- Enabled -->
               <div class="form-group row">
-                <span class="form-label">Enabled</span>
+                <span class="form-label" id="hook-form-enabled-label">Enabled</span>
                 <label class="toggle-switch">
                   <input
                     type="checkbox"
+                    aria-labelledby="hook-form-enabled-label"
                     [checked]="formData().enabled"
                     (change)="updateForm('enabled', $any($event.target).checked)"
                   />

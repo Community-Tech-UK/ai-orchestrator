@@ -326,6 +326,9 @@
   }
 
   <!-- Input area -->
+  @if (attachmentDisabledReason(); as reason) {
+    <div class="attachment-unavailable input-hints" role="status">{{ reason }}</div>
+  }
   <div class="input-row">
     <div class="textarea-wrapper" [class.has-ghost]="showGhostText()"
       [attr.tabindex]="disabled() ? 0 : null"
@@ -363,9 +366,9 @@
       <div class="composer-actions-left">
         <button
           class="btn-attach"
-          [appTooltipDisabledReason]="disabled() ? copy('composer.inputUnavailable') : null"
+          [appTooltipDisabledReason]="attachmentDisabledReason() ? attachDisabledTip() : (disabled() ? copy('composer.inputUnavailable') : null)"
           (click)="onAddFiles()"
-          appTooltip="Add files"
+          [appTooltip]="attachDisabledTip()"
           aria-label="Add files"
         >
           <span class="attach-icon">+</span>
@@ -424,7 +427,7 @@
                   </button>
                 </div>
                 @if (wakeupMode() === 'once') {
-                  <input
+                  <input aria-label="Wake-up time"
                     class="wakeup-time"
                     type="datetime-local"
                     [value]="wakeupRunAtLocal()"
@@ -570,7 +573,7 @@
 
     @if (showVoiceKeyInput()) {
       <form class="voice-key-form" (submit)="$event.preventDefault(); onSubmitVoiceKey()">
-        <input
+        <input aria-label="OpenAI API key"
           class="voice-key-input"
           type="password"
           autocomplete="off"

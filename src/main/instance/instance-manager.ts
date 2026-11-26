@@ -621,7 +621,7 @@ export class InstanceManager extends EventEmitter {
       ingestInitialOutputToRlm: (inst, msgs) => this.context.ingestInitialOutputToRlm(inst, msgs),
       buildObservationContext: (taskContext, instanceId, taskType) =>
         this.context.buildObservationContext(taskContext, instanceId, taskType),
-      buildWakeContextText: (wing) => this.context.buildWakeContextText(wing),
+      buildWakeContextText: (wing, recordUsage) => this.context.buildWakeContextText(wing, recordUsage),
       buildMcpRuntimeToolContextSelection: (snapshot, query, maxTools) =>
         this.context.buildMcpRuntimeToolContextSelection(snapshot, query, maxTools),
       registerOrchestration: (id, wd, pid) => this.orchestrationMgr.registerInstance(id, wd, pid),

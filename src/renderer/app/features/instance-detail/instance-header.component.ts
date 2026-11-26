@@ -26,6 +26,7 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { CAPABILITY_WORDS } from '../../../../shared/session-posture';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { BackdropEscapeDirective } from '../../shared/backdrop-escape.directive';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
 import { globalComputerUseLevel, resolveComputerUsePresentation } from './session-computer-use-control.component';
 import { SessionCostLabelComponent } from './session-cost-label.component';
@@ -42,7 +43,7 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, CrossModelReviewIndicatorComponent, SessionCostLabelComponent, SessionOptionsMenuComponent, AioTooltipDirective, HelpLinkComponent],
+  imports: [BackdropEscapeDirective, StatusIndicatorComponent, RecentDirectoriesDropdownComponent, CrossModelReviewIndicatorComponent, SessionCostLabelComponent, SessionOptionsMenuComponent, AioTooltipDirective, HelpLinkComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

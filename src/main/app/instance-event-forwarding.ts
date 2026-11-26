@@ -22,6 +22,8 @@ import { textDiagnostic } from '../logging/source-diagnostics';
 import { getMemoryMonitor } from '../memory/memory-monitor';
 import { getRemoteObserverServer } from '../remote/observer-server';
 import { getRepoJobService } from '../repo-jobs';
+import { getGovernedProposalStore } from '../memory/governed-proposal-store';
+import { bindInboxChangeForwarding } from './inbox-change-forwarding';
 import {
   getSessionContinuityManager,
 } from '../session/session-continuity';
@@ -82,6 +84,12 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   const { instanceManager, windowManager, isStatelessExecProvider, getNodeLatencyForInstance } = options;
   const observer = getRemoteObserverServer();
   const repoJobs = getRepoJobService();
+  bindInboxChangeForwarding(getGovernedProposalStore(), repoJobs,
+    (channel, event) => {
+      if (channel === IPC_CHANNELS.MEMORY_REVIEW_CHANGED) windowManager.sendToRenderer(IPC_CHANNELS.MEMORY_REVIEW_CHANGED, event);
+      if (channel === IPC_CHANNELS.REPO_JOB_CHANGED) windowManager.sendToRenderer(IPC_CHANNELS.REPO_JOB_CHANGED, event);
+    },
+    job => observer.publishRepoJob(job));
   const traceSink = getProviderRuntimeTraceSink();
 
   // Track previous statuses so we can detect active → idle transitions.
@@ -612,19 +620,6 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
     windowManager.notifyUserActionRequest(request, instanceManager.getInstance(request.instanceId)?.displayName);
   });
-
-  for (const eventName of [
-    'repo-job:submitted',
-    'repo-job:started',
-    'repo-job:progress',
-    'repo-job:completed',
-    'repo-job:failed',
-    'repo-job:cancelled',
-  ] as const) {
-    repoJobs.on(eventName, (job) => {
-      observer.publishRepoJob(job);
-    });
-  }
 
   const activityBridge = getOrchestrationActivityBridge();
   activityBridge.initialize(

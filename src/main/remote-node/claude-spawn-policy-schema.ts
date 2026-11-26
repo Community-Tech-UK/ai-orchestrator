@@ -29,5 +29,6 @@ export const RemoteClaudeSpawnPolicySchema = z.object({
   plainCompletion: z.literal(true).optional(),
   maxTurns: z.number().int().positive().max(10_000).optional(),
   maxBudgetUsd: z.number().positive().max(100_000).optional(),
+  noSessionPersistence: z.literal(true).optional(),
 }).strict();
 export type RemoteClaudeSpawnPolicy = z.infer<typeof RemoteClaudeSpawnPolicySchema>;

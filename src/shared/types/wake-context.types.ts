@@ -28,6 +28,13 @@ export interface WakeHint {
   createdAt: number;
   lastUsed: number;
   usageCount: number;
+  review?: {
+    shownIn30Days: number;
+    historyStartedAt: number;
+    sourceStatus: 'matches' | 'changed' | 'unknown';
+    sourceFiles: string[];
+    suggestion?: 'source changed' | 'never shown';
+  };
 }
 
 export function normalizeWakeHintContent(content: string): string {

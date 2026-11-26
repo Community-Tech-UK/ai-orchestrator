@@ -1080,6 +1080,201 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
     expect(failed).not.toHaveBeenCalled();
   });
 
+  it('pauses with the held reason instead of advancing when a merge-held step ends under the continue policy', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-merge-hold-continue',
+      spec: buildSpec({
+        id: 'camp-merge-hold-continue',
+        nodes: [
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
+        ],
+        edges: [{ from: 'a', to: 'b' }],
+        policy: { onNodeNeedsReview: 'continue', maxParallel: 1 },
+      }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-merge-hold-continue',
+          status: 'running',
+          loopRunId: 'loop-merge-hold-continue',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-merge-hold-continue',
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string, endedAt?: number | null, mergeHold?: boolean) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-merge-hold-continue', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-merge-hold-continue', 'completed-needs-review', 1_000_010, true);
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toContain('Step a');
+    expect(run.pausedReason).toContain('held for review');
+    expect(run.pausedReason).toContain('was not merged');
+    expect(run.nodeRuns.get('a')?.status).toBe('completed-needs-review');
+    expect(run.nodeRuns.get('b')?.status).toBe('pending');
+    expect(internals.activeCampaigns.get(run.id)).toBe(run);
+  });
+
+  it('advances as today when the same step ends without the merge hold', async () => {
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-b-after-continue' });
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string, endedAt?: number | null, mergeHold?: boolean) => Promise<void>;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+    };
+    internals.setLoopStarterForTesting(loopStarter);
+    const run: CampaignRun = {
+      id: 'camp-merge-hold-continue-unheld',
+      spec: buildSpec({
+        id: 'camp-merge-hold-continue-unheld',
+        nodes: [
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
+        ],
+        edges: [{ from: 'a', to: 'b' }],
+        policy: { onNodeNeedsReview: 'continue', maxParallel: 1 },
+      }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-merge-hold-continue-unheld',
+          status: 'running',
+          loopRunId: 'loop-merge-hold-continue-unheld',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-merge-hold-continue-unheld',
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-merge-hold-continue-unheld', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-merge-hold-continue-unheld', 'completed-needs-review', 1_000_010, false);
+    await waitUntil(() => run.nodeRuns.get('b')?.status === 'running');
+
+    expect(run.status).toBe('running');
+    expect(run.pausedReason).toBeUndefined();
+    expect(run.nodeRuns.get('b')?.loopRunId).toBe('loop-b-after-continue');
+  });
+
+  it('still halts under the halt policy when the step merge was held', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-merge-hold-halt-policy',
+      spec: buildSpec({
+        id: 'camp-merge-hold-halt-policy',
+        policy: { onNodeNeedsReview: 'halt', maxParallel: 1 },
+      }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-merge-hold-halt-policy',
+          status: 'running',
+          loopRunId: 'loop-merge-hold-halt-policy',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string, endedAt?: number | null, mergeHold?: boolean) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-merge-hold-halt-policy', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-merge-hold-halt-policy', 'completed-needs-review', 1_000_010, true);
+
+    expect(run.status).toBe('halted');
+    expect(run.pausedReason).toBeUndefined();
+    expect(internals.activeCampaigns.has(run.id)).toBe(false);
+  });
+
+  it('pauses on restart recovery when the terminal snapshot carries the merge hold', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const spec = buildSpec({
+      id: 'camp-recover-merge-held',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp', completion: { verifyCommand: 'npm test' } }, dependsOn: ['a'] },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+      policy: { onNodeNeedsReview: 'continue', maxParallel: 1 },
+    });
+    const run: CampaignRun = {
+      id: spec.id,
+      spec,
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: spec.id,
+          status: 'running',
+          loopRunId: 'loop-merge-held-offline',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: spec.id,
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    for (const nodeRun of run.nodeRuns.values()) store.upsertNode(nodeRun);
+
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-b-should-not-start' });
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => unknown) => void;
+    };
+    internals.store = store;
+    internals.setLoopStarterForTesting(loopStarter);
+    internals.setLoopStatusReaderForTesting((loopRunId) =>
+      loopRunId === 'loop-merge-held-offline'
+        ? { status: 'completed-needs-review', endedAt: 1_000_010, endEvidence: { mergeHold: true } }
+        : null,
+    );
+
+    await coordinator.recoverInterruptedCampaigns();
+
+    const recovered = coordinator.getCampaign(spec.id);
+    expect(recovered?.status).toBe('paused');
+    expect(recovered?.pausedReason).toContain('held for review');
+    expect(recovered?.pausedReason).toContain('was not merged');
+    expect(recovered?.nodeRuns.get('b')?.status).toBe('pending');
+    expect(loopStarter).not.toHaveBeenCalled();
+  });
+
   it('resumes a campaign when an app-restart-paused running node loop starts running again', async () => {
     const coordinator = new CampaignCoordinator();
     const run: CampaignRun = {
@@ -1202,7 +1397,7 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
 
 describe('NextObjectivePlanner type contract', () => {
   it('planner receives last output, original goal, and seq', async () => {
-    const calls: Array<{ lastOutput: string; originalGoal: string; seq: number }> = [];
+    const calls: { lastOutput: string; originalGoal: string; seq: number }[] = [];
     const planner = async (ctx: { lastOutput: string; originalGoal: string; seq: number }) => {
       calls.push(ctx);
       return 'Next: fix the remaining test failures';

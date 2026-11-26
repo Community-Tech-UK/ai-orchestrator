@@ -232,6 +232,18 @@ export const TOOLTIP_COPY = {
     label: 'Discard',
     meaning: 'Opens the confirmation to discard this item’s work.',
   },
+  'composer.attachGemini': {
+    label: 'Add files',
+    meaning: 'Gemini chats in Harness cannot take attachments yet',
+  },
+  'composer.attachAntigravity': {
+    label: 'Add files',
+    meaning: 'Antigravity chats in Harness cannot take attachments yet',
+  },
+  'composer.attachLocalModel': {
+    label: 'Add files',
+    meaning: 'Local-model chats in Harness cannot take attachments yet',
+  },
   newSession: { label: 'New session', meaning: 'Start a session in the current project.' },
   newSessionOptions: { label: 'New session options', meaning: 'Start a Quick chat without a project folder.' },
   mcpServerCost: { label: 'Tool cost', meaning: 'Providers that send every tool with each message add up to this many tokens. Claude normally loads tools only when needed, so it adds just the tool names,' },
@@ -244,20 +256,21 @@ export const TOOLTIP_COPY = {
   // MEM-7: project notes use plain words, with explanation on hover and focus.
   'memory.projectNotes': { label: 'Project notes', meaning: 'Short facts the AI is given at the start of every session in this project. Keep the list short: every note is read every time.' },
   'memory.priority': { label: 'Priority', meaning: 'Higher numbers are included first when there is not enough room.' },
-  'memory.shown': { label: 'Shown', meaning: "Included in a session's starting notes. Notes shown often and never useful are good ones to remove." },
+  'memory.shown': { label: 'Shown', meaning: 'How many session starts included this note. Rebuilds and compaction recovery do not add to the count.' },
   'memory.reflection': { label: 'From a lesson', meaning: 'A lesson Harness worked out from earlier sessions. It is shown to the AI as background, never as an instruction, until you approve it.' },
   'memory.identity': { label: 'About this project', meaning: 'A short description of this project, included in starting notes.' },
   'memory.editIdentity': { label: 'Edit', meaning: 'Edit the description included in starting notes.' },
   'memory.saveIdentity': { label: 'Save description', meaning: 'Save this description for future sessions.' },
   'memory.cancel': { label: 'Cancel', meaning: 'Close this editor without saving the draft.' },
   'memory.project': { label: 'Project', meaning: 'Limit starting notes to this project. Leave blank to use the selected project.' },
-  'memory.rebuild': { label: 'Rebuild starting notes', meaning: 'Build a fresh starting-notes preview for the chosen project.' },
+  'memory.rebuild': { label: 'Rebuild starting notes', meaning: 'Preview the current starting notes without counting another session.' },
   'memory.background': { label: 'Key background', meaning: 'The background selected from saved notes for a new session.' },
   'memory.addNote': { label: 'Add note', meaning: 'Save a short fact or guideline for future sessions.' },
   'memory.content': { label: 'Note', meaning: 'Write the fact or guideline you want future sessions to know.' },
   'memory.topic': { label: 'Topic', meaning: 'Group related notes under a topic such as architecture or security.' },
   'memory.removeNote': { label: 'Remove note', meaning: 'Remove this note from the saved list.' },
   'memory.notes': { label: 'Notes', meaning: 'The notes included in starting notes now: one current copy of each fact.' },
+  'memory.suggestions': { label: 'Suggested for removal', meaning: 'Review notes with no showing in 60 fully tracked days, or a changed source after at least 10 showings in 30 days. Suggestions never remove notes.' },
   'memory.hidden': { label: 'Hidden', meaning: 'Notes kept out of starting notes: duplicate copies, and older notes last shown before 4 May 2026.' },
   // ---- Loop HUD controls (UX3 rollout order: loop HUD first) ----
   'loop.stop': { label: 'Stop', meaning: 'Stops the loop. Asks first.' },
@@ -457,6 +470,15 @@ export const TOOLTIP_COPY = {
   'rtk.scope': { label: 'Where it applies', meaning: 'Shows which sessions use the hook, instructions, a harm check, or no output compression.' },
   'quickAsk.button': { label: 'Quick ask', meaning: 'Ask this running Claude conversation a question without saving the answer to its transcript. It rereads the current conversation.' },
   'coldCache.compactFirst': { label: 'Compact first', meaning: 'Make a checkpoint and summarize the conversation before the next message. The summary keeps key context but can omit detail; choose full history to skip this once.' },
+  // The call site appends the unrounded figure after this phrase.
+  'cost.exactAmount': {
+    label: 'Exact amount',
+    meaning: 'Exact amount: ',
+  },
+  'strip.helperAgents': {
+    label: 'Helper agents',
+    meaning: 'Helper agents the AI started inside this session. They are not separate sessions.',
+  },
 } as const satisfies Record<string, TooltipCopyEntry>;
 
 export type TooltipCopyKey = keyof typeof TOOLTIP_COPY;

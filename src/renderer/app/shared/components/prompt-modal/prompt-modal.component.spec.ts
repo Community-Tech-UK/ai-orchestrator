@@ -37,6 +37,18 @@ describe('PromptModalComponent', () => {
     expect(fixture.nativeElement.querySelector('.pm-overlay')).toBeNull();
   });
 
+  it.each([false, true])('names its field from the current heading (multiline: %s)', (multiline) => {
+    fixture.componentRef.setInput('heading', 'Rename session');
+    fixture.componentRef.setInput('multiline', multiline);
+    fixture.componentRef.setInput('isOpen', true);
+    fixture.detectChanges();
+    const field = fixture.nativeElement.querySelector(multiline ? 'textarea' : 'input');
+    expect(field.getAttribute('aria-label')).toBe('Rename session');
+    fixture.componentRef.setInput('heading', 'Name the saved prompt');
+    fixture.detectChanges();
+    expect(field.getAttribute('aria-label')).toBe('Name the saved prompt');
+  });
+
   it('marks its host while open so an ancestor stacking context can be elevated', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.classList.contains('pm-host-open')).toBe(false);

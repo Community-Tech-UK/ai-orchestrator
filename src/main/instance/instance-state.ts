@@ -8,6 +8,7 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { BaseCliAdapter } from '../cli/adapters/base-cli-adapter';
 import type { SessionDiffTracker } from './session-diff-tracker';
 import { InstanceStateMachine } from './instance-state-machine';
+import { observeLiveWaitingStatus } from '../orchestration/live-waiting-approvals';
 import type {
   Instance,
   InstanceStatus,
@@ -49,6 +50,7 @@ function redactRecoveryWaitReason(
 }
 
 export class InstanceStateManager extends EventEmitter {
+  private readonly nativeHelperCleanups = new Map<string, () => void>();
   private instances = new Map<string, Instance>();
   private pendingInstances = new Map<string, Instance>();
   private adapters = new Map<string, CliAdapter>();
@@ -164,10 +166,12 @@ export class InstanceStateManager extends EventEmitter {
    * Remove an instance
    */
   deleteInstance(id: string): boolean {
+    this.clearNativeHelperListener(id);
     return this.instances.delete(id);
   }
 
   deleteRuntimeInstance(id: string): boolean {
+    this.clearNativeHelperListener(id);
     this.clearPendingInstanceState(id);
     this.pendingAdapters.delete(id);
     return this.instances.delete(id) || this.pendingInstances.delete(id);
@@ -214,6 +218,7 @@ export class InstanceStateManager extends EventEmitter {
     logger.debug('setAdapter called', { instanceId });
     const store = this.pendingInstances.has(instanceId) ? this.pendingAdapters : this.adapters;
     store.set(instanceId, adapter);
+    this.bindNativeHelpers(instanceId, adapter);
     logger.debug('Adapter stored', { instanceId, adapterCount: store.size });
   }
 
@@ -221,11 +226,13 @@ export class InstanceStateManager extends EventEmitter {
    * Remove an adapter
    */
   deleteAdapter(instanceId: string): boolean {
+    this.clearNativeHelperListener(instanceId);
     logger.debug('deleteAdapter called', { instanceId });
     return this.adapters.delete(instanceId);
   }
 
   deleteRuntimeAdapter(instanceId: string): boolean {
+    this.clearNativeHelperListener(instanceId);
     logger.debug('deleteRuntimeAdapter called', { instanceId });
     return this.adapters.delete(instanceId) || this.pendingAdapters.delete(instanceId);
   }
@@ -235,6 +242,35 @@ export class InstanceStateManager extends EventEmitter {
    */
   getAdapterEntries(): IterableIterator<[string, CliAdapter]> {
     return this.adapters.entries();
+  }
+
+  private clearNativeHelperListener(id: string): void {
+    this.nativeHelperCleanups.get(id)?.();
+    this.nativeHelperCleanups.delete(id);
+  }
+
+  private bindNativeHelpers(id: string, adapter: CliAdapter): void {
+    this.clearNativeHelperListener(id);
+    const publish = (summary: NonNullable<Instance['nativeHelpers']>): void => {
+      const instance = this.getRuntimeInstance(id);
+      if (!instance || this.getRuntimeAdapter(id) !== adapter) return;
+      instance.nativeHelpers = summary;
+      this.queueUpdate(id, instance.status);
+    };
+    const observe = (summary: NonNullable<Instance['nativeHelpers']>): void => {
+      if (!Number.isSafeInteger(summary?.running) || summary.running < 0 || summary.running > 10_000) return;
+      publish({ running: summary.running });
+    };
+    const clear = (): void => publish({ running: 0 });
+    const stop = (): void => {
+      adapter.off('native_helpers', observe);
+      adapter.off('exit', stop);
+      clear();
+    };
+    adapter.on('native_helpers', observe);
+    adapter.on('exit', stop);
+    clear();
+    this.nativeHelperCleanups.set(id, stop);
   }
 
   // ============================================
@@ -350,6 +386,10 @@ export class InstanceStateManager extends EventEmitter {
       : this.pendingUpdates;
     const existing = updateStore.get(instanceId);
     const runtimeInstance = this.getRuntimeInstance(instanceId);
+    if (runtimeInstance?.nativeHelpers && ['cancelled', 'superseded', 'failed', 'terminated', 'error', 'hibernating', 'hibernated', 'respawning'].includes(status)) {
+      runtimeInstance.nativeHelpers = { running: 0 };
+    }
+    if (runtimeInstance) observeLiveWaitingStatus(runtimeInstance, status, Date.now());
     const isCrashRecovery = runtimeInstance?.metadata?.['reason'] === 'crash-recovery';
     const nextError = error ?? existing?.error;
     const nextWaitReason = waitReason !== undefined ? waitReason : existing?.waitReason;
@@ -436,6 +476,7 @@ export class InstanceStateManager extends EventEmitter {
           : undefined,
       // Same live-stamp rule: adoptOrphanInstance sets a parent after creation.
       parentId: runtimeInstance ? runtimeInstance.parentId : existing?.parentId,
+      nativeHelpers: runtimeInstance?.nativeHelpers ?? null,
     });
   }
 
@@ -558,6 +599,7 @@ export class InstanceStateManager extends EventEmitter {
    * Stop batch timer on shutdown
    */
   destroy(): void {
+    for (const id of this.nativeHelperCleanups.keys()) this.clearNativeHelperListener(id);
     if (this.batchTimer) {
       clearInterval(this.batchTimer);
       this.batchTimer = null;

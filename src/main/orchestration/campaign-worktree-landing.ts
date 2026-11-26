@@ -28,6 +28,10 @@ import { getLogger } from '../logging/logger';
 import type { LoopStatus, LoopWorktreeLifecycle } from '../../shared/types/loop.types';
 import type { CampaignNodeRun, CampaignRun } from './campaign.types';
 import {
+  normalizeLoopStatusSnapshot,
+  type CampaignLoopStatusReaderResult,
+} from './campaign-loop-status';
+import {
   finalizeLoopWorktree,
   type LoopWorktreeFinalizerManager,
 } from './loop-worktree-lifecycle';
@@ -104,6 +108,9 @@ export interface CampaignLandingRequest {
   loopRunId?: string;
   /** The loop's terminal status; decides land (success) versus preserve. */
   loopStatus: LoopStatus;
+  /** The loop's end evidence; `mergeHold: true` preserves the work on its
+   *  branch instead of merging it back. */
+  endEvidence?: Record<string, unknown> | null;
 }
 
 function isSettled(lifecycle: LoopWorktreeLifecycle): boolean {
@@ -180,7 +187,12 @@ export class CampaignWorktreeLanding {
       const manager = this.deps.getManager();
       if (sessionId && manager.getSession(sessionId)) {
         await finalizeLoopWorktree({
-          state: { id: key, worktreeLifecycle: lifecycle, config: {} },
+          state: {
+            id: key,
+            worktreeLifecycle: lifecycle,
+            config: {},
+            endEvidence: request.endEvidence ?? undefined,
+          },
           status: request.loopStatus,
           worktreeSessionId: sessionId,
           manager,
@@ -191,7 +203,7 @@ export class CampaignWorktreeLanding {
           },
         });
       } else {
-        await this.reconcileRows([{ campaign, nodeId, status: request.loopStatus }]);
+        await this.reconcileRows([{ campaign, nodeId, status: request.loopStatus, endEvidence: request.endEvidence ?? undefined }]);
       }
       const final = campaign.nodeRuns.get(nodeId)?.worktreeLifecycle;
       logger.info('Campaign node worktree landing settled', {
@@ -211,15 +223,22 @@ export class CampaignWorktreeLanding {
    */
   async reconcileAtBoot(
     campaigns: CampaignRun[],
-    endedLoopStatus: (node: CampaignNodeRun) => LoopStatus | null,
+    endedLoopStatus: (node: CampaignNodeRun) => CampaignLoopStatusReaderResult,
   ): Promise<void> {
-    const rows: { campaign: CampaignRun; nodeId: string; status: LoopStatus }[] = [];
+    const rows: {
+      campaign: CampaignRun;
+      nodeId: string;
+      status: LoopStatus;
+      endEvidence?: Record<string, unknown>;
+    }[] = [];
     for (const campaign of campaigns) {
       for (const [nodeId, node] of campaign.nodeRuns) {
         const lifecycle = node.worktreeLifecycle;
         if (!lifecycle || lifecycle.phase === 'cleaned') continue;
-        const status = endedLoopStatus(node);
-        if (status) rows.push({ campaign, nodeId, status });
+        const snapshot = normalizeLoopStatusSnapshot(endedLoopStatus(node));
+        if (snapshot) {
+          rows.push({ campaign, nodeId, status: snapshot.status, endEvidence: snapshot.endEvidence ?? undefined });
+        }
       }
     }
     if (rows.length === 0) return;
@@ -283,11 +302,16 @@ export class CampaignWorktreeLanding {
   }
 
   private async reconcileRows(
-    rows: { campaign: CampaignRun; nodeId: string; status: LoopStatus }[],
+    rows: {
+      campaign: CampaignRun;
+      nodeId: string;
+      status: LoopStatus;
+      endEvidence?: Record<string, unknown>;
+    }[],
   ): Promise<void> {
     const byKey = new Map<string, { campaign: CampaignRun; nodeId: string }>();
     const pending: PendingManagedWorktreeLifecycle[] = [];
-    for (const { campaign, nodeId, status } of rows) {
+    for (const { campaign, nodeId, status, endEvidence } of rows) {
       const node = campaign.nodeRuns.get(nodeId);
       const spec = campaign.spec.nodes.find((candidate) => candidate.id === nodeId);
       if (!node?.worktreeLifecycle || !spec) continue;
@@ -300,6 +324,7 @@ export class CampaignWorktreeLanding {
         worktreePath: node.worktreePath ?? null,
         branchName: node.worktreeLifecycle.sessionBranch,
         autoIntegrateWorktree: true,
+        endEvidence,
         lifecycle: node.worktreeLifecycle,
       });
     }
@@ -336,4 +361,19 @@ export function campaignLandingBlockReason(
   return `Node ${nodeId} finished but its worktree could not be merged back`
     + ` (${lifecycle.lastError ?? 'unknown reason'}); branch ${lifecycle.sessionBranch}`
     + ' was kept for manual landing';
+}
+
+/**
+ * The campaign pause reason for a node whose work was held for review on its
+ * branch instead of merged. `label` is the
+ * node's label, or its id when the node has no label.
+ */
+export function campaignHeldBlockReason(
+  nodeId: string,
+  label: string | undefined,
+  branch: string | undefined,
+): string {
+  return `Step ${label ?? nodeId} finished with work held for review and it was not merged`
+    + ` (it is kept on branch ${branch ?? 'unknown'}). Later steps would start without it.`
+    + ' Land or discard that work, then resume the campaign.';
 }

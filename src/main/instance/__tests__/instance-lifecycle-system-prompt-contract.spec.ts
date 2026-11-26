@@ -1,3 +1,7 @@
+import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import type { SqliteDriver } from '../../db/sqlite-driver';
+import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
+import { getWakeContextBuilder, WakeContextBuilder } from '../../memory/wake-context-builder';
 /**
  * WS-B4 regression: instance-lifecycle.ts's real system-prompt assembly
  * (createInstance() background init) must route every block through
@@ -58,6 +62,11 @@ const mocks = vi.hoisted(() => ({
   buildProjectMemoryBrief: vi.fn(),
   extractAuthoredLessons: vi.fn(),
   outputStyle: 'default' as string,
+  wakeDb: null as SqliteDriver | null,
+}));
+
+vi.mock('../../persistence/rlm-database', () => ({
+  getRLMDatabase: () => ({ getRawDb: () => mocks.wakeDb }),
 }));
 
 vi.mock('electron', () => ({
@@ -79,7 +88,6 @@ vi.mock('../../core/config/settings-manager', () => ({
       defaultCli: 'claude',
       outputStyle: mocks.outputStyle,
       injectRepoMap: false,
-      residentClaudeSession: true,
     }),
     get: vi.fn(),
     on: vi.fn(),
@@ -409,6 +417,37 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     });
     mocks.extractAuthoredLessons.mockReturnValue(null);
     mocks.resolveInstructionStack.mockResolvedValue({ sources: [], mergedContent: null });
+  });
+
+  it.each([[false, 1], [true, 0]])('counts hints for cold starts and leaves restored creates read-only (restored=%s)', async (restored, expectedUsage) => {
+    const db = defaultDriverFactory(':memory:');
+    mocks.wakeDb = db;
+    WakeContextBuilder._resetForTesting();
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+    const builder = getWakeContextBuilder();
+    const hintId = builder.addHint('Background known to this project.');
+    const harness = makeHarness({
+      buildWakeContextText: async (wing, recordUsage) => builder.getWakeUpText(wing, { recordUsage }),
+    });
+    mocks.createAdapter.mockReturnValue(makeFakeAdapter());
+    try {
+      const instance = await harness.manager.createInstance({
+        workingDirectory: '/tmp/project', provider: 'claude', isRestoredSession: restored,
+      });
+      await instance.readyPromise;
+      expect(instance.status).toBe('idle');
+      expect(mocks.createAdapter).toHaveBeenCalledWith(expect.objectContaining({
+        options: expect.objectContaining({ systemPrompt: expect.stringContaining('Background known to this project.') }),
+      }));
+      expect(builder.getHint(hintId)?.usageCount).toBe(expectedUsage);
+    } finally {
+      harness.manager.destroy();
+      WakeContextBuilder._resetForTesting();
+      mocks.wakeDb = null;
+      db.close();
+    }
   });
 
   it('loads applicable instructions before spawning a restored session', async () => {

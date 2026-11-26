@@ -46,7 +46,12 @@ describe('actual Claude native stdio diagnostic boundaries', () => {
         await adapter.spawn();
         if (mode === 'sendRaw') { await adapter.sendRaw(source); expect((packets[0]['message'] as { content: string }).content).toBe(source); }
         if (mode === 'input-required') { feed({ type: 'input_required', prompt: source, metadata: { [source]: source } }); expect(serialized(inputs)).toContain(source); }
-        if (mode === 'elicitation') { feed({ type: 'elicitation', server_name: source, message: source, request_id: 'local-request' }); expect(serialized(inputs)).toContain(source); }
+        if (mode === 'elicitation') {
+          feed({ type: 'control_request', request_id: 'local-request', request: { subtype: 'elicitation', mcp_server_name: source, message: source } });
+          await vi.waitFor(() => expect(serialized(outputs)).toContain(source));
+          expect(inputs).toEqual([]);
+          expect(packets).toContainEqual({ type: 'control_response', response: { subtype: 'success', request_id: 'local-request', response: { action: 'cancel' } } });
+        }
         if (mode === 'permission' || mode === 'permission-action') {
           feed({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'local-tool', name: mode === 'permission-action' ? source : 'Bash', input: { command: source } }] } });
           feed({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'local-tool', is_error: true,
@@ -82,7 +87,7 @@ describe('actual Claude native stdio diagnostic boundaries', () => {
       const rows = state.manager!.getRecentLogs();
       expect(rows.length).toBeGreaterThan(0);
       const diagnosticMessages: Record<typeof mode, string> = {
-        sendRaw: 'Sending as user message', 'input-required': 'Processing input_required', elicitation: 'MCP elicitation received',
+        sendRaw: 'Sending as user message', 'input-required': 'Processing input_required', elicitation: 'RAW STDOUT (permission-related)',
         permission: 'Permission denial detected in tool_result', 'permission-action': 'Permission denial detected in tool_result',
         stderr: 'STDERR contains permission-like content', malformed: 'Failed to parse NDJSON line', overflow: 'NDJSON buffer exceeded max size, attempting recovery',
         flush: 'Discarding incomplete NDJSON buffer', unknown: 'Unrecognized CLI message type', 'unknown-missing-type': 'Unrecognized CLI message type',

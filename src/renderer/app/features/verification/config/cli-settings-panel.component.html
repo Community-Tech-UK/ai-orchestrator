@@ -63,7 +63,7 @@
                       <div class="detail-row">
                         <span class="detail-label">Path:</span>
                         <div class="path-input">
-                          <input
+                          <input aria-label="CLI path"
                             type="text"
                             [value]="cli.path || ''"
                             (change)="updateCliPath(cli.command, $event)"
@@ -77,7 +77,7 @@
 
                       <div class="detail-row">
                         <span class="detail-label">Default Model:</span>
-                        <select
+                        <select aria-label="Default model"
                           [value]="getSelectedModelValue(cli)"
                           (change)="updateDefaultModel(cli.command, $event)"
                         >
@@ -91,7 +91,7 @@
                       <div class="detail-row">
                         <span class="detail-label">Default Timeout:</span>
                         <div class="timeout-input">
-                          <input
+                          <input aria-label="Default timeout"
                             type="number"
                             [value]="cli.defaultTimeout"
                             (change)="updateTimeout(cli.command, $event)"
@@ -167,15 +167,15 @@
                 <h4>Add Custom CLI</h4>
                 <div class="form-row">
                   <span class="form-label">Name:</span>
-                  <input type="text" [(ngModel)]="customCliName" placeholder="My Custom CLI" />
+                  <input aria-label="Custom CLI name" type="text" [(ngModel)]="customCliName" placeholder="My Custom CLI" />
                 </div>
                 <div class="form-row">
                   <span class="form-label">Command:</span>
-                  <input type="text" [(ngModel)]="customCliCommand" placeholder="mycli" />
+                  <input aria-label="Custom CLI command" type="text" [(ngModel)]="customCliCommand" placeholder="mycli" />
                 </div>
                 <div class="form-row">
                   <span class="form-label">Path (optional):</span>
-                  <input type="text" [(ngModel)]="customCliPath" placeholder="/usr/local/bin/mycli" />
+                  <input aria-label="Custom CLI path" type="text" [(ngModel)]="customCliPath" placeholder="/usr/local/bin/mycli" />
                 </div>
                 <div class="form-actions">
                   <button class="btn-secondary" (click)="showAddCustomCli.set(false)">Cancel</button>
@@ -212,7 +212,7 @@
               </div>
               <div class="setting-row">
                 <span class="setting-label">Max concurrent agents:</span>
-                <input type="number" [(ngModel)]="maxConcurrent" min="1" max="10" />
+                <input aria-label="Max concurrent agents" type="number" [(ngModel)]="maxConcurrent" min="1" max="10" />
               </div>
             </div>
 
@@ -227,7 +227,7 @@
               </div>
               <div class="setting-row">
                 <span class="setting-label">Cache duration:</span>
-                <select [(ngModel)]="cacheDuration">
+                <select aria-label="Cache duration" [(ngModel)]="cacheDuration">
                   <option value="300">5 minutes</option>
                   <option value="3600">1 hour</option>
                   <option value="86400">24 hours</option>

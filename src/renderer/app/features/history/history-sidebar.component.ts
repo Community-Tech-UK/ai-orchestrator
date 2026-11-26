@@ -64,6 +64,7 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
           <input
             type="text"
             class="search-input"
+            aria-label="Search conversations"
             placeholder="Search conversations..."
             [ngModel]="store.searchQuery()"
             (ngModelChange)="onSearchChange($event)"

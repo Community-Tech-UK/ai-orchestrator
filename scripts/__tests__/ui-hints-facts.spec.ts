@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { parseFacts } from '../ui-hints/template-facts';
 import { collectTemplates } from '../ui-hints/template-sources';
-import { template, fixtureTree } from './ui-hints-fixtures';
+import { template, fixtureTree, FIELD_NAME_FIXTURES, FIELD_ASSOCIATION_FIXTURES } from './ui-hints-fixtures';
 
 const facts = (html: string) => parseFacts(template(html)).facts;
 describe('Angular UI facts', () => {
@@ -83,5 +83,14 @@ describe('Angular UI facts', () => {
       tree.file(tree.owner, '@Component({templateUrl: "missing.html"}) class X {}');
       expect(collectTemplates(tree.root).errors.some(error => error.message.includes('missing'))).toBe(true);
     } finally { tree.cleanup(); }
+  });
+});
+
+describe('canonical form-field naming boundaries', () => {
+  it.each(FIELD_NAME_FIXTURES)('$html: named=$named', ({ html, named }) => {
+    expect(facts(html).find(fact => fact.field)?.name).toBe(named);
+  });
+  it.each(FIELD_ASSOCIATION_FIXTURES)('$html follows actual label targets', ({ html, names }) => {
+    expect(facts(html).filter(fact => fact.field).map(fact => fact.name)).toEqual(names);
   });
 });

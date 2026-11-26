@@ -20,6 +20,7 @@ import {
   type PendingManagedWorktreeLifecycle,
 } from './loop-worktree-lifecycle-reconcile';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
+import * as cleanCheck from './loop-worktree-clean-check';
 import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
@@ -77,6 +78,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   try {
     rmSync(repo, { recursive: true, force: true });
   } catch {
@@ -440,6 +442,76 @@ describe('reconcileManagedWorktreeLifecycles', () => {
     expect(row.lifecycle.phase).toBe('cleaned');
     expect(existsSync(worktreePath)).toBe(false);
     expect(await git(['branch', '--list', branchName], repo)).toContain(branchName);
+  });
+
+  it('preserves a merge-held completed-needs-review branch instead of integrating it', async () => {
+    const { store, row, cleared } = fakeStore();
+    await git(['branch', '-D', 'integration/main'], repo);
+    await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
+    row.status = 'completed-needs-review';
+    row.endEvidence = { mergeHold: true };
+    row.lifecycle.phase = 'harvested';
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 1, blocked: 0, total: 1 });
+    expect(row.lifecycle.phase).toBe('cleaned');
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(await git(['branch', '--list', branchName], repo)).toContain(branchName);
+    expect(existsSync(join(repo, 'feature.txt'))).toBe(false);
+    expect(cleared).toEqual(['loop-recovery']);
+  });
+
+  it('integrates a completed-needs-review run whose merge was not held', async () => {
+    const { store, row } = fakeStore();
+    await git(['branch', '-D', 'integration/main'], repo);
+    await git(['update-ref', '-d', 'refs/aio/managed-integrations/integration/main'], repo);
+    row.status = 'completed-needs-review';
+    row.lifecycle.phase = 'harvested';
+    row.lifecycle.integrationBranch = undefined;
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 1, blocked: 0, total: 1 });
+    expect(row.lifecycle.phase).toBe('cleaned');
+    expect(existsSync(join(repo, 'feature.txt'))).toBe(true);
+  });
+
+  it.each([['cancelled', true], ['failed', true], ['completed', false]] as const)('retains unsaved work for a preserved %s run without harvesting it', async (status, autoIntegrateWorktree) => {
+    const { store, row, cleared } = fakeStore();
+    row.status = status;
+    row.autoIntegrateWorktree = autoIntegrateWorktree;
+    const unsaved = join(worktreePath, 'unsaved.txt');
+    writeFileSync(unsaved, 'operator work\n');
+
+    const result = await reconcileManagedWorktreeLifecycles(store);
+
+    expect(result).toEqual({ reconciled: 0, blocked: 1, total: 1 });
+    expect(row.lifecycle).toMatchObject({
+      phase: 'blocked',
+      lastError: 'Work folder has unsaved changes; left in place',
+    });
+    expect(existsSync(unsaved)).toBe(true);
+    expect(await git(['rev-parse', branchName], repo)).toBe(originalSessionTip);
+    expect(row.worktreePath).toBe(worktreePath);
+    expect(cleared).toEqual([]);
+  });
+
+  it('retains a change made after the initial status inspection but before preserved cleanup', async () => {
+    const { store, row, cleared } = fakeStore();
+    row.status = 'cancelled';
+    const inspect = cleanCheck.isWorktreeClean;
+    const unsaved = join(worktreePath, 'late-unsaved.txt');
+    vi.spyOn(cleanCheck, 'isWorktreeClean').mockImplementationOnce(async (path) => {
+      writeFileSync(unsaved, 'late operator work\n');
+      return inspect(path);
+    });
+
+    expect(await reconcileManagedWorktreeLifecycles(store)).toEqual({ reconciled: 0, blocked: 1, total: 1 });
+    expect(existsSync(unsaved)).toBe(true);
+    expect(await git(['rev-parse', branchName], repo)).toBe(originalSessionTip);
+    expect(row.worktreePath).toBe(worktreePath);
+    expect(cleared).toEqual([]);
   });
 
   it.each([

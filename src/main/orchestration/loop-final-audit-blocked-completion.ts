@@ -5,6 +5,7 @@ import type {
   ProgressSignalEvidence,
 } from '../../shared/types/loop.types';
 import { buildFinalAuditIntervention, runLoopFinalAudit } from './loop-audit-runtime';
+import { stageMergeHold } from './loop-merge-hold';
 import { applyLoopPhaseRecovery } from './loop-phase-recovery';
 import { isParkedLoopRuntimeState, isTerminalLoopRuntimeState } from './loop-runtime-status';
 import type { LoopStageMachine } from './loop-stage-machine';
@@ -62,6 +63,7 @@ export async function handleLoopFinalAuditBlockedCompletion(params: {
     const reason = recovery.reason ?? 'final audit blocked completion repeatedly';
     params.rejectPendingCompleteIntent(state, 'final audit phase recovery handoff');
     if (terminalStatus === 'completed-needs-review') {
+      stageMergeHold(state, 'final-audit-blocked');
       params.emitCompletedNeedsReview({
         loopRunId: state.id,
         reason,
@@ -125,6 +127,8 @@ export async function handleVerifiedNoChangeReviewDrivenCompletion(params: {
   }
   const reason = verifiedNoChangeReviewDrivenReason(state, finalAudit, primary);
   state.lastCompletionOutcome = 'accepted';
+  stageMergeHold(state, state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'needs-review'
+    ? 'final-audit-blocked' : 'verified-no-change');
   params.emitCompletedNeedsReview({
     loopRunId: state.id,
     reason,

@@ -64,6 +64,7 @@ import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
               #field
               class="pm-input pm-textarea"
               rows="4"
+              [attr.aria-label]="heading()"
               [placeholder]="placeholder()"
               [ngModel]="draft()"
               (ngModelChange)="draft.set($event)"
@@ -76,6 +77,7 @@ import { AppIconButtonDirective } from '../../tooltip/icon-button.directive';
               #field
               type="text"
               class="pm-input"
+              [attr.aria-label]="heading()"
               [placeholder]="placeholder()"
               [ngModel]="draft()"
               (ngModelChange)="draft.set($event)"

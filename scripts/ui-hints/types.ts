@@ -1,7 +1,7 @@
 import type ts from 'typescript';
 import type { AST } from '@angular/compiler';
 
-export const RULE_CODES = ['H1a', 'H1b', 'H2a', 'H2b', 'H2c', 'H3', 'H4', 'H5', 'H6', 'H10', 'H11'] as const;
+export const RULE_CODES = ['H1a', 'H1b', 'H2a', 'H2b', 'H2c', 'H3', 'H4', 'H5', 'H6', 'H10', 'H11', 'H14'] as const;
 export const REPORT_ONLY = ['H1c', 'H7', 'H8'] as const;
 export const DORMANT: readonly string[] = []; // H8 is now report-only: glossary shipped.
 export const HOVER_BINDINGS = ['title', 'appTooltip', 'appIconButton', 'appTooltipDisabledReason', 'appIconButtonDisabledReason'] as const;
@@ -18,7 +18,7 @@ export const SHORTCUT_PATTERN = new RegExp(SHORTCUT_SOURCE, 'i');
 export const TEXT_GAP = 'harnessuihintsdynamicgap';
 export const WORD = /\p{L}{2,}/u;
 export const normalizePath = (path: string): string => path.replace(/\\/g, '/');
-export type RuleCode = typeof RULE_CODES[number] | typeof REPORT_ONLY[number] | 'H9' | 'H12';
+export type RuleCode = typeof RULE_CODES[number] | typeof REPORT_ONLY[number] | 'H9' | 'H12' | 'H13';
 export interface Violation { code: RuleCode; ownerFile: string; file: string; line: number; message: string }
 export interface TemplateSource { ownerFile: string; file: string; text: string; firstLine: number; imports: string[]; sourceFile: ts.SourceFile; component: ts.ClassDeclaration }
 export interface Collection { templates: TemplateSource[]; sourceFiles: ts.SourceFile[]; errors: Violation[]; componentCount: number }

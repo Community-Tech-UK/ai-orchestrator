@@ -24,6 +24,7 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { composerAttachmentDisabledReason, composerAttachmentProvider } from './composer-attachment-support';
 import { runtimePreviewIdentityOf } from './runtime-change-preview.controller';
 import { hardenedProviderName, isHardenedModeSupported } from '../../../../shared/hardened-mode-support';
 import { CopilotAccountChipComponent } from '../../shared/components/copilot-account-chip.component';
@@ -231,6 +232,7 @@ export class InputPanelComponent implements OnDestroy {
   outputMessages = input<OutputMessage[]>([]);
   instanceStatus = input<InstanceStatus>('idle');
   provider = input<InstanceProvider>('claude');
+  attachmentProviderOverride = input<string | null>(null);
   currentModel = input<string | undefined>(undefined);
   currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
   runtimeSummary = input<InstanceRuntimeSummary | undefined>(undefined);
@@ -255,6 +257,11 @@ export class InputPanelComponent implements OnDestroy {
 
   readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
   readonly runReadiness = new RunReadinessGate(this.provider);
+  readonly attachmentDisabledReason = computed(() => composerAttachmentDisabledReason(this, this.newSessionDraft.modelRuntimeTarget));
+  readonly attachDisabledTip = computed(() => !this.attachmentDisabledReason() ? 'Add files'
+    : composerAttachmentProvider(this, this.newSessionDraft.modelRuntimeTarget) === 'gemini' ? copyFor('composer.attachGemini')
+    : composerAttachmentProvider(this, this.newSessionDraft.modelRuntimeTarget) === 'antigravity' ? copyFor('composer.attachAntigravity')
+    : copyFor('composer.attachLocalModel'));
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
@@ -1752,7 +1759,8 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   onAddFiles(): void {
-    if (!this.disabled()) this.addFiles.emit();
+    if (this.disabled() || this.attachmentDisabledReason()) return;
+    this.addFiles.emit();
   }
 
   async onToggleVoice(): Promise<void> {

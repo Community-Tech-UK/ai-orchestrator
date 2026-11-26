@@ -29,6 +29,7 @@ beforeEach(() => {
   write('docs/superpowers/plans/2026-07-26-local-ai-guard_plan_livetest.md');
   write('docs/superpowers/plans/2026-03-20-cross-model-review-design_completed.md');
   write('docs/superpowers/plans/archive/2026-01-01-old_plan.md');
+  for (const suffix of ['plan', 'livetest', 'spec']) write(`docs/_archive/plans/2026-01-01-retired_${suffix}.md`);
   write('node_modules/pkg/docs/x_plan.md');
   write('.worktrees/queue/x-1/docs/plans/y_plan.md');
 });

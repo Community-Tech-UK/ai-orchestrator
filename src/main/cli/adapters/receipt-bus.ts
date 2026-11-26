@@ -15,7 +15,7 @@
  */
 
 import type { CliEvent, CliResponse, CliToolCall, SpawnModeChange } from './base-cli-adapter.types';
-import type { ContextUsage } from '../../../shared/types/instance.types';
+import type { ContextUsage, NativeHelperSummary } from '../../../shared/types/instance.types';
 import type { ClaudeSelfWakeupEvent } from './claude-cli-self-wakeup';
 import type { CliAsyncWorkEvent } from './claude-cli-async-work';
 
@@ -34,6 +34,7 @@ export interface ReceiptPayloadMap {
   spawn_mode: SpawnModeChange;
   self_wakeup: ClaudeSelfWakeupEvent;
   async_work: CliAsyncWorkEvent;
+  native_helpers: NativeHelperSummary;
 }
 
 /** A single recorded lifecycle event. */

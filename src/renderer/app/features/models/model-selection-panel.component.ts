@@ -127,6 +127,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
             #searchInput
             class="model-picker-search__input"
             type="search"
+            aria-label="Search models"
             placeholder="Search models..."
             [value]="searchTerm()"
             (input)="onSearchInput($event)"

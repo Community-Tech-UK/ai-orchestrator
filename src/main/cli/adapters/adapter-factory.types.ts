@@ -96,6 +96,8 @@ export interface UnifiedSpawnOptions {
   maxBudgetUsd?: number;
   /** Successful command output preview; CLI 2.1.261+ only. Zero uses the CLI default. */
   bashOutputMaxChars?: number;
+  /** Claude only; fresh print-mode one-shots only. Never resume or fork. */
+  noSessionPersistence?: boolean;
   env?: Record<string, string>;
   /**
    * WS-C7 — derive the merged spawn environment from `getSafeEnv()` instead
@@ -158,7 +160,7 @@ export interface UnifiedSpawnOptions {
   fastMode?: boolean;
   /** Enable the resident-session interrupt path for Claude.
    *  When true, uses `control_request{interrupt}` instead of SIGINT.
-   *  Defaults from AppSettings.residentClaudeSession. */
+   *  Defaults to true (resident-session interrupt path). */
   residentClaude?: boolean;
   /** Claude in-turn permission cards. Explicit opt-in; machine work is excluded by spawn policy. */
   livePermissionPrompts?: boolean;

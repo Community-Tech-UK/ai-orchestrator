@@ -3,7 +3,8 @@
     <button
       type="button"
       class="backdrop-dismiss"
-      data-ui-hints-exempt="backdrop"
+      tabindex="-1"
+      aria-hidden="true"
       aria-label="Close child diagnostic bundle"
       (click)="close()"
     ></button>

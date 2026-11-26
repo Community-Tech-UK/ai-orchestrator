@@ -1,11 +1,6 @@
 import { COMMUNICATION_CHANNELS } from '../communication.channels';
 
 describe('COMMUNICATION_CHANNELS', () => {
-  it('has comm (cross-instance) channels', () => {
-    expect(COMMUNICATION_CHANNELS.COMM_REQUEST_TOKEN).toBe('comm:request-token');
-    expect(COMMUNICATION_CHANNELS.COMM_CREATE_BRIDGE).toBe('comm:create-bridge');
-  });
-
   it('has channel management channels', () => {
     expect(COMMUNICATION_CHANNELS.CHANNEL_CONNECT).toBe('channel:connect');
     expect(COMMUNICATION_CHANNELS.CHANNEL_MESSAGE_RECEIVED).toBe('channel:message-received');

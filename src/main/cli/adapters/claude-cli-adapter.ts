@@ -112,6 +112,7 @@ import { claudeRateLimitNotice } from './claude-rate-limit-notice';
 import { dispatchRateLimitTelemetry } from '../usage-limit-dispatch';
 import { getAdapterAccountRoute } from '../../providers/account-pool/adapter-account-routes';
 import { ClaudeLivePermissionBroker } from './claude-live-permission';
+import { handleClaudeElicitationCancel } from './claude-elicitation-cancel';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -1453,6 +1454,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private processCliMessage(message: CliStreamMessage): void {
+    if (handleClaudeElicitationCancel(message, this.formatter, output => this.emit('output', output))) return;
     const raw = toRawCliPayload(message, message.type);
     if (message.type === 'system' && message.subtype === 'init' && isVersionAtLeast(message.claude_code_version, '0.0.0')) {
       this.cachedCliStatus = { ...this.cachedCliStatus, available: true, version: message.claude_code_version };
@@ -1537,7 +1539,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
                 toolUseId: block.tool_use_id,
                 contentLength: block.content.length,
                 ...textDiagnostic(block.content),
-                isPermissionDenial: isPermissionDenialContent(block.content)
+                isPermissionDenial: isPermissionDenialContent(block.content, block.tool_use_id, this.toolUseContexts)
               });
             }
 
@@ -1551,7 +1553,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               block.type === 'tool_result' &&
               block.is_error === true &&
               typeof block.content === 'string' &&
-              isPermissionDenialContent(block.content)
+              isPermissionDenialContent(block.content, block.tool_use_id, this.toolUseContexts)
             ) {
               logger.debug('Permission denial detected in tool_result', {
                 toolUseId: block.tool_use_id,
@@ -1905,57 +1907,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           }
         });
         logger.debug('Input_required handling complete');
-        break;
-      }
-
-      case 'elicitation': {
-        // MCP elicitation — an MCP server is requesting structured input
-        // (e.g. OAuth consent, configuration form, credential entry).
-        // Surface this as an input_required event so the UI can present a form.
-        const elicitationRaw = raw as {
-          server_name?: string;
-          message?: string;
-          schema?: Record<string, unknown>;
-          request_id?: string;
-        };
-        const serverName = elicitationRaw.server_name || 'MCP server';
-        const elicitationMsg = elicitationRaw.message || 'An MCP server requires input';
-        const elicitationTimestamp = message.timestamp || Date.now();
-        const elicitationId = generateId();
-
-        logger.info('MCP elicitation received', {
-          serverName: typeof serverName === 'string' ? textDiagnostic(serverName) : undefined,
-          ...textDiagnostic(elicitationMsg),
-          hasSchema: Boolean(elicitationRaw.schema),
-          requestId: elicitationRaw.request_id
-        });
-
-        this.emit('status', 'waiting_for_input' as InstanceStatus);
-
-        this.emit('input_required', {
-          id: elicitationId,
-          prompt: `[${serverName}] ${elicitationMsg}`,
-          timestamp: elicitationTimestamp,
-          metadata: {
-            type: 'mcp_elicitation',
-            serverName,
-            schema: elicitationRaw.schema,
-            requestId: elicitationRaw.request_id
-          }
-        });
-
-        this.emit('output', {
-          id: elicitationId,
-          timestamp: elicitationTimestamp,
-          type: 'system',
-          content: `MCP server "${serverName}" requests input: ${elicitationMsg}`,
-          metadata: {
-            requiresInput: true,
-            mcpElicitation: true,
-            serverName,
-            schema: elicitationRaw.schema
-          }
-        });
         break;
       }
 

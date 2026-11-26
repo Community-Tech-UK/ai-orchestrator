@@ -52,6 +52,26 @@
               }
             </details>
           }
+          @if (lowerSeverityFindings(item.verdict); as suggestions) {
+            @if (suggestions.length > 0) {
+              <details class="pq-item-detail">
+                <summary>
+                  @if (suggestionsAreOptional(item.verdict)) {
+                    The checker left {{ suggestions.length }} optional suggestion{{ suggestions.length === 1 ? '' : 's' }}
+                  } @else {
+                    The checker sent {{ suggestions.length }} finding{{ suggestions.length === 1 ? '' : 's' }} back to the worker
+                  }
+                </summary>
+                <ul>
+                  @for (finding of suggestions; track $index) {
+                    <li>{{ finding.summary }} @if (finding.file) { ({{ finding.file }}) }
+                      @if (finding.evidence) { <p>{{ finding.evidence }}</p> }
+                    </li>
+                  }
+                </ul>
+              </details>
+            }
+          }
         }
 
         @if (item.workerReport; as report) {

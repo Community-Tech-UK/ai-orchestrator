@@ -26,6 +26,7 @@ import { remindUnattendedWorker } from './plan-queue-routine-clarification';
  * scheduling (which item runs next) and routes instance outcomes here.
  */
 
+import { splitFindings } from './plan-queue-finding-triage';
 import type { PlanQueueParkReason, PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
@@ -683,6 +684,8 @@ export class PlanQueueItemFlow {
       return;
     }
     const run = this.host.getRun(item.runId);
+    const { blocking, optional } = splitFindings(verdict.findings);
+    if (!blocking.length) logger.warn('Verifier failed without a critical or high finding');
     if (round >= run.config.maxRounds) {
       if (canStepUp(run, item, verdict)) {
         // Arranged first, so the stale copy the step-up saves still carries the computer and this turn's report file.
@@ -690,7 +693,7 @@ export class PlanQueueItemFlow {
         await this.stepUp(item, round, verdict);
         return;
       }
-      const summary = verdict.findings.slice(0, 5).map((f) => `[${f.severity}, confidence ${f.confidence}] ${f.summary}`).join('; ');
+      const summary = [...blocking, ...optional].slice(0, 5).map((f) => `[${f.severity}, confidence ${f.confidence}] ${f.summary}`).join('; ');
       await this.parkUnlocked({ ...item, round, verdict }, 'round-limit', `Still failing after ${item.steppedUpAt ? 'the step-up worker\'s ' : ''}${round} verification round(s): ${summary || 'no findings listed'}`);
       return;
     }

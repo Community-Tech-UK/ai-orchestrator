@@ -5,7 +5,19 @@ export type AutomationScheduleType = 'cron' | 'oneTime';
 export type AutomationMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type AutomationConcurrencyPolicy = 'skip' | 'queue';
 export type AutomationTrigger = 'scheduled' | 'catchUp' | 'manual' | 'webhook' | 'channel' | 'providerRuntime' | 'orchestrationEvent';
-export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
+/**
+ * Run outcomes. `'needs-attention'` is a loop-owned pause (the loop stays
+ * resumable): the run is over for scheduling purposes, but it is not a failure
+ * and never feeds the auto-disable streak.
+ */
+export type AutomationRunStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled'
+  | 'needs-attention';
 export type AutomationRunOutcome = 'no-change' | 'changed' | 'first-check' | 'check-failed' | 'quiet';
 export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' | 'workflow';
 export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';

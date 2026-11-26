@@ -44,6 +44,7 @@ interface SkillWithStatus {
           <input
             type="text"
             class="search-input"
+            aria-label="Search skills"
             placeholder="Search skills..."
             [value]="searchQuery()"
             (input)="onSearch($event)"

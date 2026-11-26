@@ -59,6 +59,7 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
             <input
               type="text"
               class="search-input"
+              aria-label="Search folders"
               placeholder="Search folders..."
               [value]="searchText()"
               (input)="onSearchInput($event)"
@@ -186,7 +187,8 @@ import type { RecentDirectoryEntry } from '../../../../../shared/types/recent-di
         <button
           type="button"
           class="backdrop"
-          data-ui-hints-exempt="backdrop"
+          tabindex="-1"
+          aria-hidden="true"
           aria-label="Close dropdown"
           (click)="closeDropdown()"
         ></button>

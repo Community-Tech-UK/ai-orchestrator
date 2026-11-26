@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { collectTemplates } from './template-sources';
 import { parseFacts } from './template-facts';
 import { readCopyRegistry } from './copy-registry';
-import { evaluateFacts, findDeadCopyKeys } from './rules';
+import { evaluateFacts, findDeadCopyKeys, isOpaqueControl } from './rules';
 import { outsideTemplate } from './outside-template';
 import { HOVER_ONLY_REASONS } from './hover-only-reasons';
 import { TEXT_GAP, type Analysis } from './types';
@@ -42,7 +42,7 @@ export function analyze(root: string, reasons?: Record<string, string>): Analysi
     iconOnly: analysis.facts.filter(fact => fact.iconOnly).length,
     namedByText: analysis.facts.filter(fact => fact.control && fact.visible.some(text => /\p{L}{2,}/u.test(text))).length,
     namedByData: analysis.facts.filter(fact => fact.control && (fact.dataText || fact.dataName) && !fact.visible.some(text => /\p{L}{2,}/u.test(text))).length,
-    opaque: analysis.facts.filter(fact => fact.control && fact.opaque && !fact.dataText && !fact.visible.some(text => /\p{L}{2,}/u.test(text))).length,
+    opaque: analysis.facts.filter(isOpaqueControl).length,
     unnamedFields: analysis.facts.filter(fact => fact.field && !fact.name).length,
     titles: analysis.facts.filter(fact => fact.title).length,
     tooltips: analysis.facts.filter(fact => fact.tooltip).length,

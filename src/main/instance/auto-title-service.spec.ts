@@ -252,6 +252,8 @@ describe('AutoTitleService', () => {
       cliType: 'claude',
       options: expect.objectContaining({
         model: expect.any(String),
+        maxBudgetUsd: 0.10,
+        noSessionPersistence: true,
       }),
     });
   });

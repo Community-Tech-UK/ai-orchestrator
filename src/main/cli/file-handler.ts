@@ -2,6 +2,7 @@
  * File Handler - Saves dropped files for Claude to access via Read tool
  */
 
+import { ensureAttachmentsIgnored } from './attachments-ignore';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import type { FileAttachment } from '../../shared/types/instance.types';
@@ -32,6 +33,7 @@ export async function processAttachments(
   // Save to working directory (Claude has access) instead of system temp
   const attachmentsDir = join(workingDirectory, '.claude-attachments', sessionId);
   await mkdir(attachmentsDir, { recursive: true });
+  await ensureAttachmentsIgnored(workingDirectory);
 
   for (const attachment of attachments) {
     const isImage = attachment.type.startsWith('image/');

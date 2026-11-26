@@ -48,7 +48,11 @@ const WORKER_ENTRY = resolve(SPEC_DIR, './codebase-indexing-lane-main.ts');
 // `rlm/vector-reembedder.ts`. A walk of this working tree against HEAD (128) found
 // those four as the sole additions, and none imports Electron. The ceiling keeps
 // the same small margin it had.
-const CLOSURE_SIZE_CEILING = 135;
+// 2026-11-26: 135 after October follow-ups part 7b's wake-hint showing history
+// (rlm-wake-hint-history, through rlm-schema) joined on merging main. The
+// memory-page review rule stays off this lane (it lives in wake-hint-review).
+// No Electron value-importers.
+const CLOSURE_SIZE_CEILING = 136;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

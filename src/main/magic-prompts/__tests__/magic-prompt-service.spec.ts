@@ -78,6 +78,19 @@ describe('MagicPromptService', () => {
     } finally { stop(); }
   });
 
+  it.each(['claude', 'codex'] as const)('only requests transcript suppression for a Claude magic prompt (%s)', async provider => {
+    const createAdapter = vi.fn((_provider: string, _options: import('../../cli/adapters/adapter-factory').UnifiedSpawnOptions) => ({
+      sendMessage: async () => ({ content: VALID_RECAP }),
+    }) as unknown as CliAdapter);
+    const service = new MagicPromptService({ resolveProvider: async () => provider, createAdapter });
+    expect((await service.run({ id: 'recap', text: 'conversation' })).ok).toBe(true);
+    expect(createAdapter).toHaveBeenCalledOnce();
+    expect(createAdapter.mock.calls[0][0]).toBe(provider);
+    const options = createAdapter.mock.calls[0][1];
+    expect(options.maxBudgetUsd).toBe(provider === 'claude' ? 0.25 : undefined);
+    expect(options.noSessionPersistence).toBe(provider === 'claude' ? true : undefined);
+  });
+
   it('lists the registered magic prompts', () => {
     const { service } = makeService('');
     const ids = service.list().map((p) => p.id);

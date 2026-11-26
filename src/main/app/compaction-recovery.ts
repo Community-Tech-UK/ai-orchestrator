@@ -100,7 +100,7 @@ function safeWakeText(
 ): string {
   try {
     const getText = injected ?? ((wing?: string) =>
-      getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true }));
+      getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true, recordUsage: false }));
     return getText(projectKey ?? undefined).trim();
   } catch {
     return '';

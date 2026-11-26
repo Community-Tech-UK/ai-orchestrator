@@ -153,6 +153,12 @@ export const UpdateStatusEventSchema = z.object({
 
 export const EmptyRendererEventSchema = z.undefined();
 
+/** Lightweight invalidation only: proposal/job content stays on the list APIs. */
+export const InboxChangedEventSchema = z.object({
+  changedAt: z.number().int().nonnegative(),
+}).strict();
+export type InboxChangedEvent = z.infer<typeof InboxChangedEventSchema>;
+
 export const NotificationDeltaEventSchema = z.object({
   id: z.string().min(1).max(500),
   kind: z.string().min(1).max(200),

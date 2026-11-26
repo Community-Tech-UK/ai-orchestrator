@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { getLogger } from '../logging/logger';
 import { permissionDenyNote } from '../../shared/permissions/permission-deny-note';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -51,6 +52,7 @@ import {
 } from './thin-client-instance-commands';
 
 type ThinClientExecutableCommand = Exclude<CommandName, 'state:subscribe' | 'state:resync'>;
+const logger = getLogger('ThinClientCommandExecutor');
 type ThinClientLoopConfig = Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string };
 interface ThinClientChatService {
   initialize?: () => void;
@@ -225,6 +227,7 @@ async function respondInput(
 
     if (validated.metadata?.['type'] === 'deferred_permission') {
       const action = validated.decisionAction;
+      if (!action) logger.warn('Held command answered without a decision; refused');
       if (action === 'modify' && !validated.updatedInput) {
         return {
           success: false,
@@ -249,7 +252,7 @@ async function respondInput(
       }
       await deps.instanceManager.resumeAfterDeferredPermission(
         validated.instanceId,
-        action !== 'deny',
+        action === 'allow' || action === 'modify',
         action === 'modify' ? validated.updatedInput : undefined,
         { requestId: validated.requestId, denyNote: permissionDenyNote(validated) },
       );

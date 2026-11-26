@@ -4,6 +4,7 @@
  * See scripts/__tests__/ui-hints-lint-link.spec.ts. Whole-tree/judgement rules
  * H3/H4/H6/H9/H10/H11 stay in scripts/check-ui-hints.ts.
  */
+const { namedFormFields } = require('../scripts/ui-hints/form-field-names.js');
 const CONTROL_TAGS = ['button', 'summary'];
 const FIELD_TAGS = ['input', 'select', 'textarea'];
 const INTERACTIVE_ROLES = ['button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'tab', 'checkbox', 'radio', 'switch', 'option', 'combobox', 'slider', 'spinbutton'];
@@ -63,6 +64,43 @@ const namedAttribute = attribute => {
 };
 const meta = (messages, schema = []) => ({ type: 'problem', docs: { description: 'Keep screen controls named and reachable. See docs/screen-and-wording-guide.md.' }, schema, messages });
 const rules = {
+  'form-field-needs-name': {
+    meta: meta({ noName: 'Form field needs a readable label or accessible name.' }),
+    create(context) {
+      const elements = [];
+      const nodes = [];
+      const parents = [];
+      const groups = [];
+      const branches = [];
+      let nextGroup = 0;
+      const enterGroup = () => groups.push({ id: nextGroup++, nextArm: 0 });
+      const enterArm = () => { const group = groups.at(-1); branches.push([group.id, group.nextArm++]); };
+      return {
+        IfBlock: enterGroup,
+        'IfBlock:exit'() { groups.pop(); },
+        IfBlockBranch: enterArm,
+        'IfBlockBranch:exit'() { branches.pop(); },
+        SwitchBlock: enterGroup,
+        'SwitchBlock:exit'() { groups.pop(); },
+        SwitchBlockCaseGroup: enterArm,
+        'SwitchBlockCaseGroup:exit'() { branches.pop(); },
+        Element(node) {
+          nodes.push(node);
+          elements.push({ tag: node.name, attributes: attributes(node).map(attribute => ({ name: attribute.name, value: attribute.value, form: typeof attribute.value === 'string' ? 'static' : attribute.__originalType === 1 ? 'attribute' : 'property' })), readable: false, parent: parents.at(-1), branches: [...branches] });
+          parents.push(elements.length - 1);
+        },
+        Text(node) { if (node.value.trim()) for (const index of parents) elements[index].readable = true; },
+        BoundText(node) { if (fragments(node.value).some(text => text.trim()) || renderedData(node.value)) for (const index of parents) elements[index].readable = true; },
+        'Element:exit'() { parents.pop(); },
+        'Program:exit'() {
+          const named = namedFormFields(elements);
+          elements.forEach((element, index) => {
+            if (FIELD_TAGS.includes(element.tag) && !named.has(index)) context.report({ node: nodes[index], messageId: 'noName' });
+          });
+        },
+      };
+    },
+  },
   'icon-control-needs-name-and-tooltip': {
     meta: meta({ noName: 'Icon-only control needs an accessible name.', noTooltip: 'Icon-only control needs a Harness tooltip.' }),
     create(context) {

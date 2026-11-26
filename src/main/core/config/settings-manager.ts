@@ -17,7 +17,7 @@ import {
   mergeDirtyPaths,
   type SettingsWriteContext,
 } from './settings-dirty-merge';
-import { migrateFromLegacyApp, runSettingsMigrations } from './settings-migrations';
+import { runSettingsMigrations } from './settings-migrations';
 import {
   normalizeContextEvidenceModeByProvider,
   type ContextEvidenceProviderRegistry,
@@ -189,9 +189,6 @@ export class SettingsManager extends EventEmitter {
   ) {
     super();
     this.contextEvidenceProviderRegistry = contextEvidenceProviderRegistry;
-
-    // Attempt migration from legacy app data before initializing store
-    migrateFromLegacyApp();
 
     // Cast to our Store interface to work around ESM type resolution issues
     this.store = new ElectronStore<AppSettings>({

@@ -30,7 +30,7 @@
       <strong>Effectiveness data unavailable</strong>
       <span>Try another period or check again in a moment.</span>
     </div>
-  } @else if (store.effectiveness(); as summary) {
+  } @else if (summaryWithCosts(); as summary) {
     @if (isEmpty()) {
       <div class="panel-state empty">
         <strong>No work suited to local models in this period</strong>
@@ -64,11 +64,11 @@
       <dl class="cost-metrics">
         <div class="measured">
           <dt>Measured cloud cost</dt>
-          <dd>{{ formatUsd(summary.knownCostUsd) }} measured cloud cost</dd>
+          <dd><output aria-live="off" [attr.aria-label]="summary.knownCostHint" [appTooltip]="summary.knownCostHint">{{ formatUsd(summary.knownCostUsd) }}</output> measured cloud cost</dd>
         </div>
         <div class="estimated">
           <dt>Estimated cloud cost</dt>
-          <dd>{{ formatUsd(summary.estimatedCostUsd) }} estimated cloud cost</dd>
+          <dd><output aria-live="off" [attr.aria-label]="summary.estimatedCostHint" [appTooltip]="summary.estimatedCostHint">{{ formatUsd(summary.estimatedCostUsd) }}</output> estimated cloud cost</dd>
         </div>
         @if (summary.unpricedDispatchCount > 0) {
           <div class="unpriced">
@@ -82,7 +82,7 @@
         </div>
         <div class="estimated">
           <dt>Estimated avoided cost</dt>
-          <dd>{{ formatUsd(summary.avoidedEstimatedCostUsd) }} estimated avoided cost</dd>
+          <dd><output aria-live="off" [attr.aria-label]="summary.avoidedCostHint" [appTooltip]="summary.avoidedCostHint">{{ formatUsd(summary.avoidedEstimatedCostUsd) }}</output> estimated avoided cost</dd>
         </div>
       </dl>
 

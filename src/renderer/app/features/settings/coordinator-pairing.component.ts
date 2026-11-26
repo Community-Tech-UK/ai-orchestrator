@@ -70,7 +70,7 @@ type CoordinatorPairingUiState =
           @if (qrCodeDataUrl()) {
             <img class="invitation-qr" [src]="qrCodeDataUrl()" alt="Pairing invitation QR code">
           }
-          <textarea class="invitation-text" readonly [value]="activePairing.invitation"></textarea>
+          <textarea class="invitation-text" readonly aria-label="Pairing invitation" [value]="activePairing.invitation"></textarea>
           <button class="btn btn-secondary small" type="button" (click)="copyInvitation()">Copy Invitation</button>
         </div>
       }

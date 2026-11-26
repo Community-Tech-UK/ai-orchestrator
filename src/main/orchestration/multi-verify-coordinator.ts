@@ -1027,6 +1027,7 @@ Provide your synthesized response:`;
       readOnlyReview: true,
       timeout: 300000,
       maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
+      noSessionPersistence: cliType === 'claude' ? true : undefined,
     };
 
     // Copilot account routing: verification synthesis is an automatic surface.

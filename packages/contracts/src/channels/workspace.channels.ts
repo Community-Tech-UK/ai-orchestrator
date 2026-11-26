@@ -161,6 +161,7 @@ export const WORKSPACE_CHANNELS = {
   REPO_JOB_CANCEL: 'repo-job:cancel',
   REPO_JOB_RERUN: 'repo-job:rerun',
   REPO_JOB_GET_STATS: 'repo-job:get-stats',
+  REPO_JOB_CHANGED: 'repo-job:changed',
 
   // Task management (subagent spawning)
   TASK_GET_STATUS: 'task:get-status',

@@ -297,6 +297,7 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
           msg.id,
           getWakeContextBuilder().getWakeUpText(msg.wing, {
             bypassCache: msg.bypassCache ?? false,
+            recordUsage: msg.recordUsage ?? true,
           }),
         );
       } catch {

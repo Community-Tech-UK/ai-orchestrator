@@ -79,6 +79,7 @@ export const MEMORY_CHANNELS = {
   GOVERNED_PROPOSAL_GET: 'governed-proposal:get',
   GOVERNED_PROPOSAL_APPROVE: 'governed-proposal:approve',
   GOVERNED_PROPOSAL_REJECT: 'governed-proposal:reject',
+  MEMORY_REVIEW_CHANGED: 'memory-review:changed',
 
   // Observation Memory operations
   OBSERVATION_GET_STATS: 'observation:get-stats',

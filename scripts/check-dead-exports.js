@@ -35,7 +35,6 @@ const DEAD_HELPER_BASELINE = [
   { path: 'src/main/cli/adapters/codex/app-server-broker.ts', kind: 'convenience-getter', name: 'getCodexBrokerManager' },
   { path: 'src/main/cli/cli-latest-version.ts', kind: 'static-reset-helper', name: 'CliLatestVersionService._resetForTesting' },
   { path: 'src/main/cli/cli-update-poll-service.ts', kind: 'static-reset-helper', name: 'CliUpdatePollService._resetForTesting' },
-  { path: 'src/main/communication/cross-instance-comm.ts', kind: 'static-reset-helper', name: 'CrossInstanceCommService._resetForTesting' },
   { path: 'src/main/compare/multi-provider-compare-service.ts', kind: 'module-reset-helper', name: '_resetMultiProviderCompareServiceForTesting' },
   { path: 'src/main/conversation-ledger/conversation-ledger-service.ts', kind: 'static-reset-helper', name: 'ConversationLedgerService._resetForTesting' },
   { path: 'src/main/conversation-ledger/native-conversation-registry.ts', kind: 'static-reset-helper', name: 'NativeConversationRegistry._resetForTesting' },

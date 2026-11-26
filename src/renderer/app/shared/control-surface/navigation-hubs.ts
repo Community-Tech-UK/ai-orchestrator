@@ -21,7 +21,7 @@ const HUB_DEFINITIONS: readonly HubDefinition[] = [
   { id: 'agents', label: 'Agents & models', pages: ['models', 'skills', 'specialists', 'plugins', 'supervision'] },
   {
     id: 'memory', label: 'Memory & knowledge',
-    pages: ['memory-review', 'memory', 'memory-stats', 'knowledge', 'rlm', 'observations', 'training'],
+    pages: ['memory-review', 'memory', 'memory-stats', 'knowledge', 'rlm', 'observations'],
   },
   { id: 'code', label: 'Code', pages: ['vcs', 'worktrees', 'plan', 'files', 'lsp', 'multi-edit', 'editor'] },
   { id: 'search', label: 'Search', pages: ['search', 'semantic-search', 'chat-search'] },
@@ -29,7 +29,7 @@ const HUB_DEFINITIONS: readonly HubDefinition[] = [
   { id: 'browser', label: 'Browser', pages: ['browser'] },
   {
     id: 'connections', label: 'Connections',
-    pages: ['mcp', 'channels', 'remote-nodes', 'remote-access', 'remote-config', 'worker-mode', 'communication'],
+    pages: ['mcp', 'channels', 'remote-nodes', 'remote-access', 'remote-config', 'worker-mode'],
   },
   { id: 'storage', label: 'Storage', pages: ['snapshots', 'archive'] },
 ];

@@ -1,6 +1,6 @@
 /**
  * IPC channels for the learning subsystems: self-improvement (learning outcomes),
- * GRPO training data, specialist agents, and A/B experiment management.
+ * Specialist agents and A/B experiment management.
  */
 export const LEARNING_CHANNELS = {
   // Self-Improvement operations
@@ -18,24 +18,6 @@ export const LEARNING_CHANNELS = {
   LEARNING_GET_TASK_STATS: 'learning:get-task-stats',
   LEARNING_RATE_OUTCOME: 'learning:rate-outcome',
   LEARNING_CONFIGURE: 'learning:configure',
-
-  // Training operations (GRPO)
-  TRAINING_RECORD_OUTCOME: 'training:record-outcome',
-  TRAINING_GET_STATS: 'training:get-stats',
-  TRAINING_EXPORT_DATA: 'training:export-data',
-  TRAINING_IMPORT_DATA: 'training:import-data',
-  TRAINING_GET_TREND: 'training:get-trend',
-  TRAINING_GET_TOP_STRATEGIES: 'training:get-top-strategies',
-  TRAINING_CONFIGURE: 'training:configure',
-  TRAINING_GET_REWARD_DATA: 'training:get-reward-data',
-  TRAINING_GET_ADVANTAGE_DATA: 'training:get-advantage-data',
-  TRAINING_GET_STRATEGIES: 'training:get-strategies',
-  TRAINING_GET_AGENT_PERFORMANCE: 'training:get-agent-performance',
-  TRAINING_GET_PATTERNS: 'training:get-patterns',
-  TRAINING_GET_INSIGHTS: 'training:get-insights',
-  TRAINING_APPLY_INSIGHT: 'training:apply-insight',
-  TRAINING_DISMISS_INSIGHT: 'training:dismiss-insight',
-  TRAINING_UPDATE_CONFIG: 'training:update-config',
 
   // Specialist operations
   SPECIALIST_LIST: 'specialist:list',

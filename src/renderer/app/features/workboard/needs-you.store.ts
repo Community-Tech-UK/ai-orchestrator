@@ -105,6 +105,8 @@ export class NeedsYouStore {
   private readonly correlatedWorkItems = computed(() => correlateWorkboard({
     instances: this.narrowInstances(), loopRuns: this.loops.recentRuns(), automationRuns: this.automations.runs(),
     automations: this.automations.automations(), repoJobs: this.repos.jobs(), pausedForYou: this.pausedForYou(),
+    // Pending memory reviews reach "Needs you" through needs-you-sources, so correlating them here would list each twice.
+    memoryReviews: [],
   } satisfies Omit<WorkboardProjectionInput, 'now'>));
   readonly workItems = computed(() => retainWorkboardItems(this.correlatedWorkItems(), this.now()), { equal: sameItems });
 

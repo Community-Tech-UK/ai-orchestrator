@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -18,18 +18,36 @@ function assertPinsAgree(root: string): void {
 describe('RTK bundled version pins', () => {
   const root = resolve(__dirname, '../../../..');
   it('the three repository pins agree', () => { expect(() => assertPinsAgree(root)).not.toThrow(); });
-  it('ships the Apache licence beside every pinned 0.52.0 binary', () => {
+  it('pins all five release platforms and keeps the Apache licence beside every provisioned binary', () => {
     const manifest = JSON.parse(readFileSync(join(root, pinPaths[1]), 'utf8'));
     expect(manifest.version).toBe('0.52.0');
     const license = readFileSync(join(root, 'scripts/licenses/rtk-0.52.0-LICENSE'), 'utf8');
     expect(license).toContain('Apache License');
-    for (const [target, hash] of Object.entries(manifest.hashes)) {
+    // Part 5e keeps resources/rtk out of git, so a platform is provisioned by
+    // scripts/fetch-rtk-binaries.js or not yet present. Every platform must stay
+    // fully pinned (binary and archive); every provisioned binary must match its
+    // pin and carry the pinned licence source byte-for-byte. Unprovisioned
+    // platforms are enforced fail-closed at fetch time — mismatched downloads
+    // are rejected and the licence is restored before install (the reject,
+    // quarantine and licence-restore tests in this file and in
+    // scripts/__tests__/fetch-rtk-binaries.spec.ts) — and the CI test job
+    // provisions all five so these byte checks run there in full.
+    const sha256 = /^[a-fA-F0-9]{64}$/;
+    expect(Object.keys(manifest.hashes)).toHaveLength(5);
+    for (const [target, hash] of Object.entries(manifest.hashes) as [string, string][]) {
+      expect(hash, `binary pin ${target}`).toMatch(sha256);
+    }
+    expect(Object.keys(manifest.archiveHashes ?? {}).sort()).toEqual(Object.keys(manifest.hashes).sort());
+    for (const [target, hash] of Object.entries(manifest.archiveHashes ?? {}) as [string, string][]) {
+      expect(hash, `archive pin ${target}`).toMatch(sha256);
+    }
+    for (const [target, hash] of Object.entries(manifest.hashes) as [string, string][]) {
       const dir = join(root, 'resources/rtk', target);
-      const binary = readFileSync(join(dir, target.startsWith('win32') ? 'rtk.exe' : 'rtk'));
-      expect(createHash('sha256').update(binary).digest('hex'), target).toBe(hash);
+      const binaryPath = join(dir, target.startsWith('win32') ? 'rtk.exe' : 'rtk');
+      if (!existsSync(binaryPath)) continue;
+      expect(createHash('sha256').update(readFileSync(binaryPath)).digest('hex'), target).toBe(hash);
       expect(readFileSync(join(dir, 'LICENSE'), 'utf8'), target).toBe(license);
     }
-    expect(Object.keys(manifest.hashes)).toHaveLength(5);
   });
   it('packages the licence alongside the binary on every release platform', () => {
     const config = JSON.parse(readFileSync(join(root, 'electron-builder.json'), 'utf8'));

@@ -80,8 +80,10 @@ vi.mock('../orchestration/orchestration-activity-bridge', () => ({ getOrchestrat
 vi.mock('../orchestration/multi-verify-coordinator', () => ({ getMultiVerifyCoordinator: vi.fn(() => ({})) }));
 vi.mock('../memory/memory-monitor', () => ({ getMemoryMonitor: vi.fn(() => ({ on: vi.fn() })) }));
 const mockObserverClearPrompt = vi.hoisted(() => vi.fn());
-vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() => ({ publishInstanceState: vi.fn(), publishInstanceOutput: vi.fn(), recordPrompt: vi.fn(), clearPrompt: mockObserverClearPrompt })) }));
-vi.mock('../repo-jobs', () => ({ getRepoJobService: vi.fn(() => ({ on: vi.fn() })) }));
+const inboxSources = { proposals: new EventEmitter(), jobs: new EventEmitter() };
+vi.mock('../memory/governed-proposal-store', () => ({ getGovernedProposalStore: () => inboxSources.proposals }));
+vi.mock('../remote/observer-server', () => ({ getRemoteObserverServer: vi.fn(() => ({ publishInstanceState: vi.fn(), publishInstanceOutput: vi.fn(), publishRepoJob: vi.fn(), recordPrompt: vi.fn(), clearPrompt: mockObserverClearPrompt })) }));
+vi.mock('../repo-jobs', () => ({ getRepoJobService: vi.fn(() => inboxSources.jobs) }));
 vi.mock('../process/load-balancer', () => ({ getLoadBalancer: vi.fn(() => ({ removeMetrics: vi.fn(), updateMetrics: vi.fn() })) }));
 vi.mock('../workflows/workflow-manager', () => ({ getWorkflowManager: vi.fn(() => ({ cleanupInstance: vi.fn() })) }));
 vi.mock('../state', () => ({ getAppStore: vi.fn(), setGlobalState: vi.fn() }));
@@ -90,6 +92,11 @@ vi.mock('../state', () => ({ getAppStore: vi.fn(), setGlobalState: vi.fn() }));
 
 const mockSendToRenderer = vi.fn();
 const mockWindowManager = { sendToRenderer: mockSendToRenderer } as unknown as import('../window-manager').WindowManager;
+
+beforeEach(() => {
+  inboxSources.proposals.removeAllListeners();
+  inboxSources.jobs.removeAllListeners();
+});
 
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { createStatelessExecProviderPredicate } from './stateless-exec-provider';
@@ -126,6 +133,41 @@ describe('setupInstanceEventForwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRecordProviderThreadCompactionMarker.mockReturnValue('marker-1');
+  });
+
+  it('pushes inbox changes immediately and coalesces a bulk burst into one trailing push', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    try {
+      setupInstanceEventForwarding({
+        instanceManager: buildManager(), windowManager: mockWindowManager,
+        isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined,
+      });
+      const pushes = () => mockSendToRenderer.mock.calls.filter(([channel]) =>
+        channel === 'memory-review:changed' || channel === 'repo-job:changed');
+      inboxSources.proposals.emit('proposal:created', { description: 'EXAMPLE_PRIVATE_CONTENT' });
+      inboxSources.jobs.emit('repo-job:submitted', { description: 'EXAMPLE_PRIVATE_CONTENT' });
+      expect(pushes()).toEqual([
+        ['memory-review:changed', { changedAt: 1000 }],
+        ['repo-job:changed', { changedAt: 1000 }],
+      ]);
+      for (let index = 0; index < 20; index++) {
+        inboxSources.proposals.emit('proposal:reinforced', {});
+        inboxSources.jobs.emit('repo-job:progress', {});
+      }
+      inboxSources.proposals.emit('proposal:decided', {});
+      inboxSources.jobs.emit('repo-job:completed', {});
+      vi.advanceTimersByTime(999);
+      expect(pushes()).toHaveLength(2);
+      vi.advanceTimersByTime(1);
+      expect(pushes()).toHaveLength(4);
+      expect(pushes().slice(2)).toEqual([
+        ['memory-review:changed', { changedAt: 2000 }],
+        ['repo-job:changed', { changedAt: 2000 }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('aborts stale reviews on human input admission while leaving automatic continuation alone', () => {

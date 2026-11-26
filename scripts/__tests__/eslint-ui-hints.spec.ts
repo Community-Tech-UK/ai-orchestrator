@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import { Linter, ESLint } from 'eslint';
-import { RULE_FIXTURES } from './ui-hints-fixtures';
+import { RULE_FIXTURES, FIELD_NAME_FIXTURES, FIELD_ASSOCIATION_FIXTURES } from './ui-hints-fixtures';
 import { CONTROL_TAGS, FIELD_TAGS, INTERACTIVE_ROLES, EXEMPT_REASONS, TITLE_EXCEPTIONS, SHORTCUT_SOURCE } from '../ui-hints/types';
 const require = createRequire(import.meta.url);
 const parser = require('@angular-eslint/template-parser');
@@ -61,4 +61,13 @@ describe('UI hint lint parity', () => {
       .toEqual([expect.objectContaining({ line: 2 })]);
   });
 
+});
+
+describe('ESLint form-field naming boundaries', () => {
+  it.each(FIELD_NAME_FIXTURES)('$html: named=$named', ({ html, named }) => {
+    expect(lint(html, 'form-field-needs-name').filter(issue => issue.ruleId === 'ui-hints/form-field-needs-name')).toHaveLength(named ? 0 : 1);
+  });
+  it.each(FIELD_ASSOCIATION_FIXTURES)('$html follows actual label targets', ({ html, names }) => {
+    expect(lint(html, 'form-field-needs-name').filter(issue => issue.ruleId === 'ui-hints/form-field-needs-name')).toHaveLength(names.filter(named => !named).length);
+  });
 });

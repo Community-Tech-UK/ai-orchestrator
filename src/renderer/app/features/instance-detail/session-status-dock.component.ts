@@ -16,8 +16,10 @@ import type { AggregatedReview, ReviewActionType } from '../../../../shared/type
 import { ChildInstancesPanelComponent } from './child-instances-panel.component';
 import { CheckpointTimelineComponent } from '../checkpoints/checkpoint-timeline.component';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
+import { InstanceStore } from '../../core/state/instance.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
+import { sessionHelperAgentsRunning } from './helper-agents-chip';
 import {
   DOCK_CHIPS,
   DOCK_FOCUS_ANCHOR_CLASS,
@@ -65,55 +67,102 @@ interface DockChipView {
           <div class="inspector-toggles-shell">
             <div class="dock-chips" role="toolbar" aria-label="Session inspectors">
               @for (chip of visibleChips(); track chip.def.id) {
-                <button
-                  class="inspector-toggle"
-                  [class.active]="chip.open"
-                  [class.entering]="chip.entering"
-                  [attr.data-chip-id]="chip.def.id"
-                  [attr.aria-expanded]="chip.open"
-                  [appTooltip]="chip.presentation.title"
-                  [appTooltipShowWhenExpanded]="true"
-                  (animationend)="onChipToggleAnimationEnd(chip.def.id)"
-                  (click)="toggleChip(chip.def.id)"
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                @if (chip.def.informational) {
+                  <span
+                    class="inspector-toggle"
+                    role="status"
+                    [attr.data-chip-id]="chip.def.id"
+                    [appTooltip]="chip.presentation.title"
                   >
-                    @for (path of chip.def.icon.paths ?? []; track path) {
-                      <path [attr.d]="path" />
-                    }
-                    @for (circle of chip.def.icon.circles ?? []; track circle.cx + ':' + circle.cy) {
-                      <circle [attr.cx]="circle.cx" [attr.cy]="circle.cy" [attr.r]="circle.r" />
-                    }
-                    @for (
-                      line of chip.def.icon.lines ?? [];
-                      track line.x1 + ':' + line.y1 + ':' + line.x2 + ':' + line.y2
-                    ) {
-                      <line
-                        [attr.x1]="line.x1"
-                        [attr.y1]="line.y1"
-                        [attr.x2]="line.x2"
-                        [attr.y2]="line.y2"
-                      />
-                    }
-                  </svg>
-                  {{ chip.presentation.label }}
-                  @if (chip.presentation.badge; as badge) {
-                    <span
-                      class="inspector-badge"
-                      [class.severity-error]="badge.variant === 'error'"
-                      [class.running]="badge.variant === 'running'"
-                      >{{ badge.text }}</span
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
                     >
-                  }
-                </button>
+                      @for (path of chip.def.icon.paths ?? []; track path) {
+                        <path [attr.d]="path" />
+                      }
+                      @for (circle of chip.def.icon.circles ?? []; track circle.cx + ':' + circle.cy) {
+                        <circle [attr.cx]="circle.cx" [attr.cy]="circle.cy" [attr.r]="circle.r" />
+                      }
+                      @for (
+                        line of chip.def.icon.lines ?? [];
+                        track line.x1 + ':' + line.y1 + ':' + line.x2 + ':' + line.y2
+                      ) {
+                        <line
+                          [attr.x1]="line.x1"
+                          [attr.y1]="line.y1"
+                          [attr.x2]="line.x2"
+                          [attr.y2]="line.y2"
+                        />
+                      }
+                    </svg>
+                    {{ chip.presentation.label }}
+                    @if (chip.presentation.badge; as badge) {
+                      <span
+                        class="inspector-badge"
+                        [class.severity-error]="badge.variant === 'error'"
+                        [class.running]="badge.variant === 'running'"
+                        >{{ badge.text }}</span
+                      >
+                    }
+                  </span>
+                } @else {
+                  <button
+                    class="inspector-toggle"
+                    [class.active]="chip.open"
+                    [class.entering]="chip.entering"
+                    [attr.data-chip-id]="chip.def.id"
+                    [attr.aria-expanded]="chip.open"
+                    [appTooltip]="chip.presentation.title"
+                    [appTooltipShowWhenExpanded]="true"
+                    (animationend)="onChipToggleAnimationEnd(chip.def.id)"
+                    (click)="toggleChip(chip.def.id)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      @for (path of chip.def.icon.paths ?? []; track path) {
+                        <path [attr.d]="path" />
+                      }
+                      @for (circle of chip.def.icon.circles ?? []; track circle.cx + ':' + circle.cy) {
+                        <circle [attr.cx]="circle.cx" [attr.cy]="circle.cy" [attr.r]="circle.r" />
+                      }
+                      @for (
+                        line of chip.def.icon.lines ?? [];
+                        track line.x1 + ':' + line.y1 + ':' + line.x2 + ':' + line.y2
+                      ) {
+                        <line
+                          [attr.x1]="line.x1"
+                          [attr.y1]="line.y1"
+                          [attr.x2]="line.x2"
+                          [attr.y2]="line.y2"
+                        />
+                      }
+                    </svg>
+                    {{ chip.presentation.label }}
+                    @if (chip.presentation.badge; as badge) {
+                      <span
+                        class="inspector-badge"
+                        [class.severity-error]="badge.variant === 'error'"
+                        [class.running]="badge.variant === 'running'"
+                        >{{ badge.text }}</span
+                      >
+                    }
+                  </button>
+                }
               }
               @if (overflowChips().length > 0) {
                 <button
@@ -136,25 +185,44 @@ interface DockChipView {
             @if (overflowOpen() && overflowChips().length > 0) {
               <div class="dock-overflow-list">
                 @for (chip of overflowChips(); track chip.def.id) {
-                  <button
-                    class="inspector-toggle"
-                    [class.active]="chip.open"
-                    [attr.data-chip-id]="chip.def.id"
-                    [attr.aria-expanded]="chip.open"
-                    [appTooltip]="chip.presentation.title"
-                    [appTooltipShowWhenExpanded]="true"
-                    (click)="onOverflowChipClick(chip.def.id)"
-                  >
-                    {{ chip.presentation.label }}
-                    @if (chip.presentation.badge; as badge) {
-                      <span
-                        class="inspector-badge"
-                        [class.severity-error]="badge.variant === 'error'"
-                        [class.running]="badge.variant === 'running'"
-                        >{{ badge.text }}</span
-                      >
-                    }
-                  </button>
+                  @if (chip.def.informational) {
+                    <span
+                      class="inspector-toggle"
+                      role="status"
+                      [attr.data-chip-id]="chip.def.id"
+                      [appTooltip]="chip.presentation.title"
+                    >
+                      {{ chip.presentation.label }}
+                      @if (chip.presentation.badge; as badge) {
+                        <span
+                          class="inspector-badge"
+                          [class.severity-error]="badge.variant === 'error'"
+                          [class.running]="badge.variant === 'running'"
+                          >{{ badge.text }}</span
+                        >
+                      }
+                    </span>
+                  } @else {
+                    <button
+                      class="inspector-toggle"
+                      [class.active]="chip.open"
+                      [attr.data-chip-id]="chip.def.id"
+                      [attr.aria-expanded]="chip.open"
+                      [appTooltip]="chip.presentation.title"
+                      [appTooltipShowWhenExpanded]="true"
+                      (click)="onOverflowChipClick(chip.def.id)"
+                    >
+                      {{ chip.presentation.label }}
+                      @if (chip.presentation.badge; as badge) {
+                        <span
+                          class="inspector-badge"
+                          [class.severity-error]="badge.variant === 'error'"
+                          [class.running]="badge.variant === 'running'"
+                          >{{ badge.text }}</span
+                        >
+                      }
+                    </button>
+                  }
                 }
               </div>
             }
@@ -200,6 +268,7 @@ interface DockChipView {
 })
 export class SessionStatusDockComponent {
   private historyIpc = inject(HistoryIpcService);
+  private instances = inject(InstanceStore);
   private host = inject(ElementRef<HTMLElement>);
 
   instanceId = input.required<string>();
@@ -236,6 +305,9 @@ export class SessionStatusDockComponent {
     reviewHasErrors: this.reviewBadgeInfo()?.hasErrors ?? false,
     childCount: this.childrenIds().length,
     checkpointCount: this.checkpointCount(),
+    // Part 7c: the owning session's native-helper summary only — child
+    // sessions are the "Agents" chip's population and never feed this count.
+    helperAgentsRunning: sessionHelperAgentsRunning(this.instanceId(), id => this.instances.getInstance(id)),
   }));
 
   readonly chipViews = computed<readonly DockChipView[]>(() => {
@@ -342,6 +414,9 @@ export class SessionStatusDockComponent {
   });
 
   toggleChip(id: DockChipId): void {
+    if (this.chipDefs().some((def) => def.id === id && def.informational)) {
+      return;
+    }
     if (this.openPanels()[id] !== true) {
       this.rememberSurfaceOpener();
     }

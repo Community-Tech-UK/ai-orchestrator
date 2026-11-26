@@ -93,6 +93,24 @@ import { UndoService } from '../../core/services/undo.service';
         }
       </div>
 
+      <details class="panel-card">
+        <summary [appTooltip]="copyFor('memory.suggestions')">Suggested for removal ({{ suggestions().length }})</summary>
+        <p class="hint">"Never shown" means no showing in 60 fully tracked days. "Source changed" requires at least 10 showings in the last 30 days and a changed source file.</p>
+        <p class="hint">Suggestions only. Review the reason before removing a note.</p>
+        @for (hint of suggestions(); track hint.id) {
+          <div class="hint-item">
+            <div class="hint-main">
+              <span class="hint-content">{{ hint.content }}</span>
+              <div class="hint-meta">Reason: {{ hint.review?.suggestion }} · Shown {{ hint.usageCount }} {{ hint.usageCount === 1 ? 'time' : 'times' }}</div>
+              <div class="muted">{{ hint.review?.shownIn30Days }} sessions in the last 30 days
+                (tracking since {{ hint.review?.historyStartedAt | date:'mediumDate' }})</div>
+            </div>
+            <button class="btn btn-sm btn-danger" type="button" [appTooltip]="copyFor('memory.removeNote')"
+              (click)="removeHint(hint.id)">Remove note</button>
+          </div>
+        } @empty { <p class="hint">No suggestions. Notes without a recorded source cannot be checked for source changes.</p> }
+      </details>
+
       <!-- Hints Management -->
       <div class="panel-card">
         <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
@@ -171,10 +189,10 @@ import { UndoService } from '../../core/services/undo.service';
                   </div>
                   <div class="hint-meta muted">Added {{ hint.createdAt | date:'mediumDate' }} ·
                     <span tabindex="0" [appTooltip]="hint.sourceReflectionId ? copyFor('memory.reflection') : null">
-                      {{ hint.sourceReflectionId ? 'from a lesson' : hint.sourceSessionId ? 'from a past session' : 'added by you' }}
+                      {{ hint.sourceReflectionId ? 'from a lesson' : hint.sourceSessionId ? 'from a past session' : hint.review?.sourceFiles?.length ? 'from a project file' : 'added by you' }}
                     </span>
                   </div>
-                  @if (hint.lastUsed) { <div class="muted">Last shown {{ hint.lastUsed | date:'mediumDate' }}</div> }
+                  @if (hint.usageCount > 0 && hint.lastUsed) { <div class="muted">Last shown {{ hint.lastUsed | date:'mediumDate' }}</div> }
                 </div>
                 <button class="btn btn-sm btn-danger" type="button"
                   [appTooltip]="copyFor('memory.removeNote')"
@@ -417,6 +435,7 @@ export class WakeManagementComponent implements OnInit {
   protected identityDraft = signal('');
   protected wakeWing = signal('');
   protected readonly rebuildProject = computed(() => this.wakeWing().trim() || this.store.selectedProjectKey().trim());
+  protected readonly suggestions = computed(() => this.store.wakeHints().filter((note) => note.review?.suggestion));
 
   protected pendingRemoval = signal<WakeHint | null>(null);
   protected showHidden = signal(false);
@@ -454,6 +473,7 @@ export class WakeManagementComponent implements OnInit {
     const wing = this.rebuildProject();
     if (!wing || this.store.loading()) return;
     await this.store.loadWakeContext(wing);
+    await this.store.listHints();
   }
 
   async addHint(): Promise<void> {

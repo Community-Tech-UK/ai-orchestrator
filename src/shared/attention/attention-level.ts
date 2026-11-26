@@ -180,6 +180,9 @@ export function attentionLevelForAutomationRunStatus(status: AutomationRunStatus
       return 'waiting';
     case 'failed':
       return 'failed';
+    // A loop-owned pause ended the run: the outcome waits on a human.
+    case 'needs-attention':
+      return 'review';
     case 'succeeded':
     case 'skipped':
     case 'cancelled':

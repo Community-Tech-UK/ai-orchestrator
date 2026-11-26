@@ -23,7 +23,8 @@ import { RLM_MIGRATIONS_061_065 } from './rlm-migrations-061-065';
 import { RLM_MIGRATIONS_066_070 } from './rlm-migrations-066-070';
 import { RLM_MIGRATIONS_071_075 } from './rlm-migrations-071-075';
 import { COPILOT_CREDITS_MIGRATION, RLM_MIGRATIONS_076_080 } from './rlm-migrations-076-080';
-import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
+import { AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION, RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
+import { WAKE_HINT_HISTORY_MIGRATION } from './rlm-wake-hint-history';
 
 /** Keep the persisted 083 migration name stable; 082 remains reserved. */
 export const AUTOMATION_RUN_POLICY_MIGRATION: Migration = {
@@ -81,7 +82,9 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_071_075,
   ...RLM_MIGRATIONS_076_080,
   ...RLM_MIGRATIONS_081_085,
+  WAKE_HINT_HISTORY_MIGRATION,
   AUTOMATION_RUN_POLICY_MIGRATION,
+  AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION,
   COPILOT_CREDITS_MIGRATION,
 ];
 

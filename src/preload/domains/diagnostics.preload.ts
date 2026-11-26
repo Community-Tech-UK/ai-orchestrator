@@ -8,12 +8,26 @@ import type {
 import type { StorageCleanupTarget } from '../../shared/types/storage.types';
 import type { UsageInsightRequest, UsageInsightResponse } from '../../shared/usage-insight/usage-insight.types';
 import type { IpcResponse } from './types';
+import type { InboxChangedEvent } from '@contracts/schemas/observability';
 
 export function createDiagnosticsDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
     storageGetUsage: (force = false): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_GET_USAGE, { force }),
     storagePreviewCleanup: (target: StorageCleanupTarget): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_PREVIEW_CLEANUP, { target }),
     storageRunCleanup: (target: StorageCleanupTarget, previewId: string): Promise<IpcResponse> => ipcRenderer.invoke(ch.STORAGE_RUN_CLEANUP, { target, previewId }),
+
+    onMemoryReviewChanged: (callback: (event: InboxChangedEvent) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, event: InboxChangedEvent) => callback(event);
+      ipcRenderer.on(ch.MEMORY_REVIEW_CHANGED, listener);
+      return () => ipcRenderer.removeListener(ch.MEMORY_REVIEW_CHANGED, listener);
+    },
+
+    onRepoJobChanged: (callback: (event: InboxChangedEvent) => void): (() => void) => {
+      const listener = (_event: IpcRendererEvent, event: InboxChangedEvent) => callback(event);
+      ipcRenderer.on(ch.REPO_JOB_CHANGED, listener);
+      return () => ipcRenderer.removeListener(ch.REPO_JOB_CHANGED, listener);
+    },
+
     diagnosticsGetDoctorReport: (payload?: {
       workingDirectory?: string;
       force?: boolean;

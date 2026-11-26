@@ -1,7 +1,7 @@
 import type { ClaudeModelUsageSnapshot, ModelUsageDelta } from '../../../shared/types/provider-model-usage.types';
 import type { ClaudeSelfWakeupEvent } from './claude-cli-self-wakeup';
 import type { DegradedReason } from './degraded-output-classifier';
-import type { ContextUsage } from '../../../shared/types/instance.types';
+import type { ContextUsage, NativeHelperSummary } from '../../../shared/types/instance.types';
 import type { CliAsyncWorkEvent } from './claude-cli-async-work';
 import type { InternalInputSource } from '../../../shared/types/input-provenance.types';
 export type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
@@ -397,7 +397,8 @@ export type CliEvent =
   | 'spawned'     // Process spawned
   | 'spawn_mode'  // B9: spawn mode established or changed at runtime
   | 'self_wakeup'
-  | 'async_work'; // Provider-owned background task lifecycle
+  | 'async_work' // Provider-owned background task lifecycle
+  | 'native_helpers'; // Foreground and background native agents; no shell jobs
 
 /**
  * Event handler types for CLI adapters
@@ -416,4 +417,5 @@ export interface CliAdapterEvents {
   'spawn_mode': (change: SpawnModeChange) => void;
   'self_wakeup': (event: ClaudeSelfWakeupEvent) => void;
   'async_work': (event: CliAsyncWorkEvent) => void;
+  'native_helpers': (summary: NativeHelperSummary) => void;
 }

@@ -110,6 +110,10 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_PINGPONG_SKIP_ROUND, { loopRunId }),
     loopPingPongForceArbitration: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_PINGPONG_FORCE_ARBITRATION, { loopRunId }),
+    /** 4a change 3: report the loop the HUD shows (or null) so pause notices
+     *  are suppressed only while that loop is on screen. */
+    loopReportViewFocus: (loopRunId: string | null): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_VIEW_FOCUS, { loopRunId }),
     loopGetState: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_STATE, { loopRunId }),
     loopListRunsForChat: (chatId: string, limit?: number): Promise<IpcResponse> =>

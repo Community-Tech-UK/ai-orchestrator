@@ -105,6 +105,17 @@ describe('NodePickerComponent', () => {
     expect(component.isOpen()).toBe(true);
   });
 
+  it('skips the invisible backdrop and closes on Escape from an option', () => {
+    nodes.set([makeNode('connected', true)]);
+    component.isOpen.set(true);
+    fixture.detectChanges();
+    const backdrop = fixture.nativeElement.querySelector('.node-picker-backdrop') as HTMLButtonElement;
+    expect(backdrop.tabIndex).toBe(-1);
+    expect(backdrop.getAttribute('aria-hidden')).toBe('true');
+    fixture.nativeElement.querySelector('.node-option').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(component.isOpen()).toBe(false);
+  });
+
   it('uses shared computer names for local and missing selections', () => {
     expect(component.selectedLabel()).toBe('this computer');
     (component as unknown as { selectedNodeId: () => string }).selectedNodeId = () => 'missing-id';

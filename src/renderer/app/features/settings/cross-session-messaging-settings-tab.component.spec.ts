@@ -56,4 +56,34 @@ describe('Cross-session messaging Settings explanation', () => {
       .toContain('an agent can read only its own earlier conversation or a session you point at with @session.');
     expect(element.querySelector<HTMLInputElement>('.toggle-input')?.checked).toBe(enabled);
   });
+
+  it('associates global and per-session toggles with their own visible text', async () => {
+    const instances = signal([
+      { id: 'session-one', displayName: 'Project review', status: 'idle', allowIncomingSessionMessages: false },
+      { id: 'session-two', displayName: '', status: 'idle', allowIncomingSessionMessages: true },
+    ]);
+    await TestBed.configureTestingModule({
+      imports: [CrossSessionMessagingSettingsTabComponent],
+      providers: [
+        { provide: SettingsStore, useValue: { get: () => ({ enabled: true, allowCrossProject: false, maxHops: 3, rateLimitPerMinute: 20 }) } },
+        { provide: InstanceQueries, useValue: { instances } },
+        { provide: IpcFacadeService, useValue: { instance: { toggleAllowIncomingSessionMessages: vi.fn() } } },
+        { provide: ToastService, useValue: { show: vi.fn() } },
+      ],
+    }).overrideComponent(CrossSessionMessagingSettingsTabComponent, {
+      set: { templateUrl: undefined, template, styleUrl: undefined, styles: [] },
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CrossSessionMessagingSettingsTabComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const names = (): (string | undefined)[] => [...root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map(field => {
+      const id = field.getAttribute('aria-labelledby');
+      return id ? root.querySelector(`[id="${id}"]`)?.textContent?.trim() : undefined;
+    });
+    expect(names()).toEqual(['Enable cross-session messaging', 'Allow cross-project messages', 'Project review', 'session-two']);
+    instances.update(rows => rows.map(row => row.id === 'session-two' ? { ...row, displayName: 'Build session' } : row));
+    fixture.detectChanges();
+    expect(names()).toEqual(['Enable cross-session messaging', 'Allow cross-project messages', 'Project review', 'Build session']);
+    fixture.destroy();
+  });
 });

@@ -173,6 +173,8 @@ export class InstanceStore implements OnDestroy {
     this.addSubscription(
       this.eventBus.instanceStateUpdate$.subscribe((update) => {
         if (update.status === 'error' || update.status === 'terminated') {
+          // Drain earlier activity before the terminal clear so it cannot revive helpers later.
+          this.batcher.forceFlush();
           this.applyUpdate(update);
         } else {
           this.batcher.queueUpdate(update);
@@ -396,6 +398,7 @@ export class InstanceStore implements OnDestroy {
           // null clears backgroundWork; undefined preserves existing.
           backgroundWork:
             update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : inst.backgroundWork,
+          nativeHelpers: update.nativeHelpers !== undefined ? (update.nativeHelpers ?? undefined) : inst.nativeHelpers,
           selfManagesAutoCompaction:
             update.selfManagesAutoCompaction ?? inst.selfManagesAutoCompaction,
           residentClaude: update.residentClaude ?? inst.residentClaude,
@@ -520,6 +523,7 @@ export class InstanceStore implements OnDestroy {
             // null clears backgroundWork; undefined preserves existing.
             backgroundWork:
               update.backgroundWork !== undefined ? (update.backgroundWork ?? undefined) : instance.backgroundWork,
+            nativeHelpers: update.nativeHelpers !== undefined ? (update.nativeHelpers ?? undefined) : instance.nativeHelpers,
             selfManagesAutoCompaction:
               update.selfManagesAutoCompaction ?? instance.selfManagesAutoCompaction,
             residentClaude: update.residentClaude ?? instance.residentClaude,

@@ -130,6 +130,7 @@ interface RuleGroup {
                 <dt>Automatic use</dt>
                 <dd>
                   <select
+                    aria-label="Automatic use"
                     [ngModel]="account.automationPolicy"
                     (ngModelChange)="setAutomationPolicy(account, $event)"
                     [disabled]="busy()"
@@ -265,16 +266,18 @@ interface RuleGroup {
         <div class="add-row">
           <input
             type="text"
+            aria-label="Account name"
             [(ngModel)]="newLabel"
             placeholder="Name it, e.g. Work"
             [disabled]="busy()"
           />
-          <select [(ngModel)]="newKind" [disabled]="busy()">
+          <select aria-label="Account kind" [(ngModel)]="newKind" [disabled]="busy()">
             <option value="personal">Personal</option>
             <option value="enterprise">Work / enterprise</option>
           </select>
           <input
             type="text"
+            aria-label="GitHub host"
             [(ngModel)]="newHost"
             placeholder="github.com"
             [disabled]="busy()"
@@ -312,6 +315,7 @@ interface RuleGroup {
           }
           <input
             type="text"
+            aria-label="Workspace folder path"
             [(ngModel)]="workspacePath"
             placeholder="/path/to/your/checkout"
             [disabled]="busy()"
@@ -344,7 +348,7 @@ interface RuleGroup {
         @for (remote of remoteSuggestions(); track remote.displayPath) {
           <div class="rule-row">
             <span class="rule-target">{{ remote.host }}/{{ remote.displayPath }}</span>
-            <select [(ngModel)]="suggestionTargets[remote.displayPath]" [disabled]="busy()">
+            <select aria-label="Account for this repository" [(ngModel)]="suggestionTargets[remote.displayPath]" [disabled]="busy()">
               <option value="">Choose an account…</option>
               @for (account of accounts(); track account.id) {
                 <option [value]="account.id">{{ account.label }}</option>
@@ -370,7 +374,7 @@ interface RuleGroup {
         }
 
         <div class="add-row">
-          <select [(ngModel)]="pathRuleProfileId" [disabled]="busy()">
+          <select aria-label="Account that protects this folder" [(ngModel)]="pathRuleProfileId" [disabled]="busy()">
             <option value="">Choose an account…</option>
             @for (account of accounts(); track account.id) {
               <option [value]="account.id">{{ account.label }}</option>

@@ -7,6 +7,8 @@ import {
   pruneAutoBackups,
   pruneCodexStateBackups,
   selectAutoBackupsToPrune,
+  selectOldCopiesForCard,
+  selectOtherCopiesForCard,
 } from './codex-state-backup-retention';
 
 // The name codex-private-rollout-reconcile.ts (uniqueBackupPath) really writes.
@@ -74,6 +76,29 @@ describe('pruneAutoBackups', () => {
     const remove = vi.fn();
     expect(pruneAutoBackups('/backups', { list: () => names, remove })).toEqual({ selected: 0, removed: 0, failed: 0 });
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('card selectors', () => {
+  it('offers all reconcile copies but the newest 3', () => {
+    const names = Array.from({ length: 5 }, (_, i) => auto(`2026010${i + 1}T000000000Z`));
+    expect(selectOldCopiesForCard(names)).toEqual([
+      auto('20260101T000000000Z'),
+      auto('20260102T000000000Z'),
+    ]);
+  });
+
+  it('offers only clean-up and archive names as the smaller copies', () => {
+    const names = [
+      'state_5-before-aio-cleanup-20260101T000000000Z.sqlite',
+      'state_5-before-aio-archive-20260102T000000000Z.sqlite',
+      auto('20260103T000000000Z'),
+      'state_5.sqlite',
+    ];
+    expect(selectOtherCopiesForCard(names)).toEqual([
+      'state_5-before-aio-cleanup-20260101T000000000Z.sqlite',
+      'state_5-before-aio-archive-20260102T000000000Z.sqlite',
+    ]);
   });
 });
 

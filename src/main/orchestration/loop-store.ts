@@ -90,6 +90,7 @@ interface RunSummaryRow {
   end_reason: string | null;
   config_json: string;
   worktree_lifecycle_json: string | null;
+  end_evidence_json: string | null;
 }
 
 /**
@@ -134,7 +135,21 @@ function rowToRunSummary(row: RunSummaryRow): LoopRunSummary {
     initialPrompt,
     iterationPrompt,
     worktreeLifecycle: parseWorktreeLifecycle(row.worktree_lifecycle_json),
+    endEvidence: parseEndEvidence(row.end_evidence_json),
   };
+}
+
+/** Parse the persisted `end_evidence_json` blob; unparseable rows yield nothing. */
+function parseEndEvidence(raw: string | null): Record<string, unknown> | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface LoopTerminalIntentRow {
@@ -376,7 +391,7 @@ export class LoopStore {
 
   getRunSummary(loopRunId: string): LoopRunSummary | null {
     const row = this.db
-      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason, config_json, worktree_lifecycle_json FROM loop_runs WHERE id = ?')
+      .prepare('SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents, started_at, ended_at, end_reason, config_json, worktree_lifecycle_json, end_evidence_json FROM loop_runs WHERE id = ?')
       .get<RunSummaryRow>(loopRunId);
     if (!row) return null;
     return rowToRunSummary(row);
@@ -386,7 +401,7 @@ export class LoopStore {
     const rows = this.db
       .prepare(`
         SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
-               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json
+               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json, end_evidence_json
         FROM loop_runs
         WHERE chat_id = ?
         ORDER BY started_at DESC
@@ -410,7 +425,7 @@ export class LoopStore {
     const rows = this.db
       .prepare(`
         SELECT id, chat_id, status, total_iterations, total_tokens, total_cost_cents,
-               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json
+               started_at, ended_at, end_reason, config_json, worktree_lifecycle_json, end_evidence_json
         FROM loop_runs
         ORDER BY started_at DESC
         LIMIT ?

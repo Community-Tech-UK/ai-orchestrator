@@ -373,14 +373,14 @@ export class ContextWorkerClient implements
     return (result as UnifiedMemoryContextInfo | null) ?? null;
   }
 
-  async buildWakeContextText(wing?: string): Promise<string | null> {
+  async buildWakeContextText(wing?: string, recordUsage = true): Promise<string | null> {
     if (this.isDegraded) return null;
     const id = this.nextId();
     const result = await this.postRpc({
       type: 'build-wake-context-text',
       id,
       wing,
-      bypassCache: true,
+      bypassCache: true, recordUsage,
     });
     return typeof result === 'string' ? result : null;
   }

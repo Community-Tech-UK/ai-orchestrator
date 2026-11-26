@@ -30,6 +30,7 @@ export function loopStateToRunSummary(state: LoopStatePayload): LoopRunSummaryPa
     startedAt: state.startedAt,
     endedAt: state.endedAt,
     endReason: state.endReason ?? null,
+    endEvidence: state.endEvidence,
     workspaceCwd: state.config.workspaceCwd,
     initialPrompt: state.config.initialPrompt,
     iterationPrompt: iterationPrompt && iterationPrompt.length > 0 ? iterationPrompt : null,

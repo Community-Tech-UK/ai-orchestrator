@@ -119,6 +119,7 @@ import { CompareRunUpdatedEventSchema } from '@contracts/schemas/command';
 import {
   CliUpdatePillStateEventSchema,
   EmptyRendererEventSchema,
+  InboxChangedEventSchema,
   MemoryAlertEventSchema,
   MemoryStatsEventSchema,
   NotificationDeltaEventSchema,
@@ -166,6 +167,8 @@ const logger = getLogger('RendererEventValidation');
 const RENDERER_EVENT_SCHEMAS = new Map<string, ZodType>([
   [IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, ProviderRuntimeEventEnvelopeSchema],
   [IPC_CHANNELS.DOC_REVIEW_CHANGED, DocReviewChangedEventSchema],
+  [IPC_CHANNELS.MEMORY_REVIEW_CHANGED, InboxChangedEventSchema],
+  [IPC_CHANNELS.REPO_JOB_CHANGED, InboxChangedEventSchema],
   [IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, VoiceLocalSttEventSchema],
   [IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, RemoteNodeRosterChangedEventSchema],
   [IPC_CHANNELS.INSTANCE_CREATED, InstanceCreatedEventPayloadSchema],

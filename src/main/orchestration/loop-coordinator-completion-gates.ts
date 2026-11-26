@@ -53,6 +53,7 @@ import { hasTerminalSentinelLine } from './loop-terminal-sentinels';
 import type { LoopStageMachine } from './loop-stage-machine';
 import { applyVerifyOutcomeToIteration, excerptVerifyOutput, verifyFailureIntervention } from './loop-coordinator-utils';
 import { runLoopVerify, type LoopVerifyReplayPort } from './loop-verify-runner';
+import { applyReviewDrivenCompletionNotes } from './loop-plan-rename-check';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -200,9 +201,10 @@ export async function evaluateReviewDrivenCompletion(args: {
   const cleanPass = reviewVerdict.clean && noProductionChanges && verifyOk;
   if (cleanPass) {
     state.consecutiveCleanReviewPasses = (state.consecutiveCleanReviewPasses ?? 0) + 1;
+    const count = state.consecutiveCleanReviewPasses;
     emit('loop:activity', { loopRunId: state.id, seq, stage, timestamp: Date.now(), kind: 'status',
-      message: `Clean fresh-eyes review pass ${state.consecutiveCleanReviewPasses}/${required}`,
-      detail: { consecutiveCleanReviewPasses: state.consecutiveCleanReviewPasses, required, reason: reviewVerdict.reason } });
+      message: `Clean fresh-eyes review pass ${count}/${required}`,
+      detail: { consecutiveCleanReviewPasses: count, required, reason: reviewVerdict.reason } });
   }
   if ((cleanPass && (state.consecutiveCleanReviewPasses ?? 0) >= required) || spent) {
     if (cfg.crossModelReview?.enabled) {
@@ -217,14 +219,10 @@ export async function evaluateReviewDrivenCompletion(args: {
     }
     const finish = decideFinishOutcome({ state, clean: cleanPass, checks });
     if (state.finishPhase && !finish) return null;
-    if (finish) return applyOutstandingCompletionGate({ status: finish.kind === 'completed' ? 'completed' : finish.kind === 'needs-sign-off' ? 'needs-sign-off' : 'completed-needs-review', reason: finish.reason, checks: finish.checks }, stageMachine);
-    state.lastCompletionOutcome = 'accepted';
-    const outstanding = await stageMachine.readOutstanding().catch(() => ({ raw: '', needsHuman: false }));
-    if (outstanding.needsHuman || state.knownFailures?.length || state.followUps?.length) return {
-      status: 'completed-needs-review', reason: `Converged after ${required} consecutive clean fresh-eyes reviews.\n`
-        + [outstanding.raw.trim(), ...(state.knownFailures ?? []), ...(state.followUps ?? [])].filter(Boolean).join('\n'),
-    };
-    return { status: 'completed', reason: `Converged after ${required} consecutive clean fresh-eyes reviews - no outstanding issues found.` };
+    const terminal: ReviewDrivenTerminal = finish
+      ? { status: finish.kind === 'completed-with-notes' ? 'completed-needs-review' : finish.kind, reason: finish.reason, checks: finish.checks }
+      : { status: 'completed', reason: `Converged after ${required} consecutive clean fresh-eyes reviews - no outstanding issues found.` };
+    return applyOutstandingCompletionGate(applyReviewDrivenCompletionNotes(state, terminal), stageMachine);
   }
   if (cleanPass) return null;
 

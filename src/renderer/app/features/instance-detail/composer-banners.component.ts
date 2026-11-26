@@ -139,6 +139,7 @@ import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../sha
         <input
           class="hardened-path-input"
           type="text"
+          aria-label="Path to allow"
           placeholder="/absolute/path/to/allow"
           [value]="hardenedAllowPathValue()"
           (input)="onHardenedPathInput($event)"

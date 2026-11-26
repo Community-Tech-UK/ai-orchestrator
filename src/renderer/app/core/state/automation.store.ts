@@ -17,6 +17,7 @@ const TERMINAL_AUTOMATION_RUN_STATUSES = new Set<string>([
   'failed',
   'skipped',
   'cancelled',
+  'needs-attention',
 ]);
 
 interface AutomationChangedEvent {

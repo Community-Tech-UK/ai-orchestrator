@@ -49,6 +49,7 @@ import { RendererPollSchedulerService } from '../../core/services/renderer-poll-
 import type { CostPurposeSummary } from '../../../../shared/types/cost-purpose.types';
 import { spendPurposeLabel } from '../../../../shared/types/spend-purpose-labels';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { formatMoneyExact, formatMoneyPlain } from '../../shared/utils/format-money';
 import { UsageWhereWentCardComponent } from '../usage-insight/usage-where-went-card.component';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
@@ -122,6 +123,7 @@ export interface ModelRow {
   requests: number;
   costPct: number;
   hasEstimated: boolean;
+  costHint: string;
 }
 
 /** Flattened row for the per-session breakdown table */
@@ -135,6 +137,7 @@ export interface SessionRow {
   requests: number;
   costPct: number;
   hasEstimated: boolean;
+  costHint: string;
 }
 
 /** Shape returned by COST_GET_BUDGET_STATUS */
@@ -222,24 +225,29 @@ export class CostPageComponent implements OnInit, OnDestroy {
     } catch { /* a failed load is never cached, so Refresh or reopening the row retries it */ }
     finally { if (this.breakdownGenerations.get(row.sessionId) === generation) this.loadingBreakdowns.delete(row.sessionId); }
   }
-  money(value: number, digits = 4): string { return this.showCost() ? `≈$${value.toFixed(digits)} at API prices` : 'Hidden'; }
+  /** Part 7g: cents on screen; the exact figure is on hover (`exactAmountTip`). */
+  money(value: number): string {
+    if (!this.showCost()) return 'Hidden';
+    const plain = formatMoneyPlain(value);
+    return `${plain.startsWith('$') ? '≈' : ''}${plain} at API prices`;
+  }
   modelCostLabel(row: ModelRow): string {
     const creditsPart = row.aiCreditsNano !== undefined
       ? `${(row.aiCreditsNano / 1e9).toLocaleString('en-GB', { maximumFractionDigits: 2 })} AI credits`
       : undefined;
-    const dollarPart = this.knownCostLabel(row.cost, row.hasUnknownCost === true, 6);
+    const dollarPart = this.knownCostLabel(row.cost, row.hasUnknownCost === true);
     if (creditsPart === undefined) return dollarPart;
     if (!row.hasUnknownCost && !(row.cost > 0)) return creditsPart;
     return `${creditsPart} · ${dollarPart}`;
   }
   sessionModelCostLabel(model: SessionSpendModel, provider?: string): string {
     if (provider === 'copilot' && model.costUsd === 0 && model.costKnown !== false) return 'AI credits';
-    return this.knownCostLabel(model.costUsd, model.costKnown === false, 2);
+    return this.knownCostLabel(model.costUsd, model.costKnown === false);
   }
-  private knownCostLabel(cost: number, hasUnknownCost: boolean, digits: number): string {
+  private knownCostLabel(cost: number, hasUnknownCost: boolean): string {
     if (!this.showCost()) return 'Hidden';
     if (hasUnknownCost && cost === 0) return 'Cost not available yet';
-    return this.money(cost, digits) + (hasUnknownCost ? ' · some cost not available yet' : '');
+    return this.money(cost) + (hasUnknownCost ? ' · some cost not available yet' : '');
   }
   private readonly costIpc = inject(CostIpcService);
   private readonly pollScheduler = inject(RendererPollSchedulerService);
@@ -256,12 +264,17 @@ export class CostPageComponent implements OnInit, OnDestroy {
 
   readonly summary = signal<CostSummaryData>(EMPTY_SUMMARY);
   readonly entries = signal<CostEntry[]>([]);
+  readonly entryRows = computed(() => this.entries().map(entry => ({
+    ...entry, costHint: this.exactAmountTip(entry.cost, entry.isEstimated),
+  })));
   readonly budgetStatus = signal<BudgetStatusData>(EMPTY_BUDGET_STATUS);
   readonly purposeSummary = signal<CostPurposeSummary | null>(null);
   readonly ephemeralUsage = signal<CodexEphemeralUsageResult | null>(null);
   readonly purposeGrouping = signal<'purpose' | 'provider'>('purpose');
-  readonly purposeRows = computed(() => this.purposeGrouping() === 'purpose'
-    ? this.purposeSummary()?.byPurpose ?? [] : this.purposeSummary()?.byProvider ?? []);
+  readonly purposeRows = computed(() => (this.purposeGrouping() === 'purpose'
+    ? this.purposeSummary()?.byPurpose ?? [] : this.purposeSummary()?.byProvider ?? []).map(row => ({
+      ...row, costHint: this.exactAmountTip(row.cost, row.estimatedCost > 0),
+    })));
   readonly totalCacheReadTokens = computed(() => this.summary().totalCacheReadTokens ?? 0);
   readonly totalCacheWriteTokens = computed(() => this.summary().totalCacheWriteTokens ?? 0);
 
@@ -311,6 +324,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         requests: stats.requests,
         costPct: total > 0 ? (stats.cost / total) * 100 : 0,
         hasEstimated: stats.hasEstimated === true,
+        costHint: this.exactAmountTip(stats.cost, stats.hasEstimated),
       }))
       .sort((a, b) => b.cost - a.cost);
   });
@@ -331,6 +345,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         requests: stats.requests,
         costPct: total > 0 ? (stats.cost / total) * 100 : 0,
         hasEstimated: stats.hasEstimated === true,
+        costHint: this.exactAmountTip(stats.cost, stats.hasEstimated),
       }))
       .sort((a, b) => b.cost - a.cost);
   });
@@ -502,6 +517,24 @@ export class CostPageComponent implements OnInit, OnDestroy {
 
   private unwrapData<T>(response: IpcResponse, fallback: T): T {
     return response.success ? ((response.data as T) ?? fallback) : fallback;
+  }
+
+  // ── Money display (part 7g): cents on screen, exact figure on hover ──────
+
+  exactAmountTip(value: number, hasEstimated = false): string {
+    if (!this.showCost()) return '';
+    const exact = copyFor('cost.exactAmount') + formatMoneyExact(value);
+    return hasEstimated
+      ? `Includes at least one estimated entry (no provider-reported usage for that turn). ${exact}`
+      : exact;
+  }
+
+  estimatedTotalTitle(): string {
+    if (!this.showCost()) return '';
+    const exact = this.exactAmountTip(this.totalCost());
+    return this.hasEstimatedEntries()
+      ? `Includes ~${formatMoneyExact(this.totalEstimatedCost())} estimated (no provider-reported usage for those turns). ${exact}`
+      : exact;
   }
 
   formatTimestamp(ts: number): string {

@@ -190,6 +190,17 @@ describe('ProviderReviewExecutionHost', () => {
     expect(terminate).toHaveBeenCalledOnce();
   });
 
+  it.each(['claude', 'codex'])('requests transcript suppression only for a Claude one-shot reviewer (%s)', async provider => {
+    hostTestState.createAdapter.mockReturnValue({
+      sendMessage: vi.fn().mockResolvedValue({ content: '{}' }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    });
+    await new ProviderReviewExecutionHost().dispatchReviewerPrompt(provider, 'review', '/repo', new AbortController().signal);
+    const options = hostTestState.createAdapter.mock.calls[0][0].options;
+    expect(options.maxBudgetUsd).toBe(provider === 'claude' ? 1 : undefined);
+    expect(options.noSessionPersistence).toBe(provider === 'claude' ? true : undefined);
+  });
+
   it('records the successful send with its purpose, correlation and usage', async () => {
     const records: CostAttributionRecord[] = [];
     const stop = subscribeCostAttribution(record => records.push(record));

@@ -11,7 +11,7 @@
               [waitReason]="instance().waitReason"
             />
             @if (isEditingName()) {
-              <input
+              <input aria-label="Session name"
                 type="text"
                 class="name-input"
                 (keydown.enter)="onSaveName($event)"
@@ -123,7 +123,10 @@
               <button
                 type="button"
                 class="open-menu-backdrop"
-                data-ui-hints-exempt="backdrop"
+                tabindex="-1"
+                aria-hidden="true"
+                appBackdropEscape
+                (appBackdropEscape)="showOpenMenu.set(false)"
                 aria-label="Close open menu"
                 (click)="showOpenMenu.set(false)"
               ></button>

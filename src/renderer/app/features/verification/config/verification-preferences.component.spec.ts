@@ -35,6 +35,14 @@ describe('VerificationPreferencesComponent', () => {
     expect(component.defaultPersonalities()).toEqual(['methodical-analyst']);
   });
 
+  it('names the debate continuation toggle with its visible setting name', () => {
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const field = root.querySelector<HTMLInputElement>('.toggle input')!;
+    const id = field.getAttribute('aria-labelledby');
+    expect(id ? root.querySelector(`[id="${id}"]`)?.textContent?.trim() : undefined).toBe('Auto-continue Debate');
+  });
+
   it('allows custom personality lists to shrink back to one agent', () => {
     component.applyPreset(component.presets[0]!);
 

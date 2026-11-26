@@ -347,6 +347,19 @@ export class LoopIpcService {
     return fn(loopRunId);
   }
 
+  /**
+   * 4a change 3: report the loop the HUD shows (or null when none is on
+   * screen), so a pause notice is suppressed only while that loop is visible.
+   * Fire-and-forget: the report is advisory and must never disturb the UI.
+   */
+  reportViewFocus(loopRunId: string | null): void {
+    const fn = (this.api as unknown as {
+      loopReportViewFocus?: (id: string | null) => Promise<IpcResponse>;
+    } | null)?.loopReportViewFocus;
+    if (typeof fn !== 'function') return;
+    void fn(loopRunId).catch(() => { /* best-effort view report */ });
+  }
+
   async getState(loopRunId: string): Promise<IpcResponse<{ state: LoopStatePayload | null; summary?: LoopRunSummaryPayload | null; source: 'live' | 'store' }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetState(loopRunId) as Promise<IpcResponse<{ state: LoopStatePayload | null; summary?: LoopRunSummaryPayload | null; source: 'live' | 'store' }>>;

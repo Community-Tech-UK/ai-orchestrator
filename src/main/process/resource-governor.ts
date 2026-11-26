@@ -24,6 +24,7 @@ import type { MemoryStats, MemoryPressureLevel } from '../memory/memory-monitor'
 import { registerCleanup } from '../util/cleanup-registry';
 import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 import { hasReclaimHold } from './reclaim-holds';
+import { sessionHostsActiveLoop } from '../orchestration/session-hosts-active-loop';
 
 export interface ResourceGovernorConfig {
   /** Per-instance soft memory cap in MB (default: 512) */
@@ -106,6 +107,7 @@ export interface GovernorDependencies {
     info(msg: string, data?: Record<string, unknown>): void;
     warn(msg: string, data?: Record<string, unknown>): void;
     error(msg: string, err?: Error, data?: Record<string, unknown>): void;
+    debug?(msg: string, data?: Record<string, unknown>): void;
   };
   /**
    * Where to write an opt-in heap snapshot at critical pressure. Injected
@@ -113,6 +115,7 @@ export interface GovernorDependencies {
    * import (worker/test contexts cannot load it).
    */
   getDiagnosticsDir?(): string;
+  sessionHostsActiveLoop?: (id: string) => boolean;
 }
 
 const defaultDeps: GovernorDependencies = {
@@ -128,6 +131,7 @@ const defaultDeps: GovernorDependencies = {
     );
   },
   getLogger,
+  sessionHostsActiveLoop,
 };
 
 export class ResourceGovernor extends EventEmitter {
@@ -353,6 +357,16 @@ export class ResourceGovernor extends EventEmitter {
     return instanceManager
       .getIdleInstances(threshold)
       .filter((instance) => !getInstanceAsyncWorkRegistry().hasInhibitor(instance.id))
+      .filter((instance) => {
+        let protectedSession = true;
+        try {
+          protectedSession = (this.deps.sessionHostsActiveLoop ?? sessionHostsActiveLoop)(instance.id);
+        } catch {
+          this.logger.warn('Cannot inspect loop ownership; preserving session', { instanceId: instance.id });
+        }
+        if (protectedSession) this.logger.debug?.('Skipping automatic cleanup of loop chat', { instanceId: instance.id });
+        return !protectedSession;
+      })
       .slice()
       // Held instances (see reclaim-holds.ts) go after every unheld one.
       .sort((a, b) => Number(hasReclaimHold(a.id)) - Number(hasReclaimHold(b.id)) || a.lastActivity - b.lastActivity)

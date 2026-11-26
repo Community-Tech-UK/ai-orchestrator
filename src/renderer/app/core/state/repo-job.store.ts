@@ -1,4 +1,4 @@
-import { Injectable, Signal, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, Signal, inject, signal } from '@angular/core';
 import type { RepoJobRecord, RepoJobStats } from '../../../../shared/types/repo-job.types';
 import { RepoJobIpcService } from '../services/ipc/repo-job-ipc.service';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
@@ -18,13 +18,13 @@ export const ZERO_REPO_JOB_STATS: RepoJobStats = {
  * from `TasksPageComponent` so both Background Jobs and the Workboard share
  * one list/stats/loading/error model backed by `RepoJobIpcService`.
  *
- * Polling stays page-owned: this store never starts its own interval or
- * performs an initial refresh in its constructor. Callers decide when and
- * how often to call `refresh()`.
+ * Backend changes refresh the state immediately. Polling stays page-owned
+ * as a backstop; this store starts no interval or initial refresh.
  */
 @Injectable({ providedIn: 'root' })
 export class RepoJobStore {
   private readonly ipc = inject(RepoJobIpcService);
+  private refreshRevision = 0;
 
   private readonly _jobs = signal<readonly RepoJobRecord[]>([]);
   private readonly _stats = signal<RepoJobStats>(ZERO_REPO_JOB_STATS);
@@ -36,6 +36,10 @@ export class RepoJobStore {
   readonly loading: Signal<boolean> = this._loading.asReadonly();
   readonly error: Signal<string | null> = this._error.asReadonly();
 
+  constructor() {
+    inject(DestroyRef).onDestroy(this.ipc.onChanged(() => { void this.refresh(false); }));
+  }
+
   /**
    * Fetches the job list and stats in parallel and publishes both
    * successful results. A single failed response preserves the data from
@@ -46,6 +50,7 @@ export class RepoJobStore {
    * their own success/error presentation.
    */
   async refresh(showLoading = true): Promise<boolean> {
+    const revision = ++this.refreshRevision;
     if (showLoading) {
       this._loading.set(true);
     }
@@ -55,6 +60,7 @@ export class RepoJobStore {
         this.ipc.listJobs(),
         this.ipc.getStats(),
       ]);
+      if (revision !== this.refreshRevision) return jobsResponse.success && statsResponse.success;
 
       const errors: string[] = [];
 
@@ -73,10 +79,10 @@ export class RepoJobStore {
       this._error.set(errors.length > 0 ? errors.join(' ') : null);
       return errors.length === 0;
     } catch (error) {
-      this._error.set((error as Error).message);
+      if (revision === this.refreshRevision) this._error.set((error as Error).message);
       return false;
     } finally {
-      if (showLoading) {
+      if (revision === this.refreshRevision) {
         this._loading.set(false);
       }
     }

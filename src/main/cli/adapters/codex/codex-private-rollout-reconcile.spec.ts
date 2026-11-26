@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createSqliteWasmDatabase } from '../../../db/sqlite-wasm-driver';
@@ -8,6 +8,7 @@ import {
   reconcilePrivateCodexRolloutPaths,
   repairPrivateCodexRolloutPath,
 } from './codex-private-rollout-reconcile';
+import { CODEX_RECONCILE_NAME } from './codex-state-backup-retention';
 
 describe('reconcilePrivateCodexRolloutPaths', () => {
   const roots: string[] = [];
@@ -405,5 +406,87 @@ describe('reconcilePrivateCodexRolloutPaths', () => {
       expect(resume).toBeGreaterThanOrEqual(0);
       expect(repair).toBeLessThan(resume);
     });
+  });
+});
+
+// October follow-ups 5a renamed these copies and pruned them after each reconcile. Main replaced that with
+// Decision 19(a) of the October-2 work: copies keep the `state_5-before-rollout-reconcile-` name and are pruned
+// only at startup, and only when the operator has turned on `codexBackupKeepThree`. Reconcile itself removes nothing.
+describe('automatic backup copies (October follow-ups 5a, as replaced by main)', () => {
+  const roots: string[] = [];
+  const closeDrivers: (() => void)[] = [];
+  const tempRoots = ['/tmp', 'C:/Temp'];
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+    for (const close of closeDrivers.splice(0)) close();
+  });
+
+  function makeRoot(): string {
+    const root = join(tmpdir(), `codex-backup-retention-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(root, 'backups'), { recursive: true });
+    roots.push(root);
+    return root;
+  }
+
+  function createDatabase(statePath: string): SqliteDriver {
+    writeFileSync(statePath, 'test-database-marker', 'utf-8');
+    const db = createSqliteWasmDatabase(statePath);
+    const close = db.close.bind(db);
+    closeDrivers.push(close);
+    db.close = () => undefined;
+    db.exec('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL);');
+    db.prepare('INSERT INTO threads (id, rollout_path) VALUES (?, ?)').run(
+      'stale-present', '/tmp/codex-browser-mcp-abc/sessions/rollout-present.jsonl');
+    return db;
+  }
+
+  function reconcileWithCopies(names: readonly string[], createBackup?: () => void) {
+    const root = makeRoot();
+    const statePath = join(root, 'state_5.sqlite');
+    const sessionsDir = join(root, 'aio-sessions');
+    const backupDir = join(root, 'backups');
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, 'rollout-present.jsonl'), 'x', 'utf-8');
+    for (const name of names) writeFileSync(join(backupDir, name), 'old', 'utf-8');
+    const db = createDatabase(statePath);
+    const result = reconcilePrivateCodexRolloutPaths({
+      privateStatePath: statePath, sessionsDir, backupDir, tempRoots,
+      fileExists: () => true, driverFactory: () => db,
+      createBackup: createBackup ?? ((_source, backupPath) => writeFileSync(backupPath, 'backup', 'utf-8')),
+      now: () => Date.parse('2026-06-01T00:00:00.000Z'),
+    });
+    return { result, backupDir };
+  }
+
+  it('writes the backup under the name the keep-three setting prunes', () => {
+    const { result } = reconcileWithCopies([]);
+    expect(result.status).toBe('reconciled');
+    const backupPath = (result as { backupPath: string }).backupPath;
+    expect(backupPath).toMatch(/state_5-before-rollout-reconcile-\d{8}T\d{9}Z\.sqlite$/);
+    expect(CODEX_RECONCILE_NAME.test(basename(backupPath))).toBe(true);
+    expect(existsSync(backupPath)).toBe(true);
+  });
+
+  it('removes no copy itself, however many automatic, clean-up and archive copies there are', () => {
+    const copies = [
+      'state_5-before-rollout-reconcile-20260101T000000000Z.sqlite',
+      'state_5-before-rollout-reconcile-20260102T000000000Z.sqlite',
+      'state_5-before-rollout-reconcile-20260103T000000000Z.sqlite',
+      'state_5-before-rollout-reconcile-20260104T000000000Z.sqlite',
+      'state_5-before-aio-cleanup-20260101T000000000Z.sqlite',
+      'state_5-before-aio-archive-20260101T000000000Z.sqlite',
+    ];
+    const { result, backupDir } = reconcileWithCopies(copies);
+    expect(result.status).toBe('reconciled');
+    for (const name of copies) expect(existsSync(join(backupDir, name))).toBe(true);
+    expect(readdirSync(backupDir).filter(name => CODEX_RECONCILE_NAME.test(name))).toHaveLength(5); // four old ones and the new one
+  });
+
+  it('keeps every copy when the backup fails', () => {
+    const old = 'state_5-before-rollout-reconcile-20260101T000000000Z.sqlite';
+    const { result, backupDir } = reconcileWithCopies([old], () => { throw new Error('disk full'); });
+    expect(result).toMatchObject({ status: 'failed', reason: 'backup-failed' });
+    expect(readdirSync(backupDir)).toEqual([old]);
   });
 });

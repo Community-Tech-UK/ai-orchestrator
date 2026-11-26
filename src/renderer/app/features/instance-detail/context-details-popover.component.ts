@@ -10,7 +10,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
   selector: 'app-context-details-popover', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(window:resize)': 'place()' },
   imports: [ContextBarComponent, ProviderDiagnosticsPanelComponent, CompactionPreviewDialogComponent, CopilotPremiumUsageComponent, FanoutCostComponent, AioTooltipDirective],
-  template: `@if (isOpen()) { <button type="button" class="backdrop" data-ui-hints-exempt="backdrop" aria-label="Close Context details" (click)="closed.emit()"></button> }
+  template: `@if (isOpen()) { <button type="button" class="backdrop" tabindex="-1" aria-hidden="true" aria-label="Close Context details" (click)="closed.emit()"></button> }
 <section class="context-details" [hidden]="!isOpen()" [style.left.px]="anchor().left" [style.bottom.px]="anchor().bottom" [style.max-height.px]="anchor().maxHeight" role="dialog" aria-label="Context details" (keydown.escape)="onEscape($event)">
   <div class="heading"><h3>Context details</h3><button type="button" aria-label="Close Context details" appTooltip="Close Context details" (click)="closed.emit()">×</button></div>
   @if (isOpen()) {

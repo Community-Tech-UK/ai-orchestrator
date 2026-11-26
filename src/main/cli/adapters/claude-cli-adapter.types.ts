@@ -144,6 +144,8 @@ export interface ClaudeCliSpawnOptions {
   maxTurns?: number;
   /** Claude only; spend backstop for fresh print-mode sessions. */
   maxBudgetUsd?: number;
+  /** Claude only; fresh print-mode one-shots only. Never resume or fork. */
+  noSessionPersistence?: boolean;
   timeout?: number;
   env?: Record<string, string>;
   /** Variables removed from the child env after the ambient merge (account pools). */
@@ -190,7 +192,7 @@ export interface ClaudeCliSpawnOptions {
    * of SIGINT, keeping the Claude CLI process alive across turns and allowing
    * mid-turn steer messages to be delivered without a respawn cycle.
    *
-   * Defaults from AppSettings.residentClaudeSession for normal instances.
+   * Defaults to true (resident-session interrupt path) for normal instances.
    * Pass a value explicitly in tests or when calling the adapter directly.
    */
   residentClaude?: boolean;

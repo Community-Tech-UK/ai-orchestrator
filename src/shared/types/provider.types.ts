@@ -135,6 +135,8 @@ export interface ProviderSessionOptions {
   maxTokens?: number;
   /** Dollar backstop for a fresh Claude print session. */
   maxBudgetUsd?: number;
+  /** Claude only; fresh print-mode one-shots only. Never resume or fork. */
+  noSessionPersistence?: boolean;
   temperature?: number;
   workingDirectory: string;
   sessionId?: string;

@@ -56,7 +56,6 @@ export type KeybindingContext =
  */
 export type KeybindingAction =
   // Navigation
-  | 'focus-input'
   | 'focus-output'
   | 'focus-instance-list'
   // Session management
@@ -164,16 +163,6 @@ const SELECT_VISIBLE_INSTANCE_BINDINGS: KeyBinding[] = Array.from({ length: 9 },
  */
 export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   // Navigation
-  {
-    id: 'focus-input',
-    name: 'Focus Input',
-    description: 'Focus the message input field',
-    keys: { key: 'i', modifiers: [] },
-    action: 'focus-input',
-    context: 'global',
-    category: 'Navigation',
-    customizable: true,
-  },
   {
     id: 'focus-output',
     name: 'Focus Output',

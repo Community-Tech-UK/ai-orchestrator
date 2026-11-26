@@ -170,6 +170,7 @@ export function buildOutstandingQuery(
                     <textarea
                       class="o-answer-input"
                       rows="2"
+                      aria-label="Your decision or answer"
                       placeholder="Your decision / answer — saved with the item and fed back when you resume the loop"
                       [value]="draftFor(item)"
                       (input)="onDraftInput(item, $event)"

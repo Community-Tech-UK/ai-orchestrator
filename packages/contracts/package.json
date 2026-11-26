@@ -9,6 +9,7 @@
     "./schemas/prompt-history":   { "types": "./src/schemas/prompt-history.schemas.ts", "default": "./src/schemas/prompt-history.schemas.ts" },
     "./schemas/workflow":         { "types": "./src/schemas/workflow.schemas.ts",      "default": "./src/schemas/workflow.schemas.ts" },
     "./schemas/loop":             { "types": "./src/schemas/loop.schemas.ts",          "default": "./src/schemas/loop.schemas.ts" },
+    "./schemas/loop-view-focus":  { "types": "./src/schemas/loop-view-focus.schemas.ts", "default": "./src/schemas/loop-view-focus.schemas.ts" },
     "./schemas/pause":            { "types": "./src/schemas/pause.schemas.ts",         "default": "./src/schemas/pause.schemas.ts" },
     "./schemas/instance":         { "types": "./src/schemas/instance.schemas.ts",      "default": "./src/schemas/instance.schemas.ts" },
     "./schemas/session":          { "types": "./src/schemas/session.schemas.ts",       "default": "./src/schemas/session.schemas.ts" },

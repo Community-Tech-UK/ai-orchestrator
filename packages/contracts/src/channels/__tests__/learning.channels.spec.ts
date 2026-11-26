@@ -6,11 +6,6 @@ describe('LEARNING_CHANNELS', () => {
     expect(LEARNING_CHANNELS.LEARNING_ENHANCE_PROMPT).toBe('learning:enhance-prompt');
   });
 
-  it('has training (GRPO) channels', () => {
-    expect(LEARNING_CHANNELS.TRAINING_RECORD_OUTCOME).toBe('training:record-outcome');
-    expect(LEARNING_CHANNELS.TRAINING_GET_INSIGHTS).toBe('training:get-insights');
-  });
-
   it('has specialist channels', () => {
     expect(LEARNING_CHANNELS.SPECIALIST_LIST).toBe('specialist:list');
     expect(LEARNING_CHANNELS.SPECIALIST_INSTANCE_CREATED).toBe('specialist:instance-created');

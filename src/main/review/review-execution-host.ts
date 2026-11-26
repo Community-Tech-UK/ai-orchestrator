@@ -241,7 +241,7 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
       {
         workingDirectory: cwd,
         yoloMode: false,
-        ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS, maxBudgetUsd: 1 } : {}),
+        ...(resolvedCli === 'claude' ? { readOnlyReview: true, maxTurns: CLAUDE_REVIEWER_MAX_TURNS, maxBudgetUsd: 1, noSessionPersistence: true } : {}),
         // When no override is configured, leave `model` unset so the reviewer
         // CLI uses its own default/auto routing.
         ...(reviewerModel ? { model: reviewerModel } : {}),

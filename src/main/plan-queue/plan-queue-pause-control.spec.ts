@@ -18,6 +18,10 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+// These integration tests checkpoint, restore and land real Git checkouts.
+// Match the other real-Git suites' budget when the shared host is busy.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+
 // Keep command results deterministic in these tiny Git/session fixtures. The
 // receipt runner's own tests execute commands and cover failed/empty results.
 vi.mock('./plan-queue-gate-receipts', async original => {

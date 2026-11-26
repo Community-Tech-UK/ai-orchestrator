@@ -427,6 +427,40 @@ describe('DropZoneComponent', () => {
   // ============================================
 
   describe('Paste Handling', () => {
+    it('removes an active drop overlay when the provider changes to one that refuses files', () => {
+      component.onDragEnter(makeDragEvent());
+      expect(component.isDragOver()).toBe(true);
+      fixture.componentRef.setInput('attachmentProvider', 'gemini');
+      fixture.detectChanges();
+      expect(component.isDragOver()).toBe(false);
+      component.onDragOver(makeDragEvent());
+      expect(component.isDragOver()).toBe(false);
+    });
+    it.each(['application/x-file-path', 'application/x-file-paths', 'codefiles', 'text/uri-list'])('ignores %s path drops for a refusing provider', async (format) => {
+      fixture.componentRef.setInput('attachmentProvider', 'gemini');
+      fixture.detectChanges();
+      const single = vi.spyOn(component.filePathDropped, 'emit');
+      const multiple = vi.spyOn(component.filePathsDropped, 'emit');
+      await component.onDrop(makeDragEvent({ dataTransfer: { items: [], files: [], getData: (kind) => kind === format ? format.includes('paths') || format === 'codefiles' ? '["/example.txt"]' : 'file:///example.txt' : '' } }));
+      expect(single).not.toHaveBeenCalled();
+      expect(multiple).not.toHaveBeenCalled();
+    });
+    it.each(['gemini', 'antigravity', 'local-model'])('ignores attachment drops and image pastes for %s while preserving text paste', async (provider) => {
+      fixture.componentRef.setInput('attachmentProvider', provider);
+      fixture.detectChanges();
+      const dropped = vi.spyOn(component.filesDropped, 'emit');
+      const pasted = vi.spyOn(component.imagesPasted, 'emit');
+      const path = vi.spyOn(component.filePathDropped, 'emit');
+      component.onDragEnter(makeDragEvent());
+      expect(component.isDragOver()).toBe(false);
+      await component.onDrop(makeDragEvent({ dataTransfer: { items: [{}], files: [makeFile('example.txt')], getData: () => '/example.txt' } }));
+      const paste = { preventDefault: vi.fn(), clipboardData: { items: [{ type: 'image/png', getAsFile: () => makeFile('image.png', 'image/png') }], getData: () => 'ordinary text' } } as unknown as ClipboardEvent;
+      await component.onPaste(paste);
+      expect(dropped).not.toHaveBeenCalled();
+      expect(pasted).not.toHaveBeenCalled();
+      expect(path).not.toHaveBeenCalled();
+      expect(paste.preventDefault).not.toHaveBeenCalled();
+    });
     it('emits fingerprinted imagesPasted when an image is in the clipboard', async () => {
       const emit = vi.spyOn(component.imagesPasted, 'emit');
       const imageFile = makeFile('clipboard.png', 'image/png');

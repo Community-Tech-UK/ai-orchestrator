@@ -44,8 +44,8 @@ await resolveResources(() => Promise.resolve(''));
 const detailTemplate = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../renderer/app/features/instance-detail/instance-detail.component.html'), 'utf8');
 const chatTemplate = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../renderer/app/features/chats/chat-detail.component.html'), 'utf8');
 function opening(source: string, index = 0) { return [...source.matchAll(/<app-drop-zone[\s\S]*?>/g)][index][0]; }
-const detailPasteTemplate = `@if(instance()){${opening(detailTemplate)}<textarea></textarea></app-drop-zone>} @else if(historyPreview()){${opening(detailTemplate, 1)}<textarea></textarea></app-drop-zone>} @else {${detailTemplate.match(/<app-instance-welcome[\s\S]*?\/>/)![0]}}`;
-const chatPasteTemplate = `@if(detail()){${opening(chatTemplate)}<textarea></textarea></app-drop-zone>}`;
+const detailPasteTemplate = `@if(instance(); as inst){${opening(detailTemplate)}<textarea></textarea></app-drop-zone>} @else if(historyPreview(); as preview){${opening(detailTemplate, 1)}<textarea></textarea></app-drop-zone>} @else {${detailTemplate.match(/<app-instance-welcome[\s\S]*?\/>/)![0]}}`;
+const chatPasteTemplate = `@if(detail(); as detail){${opening(chatTemplate)}<textarea></textarea></app-drop-zone>}`;
 const originalWelcome = (InstanceWelcomeComponent as unknown as { __annotations__: { template: string }[] }).__annotations__[0].template;
 const welcomePasteTemplate = opening(originalWelcome) + '<textarea></textarea></app-drop-zone>';
 let selected: WritableSignal<ReturnType<typeof instance> | null>;

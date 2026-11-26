@@ -77,6 +77,7 @@ const SYMBOL_KIND_ICONS: Record<string, string> = {
             <input
               class="symbol-input"
               type="text"
+              aria-label="Search functions, classes, interfaces"
               placeholder="Search functions, classes, interfaces..."
               [value]="symbolQuery()"
               (input)="onSymbolInput($event)"

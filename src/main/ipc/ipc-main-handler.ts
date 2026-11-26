@@ -21,7 +21,6 @@ import { registerLearningHandlers } from './learning-ipc-handler';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { registerMemoryHandlers } from './memory-ipc-handler';
 import { registerSpecialistHandlers } from './specialist-ipc-handler';
-import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
 import { registerGovernedProposalHandlers } from './governed-proposal-ipc-handler';
@@ -96,7 +95,6 @@ import {
   registerEcosystemHandlers,
   registerConsensusHandlers,
   registerRoutingHandlers,
-  registerCommunicationHandlers,
   registerRemoteObserverHandlers,
   registerRemoteNodeHandlers,
   registerComputersHandlers,
@@ -354,7 +352,7 @@ export class IpcMainHandler {
     registerWorkflowHandlers();
     registerDiagnosticsHandlers({ instanceManager: this.instanceManager });
     registerUsageInsightHandlers({ instanceManager: this.instanceManager, ensureTrustedSender: this.ensureTrustedSender.bind(this) });
-    registerStorageHandlers({ getLiveIds: () => new Set(this.instanceManager.getAllInstances().map(instance => instance.id)), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
+    registerStorageHandlers({ getLiveIds: () => new Set(this.instanceManager.getAllInstances().flatMap(instance => [instance.id, instance.providerSessionId, instance.sessionId])), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerWorktreeLeftoverHandlers({ getLiveSessions: () => this.instanceManager.getAllInstances().filter(instance => instance.executionLocation?.type !== 'remote').map(instance => ({ id: instance.id, cwd: instance.workingDirectory, status: instance.status })), ensureTrustedSender: this.ensureTrustedSender.bind(this) });
     registerNotificationHandlers({ windowManager: this.windowManager });
     registerSkillAttributionHandlers({
@@ -522,11 +520,6 @@ export class IpcMainHandler {
     // Specialist handlers (Phase 7.4: Specialist Profiles)
     registerSpecialistHandlers();
 
-    // Training handlers (GRPO Dashboard)
-    registerTrainingHandlers({
-      ensureTrustedSender: this.ensureTrustedSender.bind(this),
-    });
-
     // LLM handlers (streaming and token counting)
     registerLLMHandlers();
 
@@ -563,9 +556,6 @@ export class IpcMainHandler {
 
     // Routing handlers (model routing and hot model switching)
     registerRoutingHandlers();
-
-    // Communication handlers (cross-instance bridges and messaging)
-    registerCommunicationHandlers();
 
     // Remote observer handlers (read-only local web observer)
     registerRemoteObserverHandlers();

@@ -276,7 +276,7 @@ export interface MobileAutomationDto {
   /** Effective job limit; absent from hosts built before home-base monitoring. */
   maxRunMinutes?: number;
   lastRun: {
-    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
+    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled' | 'needs-attention';
     at: number;
     /** Agent-reported result, deliberately excluding prompt and output content. */
     result?: { outcome: 'no_change' | 'done' | 'needs_attention'; notify: boolean } | null;

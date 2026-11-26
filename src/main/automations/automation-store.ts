@@ -212,7 +212,7 @@ export class AutomationStore {
              (SELECT COUNT(*)
               FROM automation_runs r
               WHERE r.automation_id = a.id
-                AND r.status IN ('succeeded', 'failed', 'skipped', 'cancelled')
+                AND r.status IN ('succeeded', 'failed', 'skipped', 'cancelled', 'needs-attention')
                 AND r.seen_at IS NULL) AS unread_run_count
       FROM automations a
       WHERE a.id = ?
@@ -230,7 +230,7 @@ export class AutomationStore {
              (SELECT COUNT(*)
               FROM automation_runs r
               WHERE r.automation_id = a.id
-                AND r.status IN ('succeeded', 'failed', 'skipped', 'cancelled')
+                AND r.status IN ('succeeded', 'failed', 'skipped', 'cancelled', 'needs-attention')
                 AND r.seen_at IS NULL) AS unread_run_count
       FROM automations a
       ORDER BY active DESC, enabled DESC, next_fire_at IS NULL ASC, next_fire_at ASC, updated_at DESC
@@ -648,7 +648,7 @@ export class AutomationStore {
         UPDATE automation_runs
         SET seen_at = ?, updated_at = ?
         WHERE seen_at IS NULL
-          AND status IN ('succeeded', 'failed', 'skipped', 'cancelled')
+          AND status IN ('succeeded', 'failed', 'skipped', 'cancelled', 'needs-attention')
       `).run(now, now);
       return;
     }

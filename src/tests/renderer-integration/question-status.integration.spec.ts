@@ -87,7 +87,7 @@ it('keeps a real top-level Claude question out of permission counts through forw
   fixture.detectChanges();
   expect(fixture.nativeElement.querySelector('.approval-chip')).toBeNull();
   const board = projectWorkboard({ instances: [store.getInstance(instance.id)!], loopRuns: [], automations: [],
-    automationRuns: [], repoJobs: [], now: Date.now() });
+    automationRuns: [], repoJobs: [], memoryReviews: [], now: Date.now() });
   expect(board[0].lane).toBe('done'); expect(board[0].statusLabel).toBe('Ready');
   manager.removeAllListeners(); adapter.removeAllListeners(); fixture.destroy();
 });

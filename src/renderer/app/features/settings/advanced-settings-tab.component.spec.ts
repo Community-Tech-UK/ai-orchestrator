@@ -34,7 +34,7 @@ await resolveComponentResources((url) => {
     class="stub-setting-row"
     [attr.data-setting-key]="setting?.key"
     (click)="valueChange.emit({ key: setting?.key, value: 'changed' })"
-  >setting row</button>`,
+  >{{ setting?.label }} {{ setting?.description }} {{ setting?.stage }}</button>`,
 })
 class SettingRowStubComponent {
   @Input() setting: SettingMetadata | null = null;
@@ -231,6 +231,19 @@ describe('AdvancedSettingsTabComponent', () => {
     ) as HTMLButtonElement;
     row.click();
     expect(store.set).toHaveBeenCalledWith('parserBufferMaxKB', 'changed');
+  });
+
+  it('offers the repository-map and experimental transcript-speed switches in Runtime with accurate timing', () => {
+    const repoMap = fixture.nativeElement.querySelector('.stub-setting-row[data-setting-key="injectRepoMap"]') as HTMLButtonElement;
+    const transcript = fixture.nativeElement.querySelector('.stub-setting-row[data-setting-key="transcriptVirtualization"]') as HTMLButtonElement;
+    expect(repoMap?.textContent).toContain('Include a repository map');
+    expect(repoMap?.textContent).toContain('new sessions');
+    expect(transcript?.textContent).toContain('Render long conversations faster');
+    expect(transcript?.textContent).toContain('immediately');
+    expect(transcript?.textContent).toContain('experimental');
+    repoMap.click(); transcript.click();
+    expect(store.set).toHaveBeenCalledWith('injectRepoMap', 'changed');
+    expect(store.set).toHaveBeenCalledWith('transcriptVirtualization', 'changed');
   });
 
   it('wires the MCP safety tiered list in Security through the same handler', () => {

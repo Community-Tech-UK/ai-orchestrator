@@ -22,6 +22,7 @@ import {
 } from '@angular/core';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { ReactionIpcService } from '../../core/services/ipc/reaction-ipc.service';
+import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 import { ToastService } from '../../core/services/toast.service';
 import { LoopStore } from '../../core/state/loop.store';
 import { buildHonestyChips, buildLoopAuditChips } from './loop-audit-chips.util';
@@ -110,6 +111,7 @@ export class LoopControlComponent implements OnDestroy {
   private readonly stopConfirmElement = viewChild<ElementRef<HTMLElement>>('stopConfirmRow');
   private clipboard = inject(CLIPBOARD_SERVICE);
   private reactionIpc = inject(ReactionIpcService);
+  private readonly loopIpc = inject(LoopIpcService);
   private toast = inject(ToastService);
   private pollScheduler = inject(RendererPollSchedulerService);
 
@@ -195,7 +197,9 @@ export class LoopControlComponent implements OnDestroy {
   protected readonly endWording = computed(() => {
     const summary = this.summary();
     return summary ? describeLoopEnd({ status: summary.status, endReason: summary.reason, roundsFinished: summary.iterations, endedAt: summary.endedAt,
-      mergeHeld: summary.endEvidence?.['mergeHold'] === true, branch: summary.worktreeLifecycle?.sessionBranch }) : null;
+      mergeHeld: summary.endEvidence?.['mergeHold'] === true,
+      mergeHoldKind: typeof summary.endEvidence?.['mergeHoldKind'] === 'string' ? summary.endEvidence['mergeHoldKind'] : undefined,
+      branch: summary.worktreeLifecycle?.sessionBranch }) : null;
   });
 
   protected finishTime(timestamp: number): string {
@@ -520,6 +524,14 @@ export class LoopControlComponent implements OnDestroy {
     this.store.ensureWired();
     this.stopTick = this.pollScheduler.register(() => this.tick.update((t) => t + 1), 1000);
 
+    // 4a change 3: tell main which loop this HUD shows, so a pause notice is
+    // suppressed only while that loop is on screen — and a notice deferred
+    // while it was is delivered as soon as the operator leaves this view.
+    effect(() => {
+      const loopId = this.controlLoopId();
+      untracked(() => { this.loopIpc.reportViewFocus(loopId); });
+    });
+
     // Subscribe globally to reaction events and show a toast when the event
     // is for the currently-viewed instance, so firings are visible in the UI.
     this.reactionEventUnsub = this.reactionIpc.onReactionEvent((raw) => {
@@ -597,6 +609,9 @@ export class LoopControlComponent implements OnDestroy {
     this.stopTick?.();
     if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
     this.reactionEventUnsub?.();
+    // This HUD is no longer on screen: any pause notice deferred for its loop
+    // becomes deliverable (4a change 3).
+    this.loopIpc.reportViewFocus(null);
   }
 
   // ────── summary card actions ──────

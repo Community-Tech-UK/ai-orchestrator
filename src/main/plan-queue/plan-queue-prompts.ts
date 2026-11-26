@@ -19,6 +19,7 @@ import { REPORT_READY_TOOL, reportFileTask, reportReadyTask, toolDiscoverySteps,
 import { verdictExamples, verdictRules } from './plan-queue-verdict-prompts';
 import { capabilityRules, capabilityCheckerRules } from './plan-queue-capability-prompts';
 import { directChangeLines, type DirectChange } from './plan-queue-direct-changes';
+import { splitFindings } from './plan-queue-finding-triage';
 
 export const VERDICT_TOOL = 'plan_queue_report_verdict';
 export const TRIAGE_TOOL = 'plan_queue_report_triage';
@@ -258,22 +259,41 @@ export function findingsBlock(findings: readonly PlanQueueFinding[]): string {
   return dataBlock('verifier_findings', rendered);
 }
 
+function optionalFindingsNotice(count: number): string[] {
+  return count > 0
+    ? [`The verifier also left ${count} lower-severity suggestions. They have gone to James. Work only on the findings above; touch a suggestion only when a fix above needs the same change.`]
+    : [];
+}
+
+/** Only critical and high findings go back to a worker; a FAIL with none of those goes back whole. */
+function triageForWorker(findings: readonly PlanQueueFinding[]): { shown: readonly PlanQueueFinding[]; optionalCount: number } {
+  const { blocking, optional } = splitFindings(findings);
+  return blocking.length ? { shown: blocking, optionalCount: optional.length } : { shown: findings, optionalCount: 0 };
+}
+
+function workerFindingsData(findings: readonly PlanQueueFinding[]): string[] {
+  const { shown, optionalCount } = triageForWorker(findings);
+  return [findingsBlock(shown), ...optionalFindingsNotice(optionalCount)];
+}
+
 /** What a worker does with a finding that is not a code problem. */
 export const NON_CODE_FINDING_NOTE = 'A finding marked environment or needs-human is not a code problem: do not work around it. Fix the others, and name what is missing under follow_ups in your report.';
 
 export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[], planningNote?: string | null, directChanges?: readonly DirectChange[]): string {
   const direct = directChangesSection(directChanges, 'worker');
+  const { shown, optionalCount } = triageForWorker(findings);
   return [
     `An independent verifier failed your work (verification round ${round} of ${maxRounds}). Its findings follow as data.`,
     '',
-    findingsBlock(findings),
-    ...(findings.some(f => f.kind && f.kind !== 'code') ? ['', NON_CODE_FINDING_NOTE] : []),
+    findingsBlock(shown),
+    ...(shown.some(f => f.kind && f.kind !== 'code') ? ['', NON_CODE_FINDING_NOTE] : []),
     ...(direct.length ? [...direct, DIRECT_CHANGE_FINDING_RULE] : []),
     ...(planningNote ? ['', `The coordinator moved planning files out of your worktree (data):`, dataBlock('moved_planning_files', planningNote)] : []),
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
     'Task: fix every finding in your worktree, re-run the targeted checks and update the document\'s status as your first instructions describe. ' + WORKER_WAIT_RULE + ' Then ' + REPORT_AGAIN + ' and stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
+    ...optionalFindingsNotice(optionalCount),
   ].join('\n');
 }
 
@@ -320,7 +340,7 @@ export function buildParkedCarryOver(item: Pick<PlanQueueItem, 'verdict' | 'deta
   const findings = item.verdict?.verdict === 'FAIL' ? item.verdict.findings : [];
   const parts = [
     ...(item.detail ? ['Why the item was parked:', dataBlock('park_detail', item.detail)] : []),
-    ...(findings.length ? ["The last verifier's findings:", findingsBlock(findings)] : []),
+    ...(findings.length ? ["The last verifier's findings:", ...workerFindingsData(findings)] : []),
   ];
   return parts.length ? parts.join('\n') : null;
 }
@@ -328,7 +348,7 @@ export function buildParkedCarryOver(item: Pick<PlanQueueItem, 'verdict' | 'deta
 export function resumeData(item: Pick<PlanQueueItem, 'pendingInstruction' | 'verdict'>): string[] {
   if (item.pendingInstruction) return ['', 'Pending work from the previous session (data):', dataBlock('pending_instruction', item.pendingInstruction)];
   return item.verdict?.findings.length
-    ? ['', "The last verifier's findings (data):", findingsBlock(item.verdict.findings)] : [];
+    ? ['', "The last verifier's findings (data):", ...workerFindingsData(item.verdict.findings)] : [];
 }
 
 export function buildContinuePrompt(ctx: ItemPromptContext, reason: string): string {
@@ -365,7 +385,7 @@ export function buildStepUpInstruction(failedRounds: number, findings: readonly 
   return [
     `An earlier, cheaper attempt did not pass after ${failedRounds} verification round(s). Its work is on your branch. Treat it as a starting point: keep what is right, fix or redo what is not. The last verifier's findings follow as data.`,
     '',
-    findingsBlock(findings),
+    ...workerFindingsData(findings),
     '',
     DIRECT_CHANGE_FINDING_RULE,
     WORKER_EVIDENCE_CLEANUP_RULE,
@@ -452,6 +472,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     'Judge against these criteria:',
     ...capabilityCheckerRules(ctx.item, ctx.repoRoot, ctx.ownsRepair ?? false),
     ...criteria,
+    'Rate a finding critical or high when it breaks an acceptance criterion, fails a gate or shows behaviour the task did not ask for. Rate it medium or low when the work meets every criterion without the change.',
     ...briefRules(ctx.brief),
     ...directChangesSection(ctx.directChanges, 'verifier'),
     ...(ctx.diffStat !== undefined ? ['Change summary (data):', dataBlock('diff_stat', ctx.diffStat)] : []),

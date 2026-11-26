@@ -44,7 +44,7 @@ const logger = getLogger('AutomationLoopRun');
 
 /** Loop terminal statuses that count as a successful automation outcome. */
 const SUCCESS_STATUSES = new Set<LoopStatus>(['completed', 'completed-needs-review']);
-interface AutomationLoopState { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string }
+interface AutomationLoopState { status: LoopStatus; endedAt?: number | null; lastCompletionOutcome?: string; endReason?: string }
 
 export interface AutomationLoopRunStorePort {
   getRunFacts(runId: string): { result: AutomationResult | null };
@@ -270,7 +270,8 @@ export class AutomationLoopRunDispatcher {
     if (this.limits.check(payload.loopRunId)) return;
     const tracked = this.trackedByLoopRunId.get(payload.loopRunId);
     const signOff = payload.state.status === 'paused' && payload.state.lastCompletionOutcome === 'unverifiable';
-    if (!tracked || (!signOff && !isTerminalLoopRuntimeState({ ...payload.state, endedAt: payload.state.endedAt ?? null }))) {
+    const paused = payload.state.status === 'paused';
+    if (!tracked || (!paused && !isTerminalLoopRuntimeState({ ...payload.state, endedAt: payload.state.endedAt ?? null }))) {
       return;
     }
     this.trackedByLoopRunId.delete(payload.loopRunId);
@@ -283,11 +284,13 @@ export class AutomationLoopRunDispatcher {
     const status = payload.state.status;
     const empty = !output?.trim() && !this.deps.store.getRunFacts(tracked.runId).result;
     const succeeded = SUCCESS_STATUSES.has(status) && !empty;
+    const pauseReason = payload.state.endReason ? `: ${payload.state.endReason}` : '';
+    const pauseNote = `Loop paused${signOff ? ' for sign-off' : ''}${pauseReason}. Open the loop to ${signOff ? 'Accept or Resume' : 'Resume'} it`;
     const run = this.deps.store.terminalizeRun(
       tracked.runId,
-      succeeded ? 'succeeded' : 'failed',
+      succeeded ? 'succeeded' : paused ? 'needs-attention' : 'failed',
       succeeded ? undefined : SUCCESS_STATUSES.has(status) && empty ? 'No result or assistant text was returned'
-        : signOff ? 'Loop paused for sign-off: open the loop to Accept or Resume it' : `Loop ended ${status}`,
+        : paused ? pauseNote : `Loop ended ${status}`,
       output?.slice(0, 4000) ?? (status === 'completed-needs-review'
         ? 'Loop ended; check its notes.'
         : succeeded ? 'Loop completed.' : undefined),

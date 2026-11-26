@@ -238,6 +238,9 @@ describe('MultiVerifyCoordinator', () => {
       const completed = waitForEvent(coordinator, 'verification:completed');
       await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
       await completed;
+      expect(synthesisHoisted.createAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        options: expect.objectContaining({ maxBudgetUsd: 1, noSessionPersistence: true }),
+      }));
       expect(rows.filter(row => row.purpose === 'multi-verify-synthesis')).toEqual([
         expect.objectContaining({ provider: 'claude', costSource: 'provider', usage: expect.objectContaining({ cost: 0.09 }), instanceId: 'instance-1' }),
       ]);

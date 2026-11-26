@@ -69,6 +69,16 @@ type _CostEntryKeysMatch = keyof CostEntry extends CostEntryEventKeys
 const _costEntryKeysMatch: _CostEntryKeysMatch = true;
 
 /**
+ * One ledger row's spend tokens (input + output; caches and reasoning stay
+ * separate, matching the Claude `totalTokens` metric and `collectInstanceSpend`).
+ */
+function spendTokensOf(entry: CostEntry): number {
+  const count = (value: number): number =>
+    Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  return count(entry.inputTokens) + count(entry.outputTokens);
+}
+
+/**
  * Cost summary for a time period or session
  */
 export interface CostSummary {
@@ -486,6 +496,27 @@ export class CostTracker extends EventEmitter {
     return this.entries
       .filter((e) => e.sessionId === sessionId)
       .reduce((sum, e) => sum + e.cost, 0);
+  }
+
+  /**
+   * Recorded spend tokens (input + output) for one identity's ledger rows.
+   * Rows match on `instanceId` and/or `sessionId` — the same identity keys the
+   * per-turn ledger rows carry, so a helper's announced spend equals the cost
+   * audit's per-session total for its session. `undefined` when the ledger
+   * holds no matching row, so callers can say "not measured" instead of
+   * reporting a measured zero.
+   */
+  getSpendTokens(identity: { instanceId?: string | undefined; sessionId?: string | undefined }): number | undefined {
+    let total = 0;
+    let matched = false;
+    for (const entry of this.entries) {
+      const matchesInstance = identity.instanceId !== undefined && entry.instanceId === identity.instanceId;
+      const matchesSession = identity.sessionId !== undefined && entry.sessionId === identity.sessionId;
+      if (!matchesInstance && !matchesSession) continue;
+      matched = true;
+      total += spendTokensOf(entry);
+    }
+    return matched ? total : undefined;
   }
 
   /**

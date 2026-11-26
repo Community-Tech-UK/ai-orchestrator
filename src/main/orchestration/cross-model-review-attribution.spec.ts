@@ -59,7 +59,7 @@ describe('cross-model reviewer attribution', () => {
       expect(records.at(-1)?.outcome).toBe(mode === 'repair' ? 'success' : mode);
       if (mode === 'budget-exceeded') {
         expect(state.send).toHaveBeenCalledOnce();
-        expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ maxTurns: 8, maxBudgetUsd: 1 }) }));
+        expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ maxTurns: 8, maxBudgetUsd: 1, noSessionPersistence: true }) }));
       } else expect(state.create.mock.calls[0]?.[0].options.maxTurns).toBeUndefined();
     } finally { stop(); }
   });

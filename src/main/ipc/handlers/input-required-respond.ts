@@ -48,6 +48,7 @@ export async function respondToInputRequired(instanceManager: InstanceManager, p
     // Route deferred permission responses to the resume flow instead of stdin
     if (validatedPayload.metadata?.['type'] === 'deferred_permission') {
       const action = validatedPayload.decisionAction;
+      if (!action) logger.warn('Held command answered without a decision; refused');
 
       // The reply must name a request this instance is still waiting on. A
       // cancelled, already-answered or fabricated requestId must never reach the
@@ -91,7 +92,7 @@ export async function respondToInputRequired(instanceManager: InstanceManager, p
         });
       }
 
-      const approved = action !== 'deny';
+      const approved = action === 'allow' || action === 'modify';
       const updatedInput = action === 'modify' ? validatedPayload.updatedInput : undefined;
       const enableYolo = approved && validatedPayload.metadata?.['enableYolo'] === true;
       reply = instanceManager.getRequestReceipts().beginReply(validatedPayload.instanceId, validatedPayload.requestId);

@@ -3,12 +3,10 @@ import {
   DEFAULT_SETTINGS,
   SETTINGS_METADATA,
   type AppSettings,
-  type OrchestrationRoutingPolicyKey,
 } from '../../../shared/types/settings.types';
-import type {
-  AuxiliaryLlmProvider,
-  AuxiliaryLlmSlot,
-} from '../../../shared/types/auxiliary-llm.types';
+import { createAuxiliarySettingsPolicy } from './settings-auxiliary-policy';
+import { createPlanQueueSettingsPolicy } from './settings-plan-queue-policy';
+import { PRIVILEGED_CLI_OPERATOR_ONLY_KEYS } from './settings-privileged-keys';
 import { COMPUTER_USE_AUTONOMY_LEVELS } from '../../../shared/types/desktop-gateway-settings.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../../shared/types/reviewer-provider.types';
 import { AUTOMATION_PROVIDER_IDS } from '../../../shared/types/automation-provider.types';
@@ -20,10 +18,6 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfilesSchema,
 } from '@contracts/schemas/provider-account';
-import {
-  PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueFoldersSchema, PlanQueueLinearConnectionSchema,
-  PlanQueueLinearFolderLinksSchema, PlanQueueLinearTeamsSchema, PlanQueueRoutingSchema,
-} from '@contracts/schemas/plan-queue';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -57,95 +51,6 @@ const SECRET_POLICY: ClosedSettingsToolPolicy = {
 };
 const SECRET_KEY_PATTERN = /token|secret|key|cert|password/i;
 const REDACTED = '[redacted]';
-const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
-  // 2026-08-29 DELIBERATE WIDENING, authorised by the operator in session.
-  //
-  // `browserVaultMasterPasswordFile`, `browserVaultAutoUnlock` and
-  // `browserAllowSharedTabCredentialFill` were removed from this set and are
-  // now writable through the privileged `aio-mcp settings` CLI. They were the
-  // whole of what stood between an agent and an unattended portal login: every
-  // stalled task in this class was an authentication step, never an approval
-  // step.
-  //
-  // NOT widened: the safe `set_setting` MCP tool (all three stay closed-tier
-  // below); approval to send anything a human contact sees; the other anchors.
-  //
-  // Writes emit a `privileged_set` / `privileged_reset` record via
-  // `logSettingMutation`. That is a `logger.info` line, not a tamper-evident
-  // audit trail: enough for "what changed and when", not for "did something try
-  // to hide this". The compensating visible control is the standing warning on
-  // the Browser screen's vault card, fed by `sharedTabCredentialFillEnabled` on
-  // `BrowserVaultStatus`.
-  // WS-B1 phase 1 (2026-07-31 fresh-eyes CRITICAL fix): PR creation authority
-  // is a human/GUI-only decision — the privileged repair CLI's agent-facing
-  // `settings set` path must not be able to grant it either.
-  'allowPrCreation',
-  // 2026-08-19 fresh-eyes finding: a licence guardrail (e.g. keeping a
-  // work-only Copilot seat out of automatic selection) is worthless if the
-  // very agents it restricts can clear it through the privileged repair CLI.
-  // `readOnly()` alone only blocks the safe `set_setting` MCP tool, not this
-  // surface — same reasoning as `allowPrCreation` above.
-  'providersExcludedFromAutomation',
-  // The session watcher's level decides what Harness approves on the user's behalf (2026-11-15).
-  'keepSessionsGoing',
-  // Copilot account routing (2026-08-25). Same class of authority as the
-  // exclusion list above, one step further: these decide WHICH GitHub identity
-  // services a repository. An agent that could add a profile, move the default,
-  // weaken a protected scope, or relax an automation policy could route
-  // enterprise code through a personal seat — the exact mistake the feature
-  // exists to prevent. Human/GUI-only, on both the safe tool and repair-CLI
-  // surfaces.
-  'copilotAccountProfiles',
-  'copilotAccountRoutingRules',
-  // Provider account pools (2026-09-13). Decide WHICH Claude/ChatGPT
-  // subscription a conversation runs on and whether it may move between them.
-  // An agent that could add a profile, reorder the pool or acknowledge
-  // ownership could spend accounts the user never approved.
-  'providerAccountProfiles',
-  'providerAccountPools',
-  // Plan Queue routing (2026-10-13): which of those accounts unattended queue
-  // sessions may spend. Same authority class as the pool keys above.
-  'planQueueRouting',
-  // Plan Queue account rules (2026-10-27): which accounts unattended queue and
-  // automation sessions must avoid or use last. Same authority class as the routing list.
-  'planQueueAccountRules',
-  // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
-  // shell for a folder. An agent that could write them could run any command.
-  'planQueueFolderChecklists',
-  // Plan Queue Linear settings (2026-11-15): who Harness acts as in Linear and through which connector, which
-  // projects a folder may take tickets from, and which providers may read client ticket text. An agent that could
-  // write them could redirect the queue to another account or send a client's text to a provider he excluded.
-  'planQueueLinearConnection',
-  'planQueueLinearFolderLinks',
-  'planQueueLinearTeams',
-  // `planQueueFolders` left this set on 2026-11-14 at the operator's request, so a session he asks can add a folder
-  // via this CLI; it stays closed to `set_setting`. Controls: the `privileged_set` log and the Plan Queue page list.
-  // Authorizes automatic deletion of backup copies; the operator decides.
-  'codexBackupKeepThree',
-  'computerUseEnabled',
-  'computerUseAllowedAppsJson',
-  'computerUseDeniedAppsJson',
-  'workspaceSecretsEnabled',
-  'workspaceSecretsAllowAgentRequests',
-  'browserSecretObservationProtectionEnabled', 'browserLocalComputerEnabled',
-  // `browserPreApproveAgentFolderLogins` left this set on 2026-11-18 at the operator's request ("use the CLI to change
-  // it"), like `browserAllowSharedTabCredentialFill`: it stays closed to `set_setting`; writes log `privileged_set`.
-  'providerSignalFenceEnabled',
-  'computerUseRequireApprovalForInput',
-  'computerUseStoreScreenshotsForEscalations',
-  'computerUseAutonomyLevel',
-  'contextEvidenceModeByProvider',
-  'graphClientId',
-  'graphAuthority',
-  'graphScopesJson',
-  'graphAgentWritableAccountsJson',
-  // Standing "Always allow" answers for Microsoft 365 changes. An agent that
-  // could add one could send mail as James without anyone being asked.
-  'graphAlwaysAllowedChanges',
-  'localAiGuardDefaultFallbackPolicy',
-  'localAiGuardDailyFallbackBudgetUsd',
-  'localAiGuardConfirmAboveInputTokens',
-]);
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
 const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'grok', 'opencode', 'openai']);
@@ -165,22 +70,6 @@ const voiceSttRoutingModeSchema = z.enum([
   'cloud',
   'this-device-or-cloud',
 ]);
-const auxiliaryRoutingModeSchema = z.enum(['off', 'local-first', 'cheap-first', 'manual-only']);
-const localAiFallbackPolicySchema = z.enum([
-  'allow-silently',
-  'notify-and-allow',
-  'require-confirmation',
-  'defer-locally',
-  'block-paid-fallback',
-]);
-const auxiliaryProviderSchema = z.enum([
-  'ollama',
-  'openai-compatible',
-  'anthropic',
-  'openai',
-  'local-fallback',
-  'auto',
-] satisfies (AuxiliaryLlmProvider | 'auto')[]);
 const modelIdSchema = z.string().max(512);
 const customModelIdSchema = z.string().trim().min(1).max(512);
 const shortStringSchema = z.string().min(1).max(128);
@@ -211,55 +100,6 @@ const modelUsageEntrySchema = z.object({
 // Keys are `provider:modelId`; local-model selector ids can be long.
 const modelUsageKeySchema = z.string().min(1).max(768);
 const modelUsageByKeySchema = z.record(modelUsageKeySchema, modelUsageEntrySchema);
-const auxiliarySlotSchema = z.object({
-  enabled: z.boolean(),
-  provider: auxiliaryProviderSchema.optional(),
-  endpointId: shortStringSchema.optional(),
-  model: modelIdSchema.refine((value) => value.length > 0, {
-    message: 'String must contain at least 1 character(s)',
-  }).optional(),
-  tier: z.enum(['quick', 'quality']).optional(),
-  maxInputTokens: z.number().finite().int().min(1).max(1_000_000),
-  maxOutputTokens: z.number().finite().int().min(1).max(1_000_000),
-  temperature: z.number().finite().min(0).max(2),
-  timeoutMs: z.number().finite().int().min(1).max(600_000),
-  requireJson: z.boolean(),
-  allowFrontierFallback: z.boolean(),
-}).strict();
-const auxiliarySlotMapSchema = z.object({
-  compression: auxiliarySlotSchema.optional(),
-  memoryDistillation: auxiliarySlotSchema.optional(),
-  webExtract: auxiliarySlotSchema.optional(),
-  titleGeneration: auxiliarySlotSchema.optional(),
-  routingClassification: auxiliarySlotSchema.optional(),
-  approvalScoring: auxiliarySlotSchema.optional(),
-  approvalAdjudication: auxiliarySlotSchema.optional(),
-  loopScoring: auxiliarySlotSchema.optional(),
-  retrievalHypothesis: auxiliarySlotSchema.optional(),
-  branchScoring: auxiliarySlotSchema.optional(),
-  subQueryExecution: auxiliarySlotSchema.optional(),
-  verifyOutputSummary: auxiliarySlotSchema.optional(),
-} satisfies Record<AuxiliaryLlmSlot, z.ZodOptional<typeof auxiliarySlotSchema>>).strict();
-const auxiliarySlotPayloadSchema = jsonBackedObjectSchema(auxiliarySlotMapSchema);
-
-// Operator routing policy: which model tier each orchestration gate uses.
-// `.strict()` so an unknown gate name is rejected loudly rather than silently
-// ignored — a typo'd key would otherwise leave that gate on its default and
-// look like the setting simply didn't work.
-const orchestrationRoutingPolicyValueSchema = z.enum(['auto', 'fast', 'balanced', 'powerful']);
-const orchestrationRoutingPolicyMapSchema = z.object({
-  loop: orchestrationRoutingPolicyValueSchema.optional(),
-  workflow: orchestrationRoutingPolicyValueSchema.optional(),
-  verify: orchestrationRoutingPolicyValueSchema.optional(),
-  review: orchestrationRoutingPolicyValueSchema.optional(),
-  debate: orchestrationRoutingPolicyValueSchema.optional(),
-  debateSynthesis: orchestrationRoutingPolicyValueSchema.optional(),
-} satisfies Record<
-  OrchestrationRoutingPolicyKey,
-  z.ZodOptional<typeof orchestrationRoutingPolicyValueSchema>
->).strict();
-const orchestrationRoutingPolicySchema = jsonBackedObjectSchema(orchestrationRoutingPolicyMapSchema);
-
 // Closed-tier, Record-valued settings without an explicit schema were the
 // exact CRITICAL gap found in the WS-B1 phase 1 fresh-eyes review (2026-07-31):
 // `coerceRendererSettingValue`'s typeof-fallback treats `typeof value ===
@@ -346,6 +186,7 @@ const secret = (restartRequired = false): ClosedSettingsToolPolicy => ({
 // is added. This object is the canonical CLI settings exposure policy for both
 // safe MCP tools and the privileged `aio-mcp settings` repair surface.
 export const SETTINGS_TOOL_POLICY = {
+  ...createAuxiliarySettingsPolicy({ open, readOnly, secret, modelIdSchema, shortStringSchema, jsonBackedObjectSchema }),
   codexBackupKeepThree: readOnly(true, z.boolean()),
   keepAwakeMode: open(z.enum(['off', 'while-working', 'always'])),
   defaultYoloMode: readOnly(),
@@ -359,7 +200,6 @@ export const SETTINGS_TOOL_POLICY = {
   defaultFastModeByProvider: open(fastModeByProviderSchema),
   modelUsageByKey: open(modelUsageByKeySchema),
   modelPickerFavorites: open(z.array(z.string().min(1).max(768)).max(50)),
-  residentClaudeSession: readOnly(),
   claudeLivePermissionPrompts: readOnly(false, z.boolean()),
   // Rollout posture is a trusted operator decision. Agents may inspect it but
   // cannot silently advance a provider from off/shadow to enforce mid-run.
@@ -537,9 +377,9 @@ export const SETTINGS_TOOL_POLICY = {
     z.array(z.enum(AUTOMATION_PROVIDER_IDS)).max(AUTOMATION_PROVIDER_IDS.length),
   ),
   // Copilot account routing. Read-only to the safe tool surface AND listed in
-  // PRIVILEGED_CLI_OPERATOR_ONLY_KEYS above, because `readOnly()` alone still
-  // leaves the privileged repair CLI able to write — same precedent as
-  // providersExcludedFromAutomation. The explicit schema also keeps these
+  // PRIVILEGED_CLI_OPERATOR_ONLY_KEYS (settings-privileged-keys.ts), because
+  // `readOnly()` alone still leaves the privileged repair CLI able to write —
+  // same precedent as providersExcludedFromAutomation. The explicit schema also keeps these
   // array-of-object settings off `coerceRendererSettingValue`'s primitive-only
   // fallback, which refuses non-primitive closed-tier keys outright.
   copilotAccountProfiles: readOnly(false, CopilotAccountProfilesSchema),
@@ -547,14 +387,7 @@ export const SETTINGS_TOOL_POLICY = {
   // Provider account pools: same reasoning as the Copilot keys above.
   providerAccountProfiles: readOnly(false, ProviderAccountProfilesSchema),
   providerAccountPools: readOnly(false, ProviderAccountPoolsSchema),
-  planQueueRouting: readOnly(false, PlanQueueRoutingSchema),
-  planQueueQuestionsDestination: open(z.enum(['queue-page', 'parent-chat'])),
-  planQueueAccountRules: readOnly(false, PlanQueueAccountRulesSchema),
-  planQueueFolderChecklists: readOnly(false, PlanQueueFolderChecklistsSchema),
-  planQueueFolders: readOnly(false, PlanQueueFoldersSchema),
-  planQueueLinearConnection: readOnly(false, PlanQueueLinearConnectionSchema),
-  planQueueLinearFolderLinks: readOnly(false, PlanQueueLinearFolderLinksSchema),
-  planQueueLinearTeams: readOnly(false, PlanQueueLinearTeamsSchema),
+  ...createPlanQueueSettingsPolicy({ open, readOnly }),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),
@@ -656,34 +489,9 @@ export const SETTINGS_TOOL_POLICY = {
   // renderer Settings-UI IPC a human drives — never an agent/MCP tool call,
   // never the privileged repair CLI.
   allowPrCreation: readOnly(false, allowPrCreationMapSchema),
-  auxiliaryLlmEnabled: open(z.boolean()),
-  auxiliaryLlmRoutingMode: open(auxiliaryRoutingModeSchema),
-  auxiliaryLlmAllowRemoteWorkerModels: open(z.boolean()),
-  auxiliaryLlmUseLocalhostOllama: open(z.boolean()),
-  auxiliaryLlmDailySpendCapUsd: open(z.number().finite().min(0).nullable()),
   quotaPacingWarningEnabled: open(z.boolean()),
   quotaPacingUtilizationThresholdPercent: open(z.number().finite().min(0).max(100)),
   quotaPacingLatestElapsedPercent: open(z.number().finite().min(0).max(100)),
-  auxiliaryLlmEndpointsJson: secret(),
-  auxiliaryLlmSlotsJson: open(auxiliarySlotPayloadSchema),
-  auxiliaryLlmQuickModel: open(modelIdSchema),
-  auxiliaryLlmQualityModel: open(modelIdSchema),
-  auxiliaryLlmRoutingClassificationEnabled: open(z.boolean()),
-  localAiGuardDefaultFallbackPolicy: readOnly(false, localAiFallbackPolicySchema),
-  localAiGuardDailyFallbackBudgetUsd: readOnly(
-    false,
-    z.number().finite().min(0).max(1_000_000).nullable(),
-  ),
-  localAiGuardConfirmAboveInputTokens: readOnly(
-    false,
-    z.number().finite().int().min(0).max(100_000_000).nullable(),
-  ),
-  // Strictly validated rather than a free-form string: a bad tier name here
-  // would silently fall back to the default for that gate, hiding the typo.
-  // Agent-writable, consistent with defaultModel / modelUsageByKey, which also
-  // steer spend. It cannot escalate privilege — only pick a model tier.
-  orchestrationRoutingPolicyJson: open(orchestrationRoutingPolicySchema),
-
   // Reactions (event-driven re-prompting)
   reactionsEnabled: open(z.boolean()),
   reactionsPollIntervalMs: open(z.number().int().min(5000).max(600_000)),

@@ -42,7 +42,7 @@ describe('KeyboardSettingsTabComponent', () => {
   });
 
   it('shows the conflict banner when a customization introduces a conflict', () => {
-    service.customizeBinding('focus-input', { key: 'o', modifiers: [] });
+    service.customizeBinding('new-instance', { key: 'o', modifiers: [] });
     fixture.detectChanges();
     const banner = fixture.nativeElement.querySelector('.keybinding-conflicts');
     expect(banner).toBeTruthy();
@@ -51,7 +51,7 @@ describe('KeyboardSettingsTabComponent', () => {
 
   it('surfaces blocked import conflict details without applying the import', () => {
     const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
-    textarea.value = JSON.stringify([{ id: 'focus-input', keys: { key: 'o', modifiers: [] } }]);
+    textarea.value = JSON.stringify([{ id: 'new-instance', keys: { key: 'o', modifiers: [] } }]);
     textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
@@ -63,7 +63,7 @@ describe('KeyboardSettingsTabComponent', () => {
 
     const pending = fixture.nativeElement.querySelector('.keybinding-import-conflicts');
     expect(pending).toBeTruthy();
-    expect(pending.textContent).toContain('focus-input');
+    expect(pending.textContent).toContain('new-instance');
     expect(pending.textContent).toContain('focus-output');
     expect(service.getCustomizations()).toEqual(before);
   });
@@ -73,7 +73,7 @@ describe('KeyboardSettingsTabComponent', () => {
     // to the 'other' reserved-key list here — use one of those combos.
     expect(service.isMac).toBe(false);
     const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
-    textarea.value = JSON.stringify([{ id: 'focus-input', keys: { key: 'F4', modifiers: ['alt'] } }]);
+    textarea.value = JSON.stringify([{ id: 'new-instance', keys: { key: 'F4', modifiers: ['alt'] } }]);
     textarea.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
@@ -95,23 +95,23 @@ describe('KeyboardSettingsTabComponent', () => {
     expect(groupHeadings).toContain('Global');
 
     const search = fixture.nativeElement.querySelector('.keybinding-search') as HTMLInputElement;
-    search.value = 'focus the message input';
+    search.value = 'focus the output area';
     search.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
     const rows = [...fixture.nativeElement.querySelectorAll('.shortcut-name')].map(
       (el: HTMLElement) => el.textContent,
     );
-    expect(rows).toEqual(['Focus Input']);
+    expect(rows).toEqual(['Focus Output']);
   });
 
   it('renders every hint through ShortcutHintPipe (live resolver), matching KeybindingService.formatBinding', () => {
     const search = fixture.nativeElement.querySelector('.keybinding-search') as HTMLInputElement;
-    search.value = 'Focus Input';
+    search.value = 'Focus Output';
     search.dispatchEvent(new Event('input'));
     fixture.detectChanges();
 
     const kbd = fixture.nativeElement.querySelector('.shortcut-keys kbd') as HTMLElement;
-    expect(kbd.textContent).toBe(service.formatBindingByAction('focus-input'));
+    expect(kbd.textContent).toBe(service.formatBindingByAction('focus-output'));
   });
 });

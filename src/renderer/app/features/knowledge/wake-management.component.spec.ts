@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { By } from '@angular/platform-browser';
 import { KnowledgeStore } from '../../core/state/knowledge.store';
+import { MemoryIpcService } from '../../core/services/ipc/memory-ipc.service';
 import { UndoService } from '../../core/services/undo.service';
 import { ToastService } from '../../core/services/toast.service';
 import type { WakeContext, WakeHint } from '../../../../shared/types/wake-context.types';
@@ -189,5 +190,62 @@ describe('WakeManagementComponent', () => {
     (root.querySelector('[role="alertdialog"] .btn-danger') as HTMLButtonElement).click();
     await fixture.whenStable();
     expect(removalStore.removeHint).toHaveBeenCalledWith('active');
+  });
+});
+
+describe('Project notes suggested for removal', () => {
+  let fixture: ComponentFixture<WakeManagementComponent>;
+  let notes: WakeHint[];
+  let wakeGenerated: (data: unknown) => void;
+  const original: WakeHint = {
+    id: 'note-original', content: 'A source-backed project fact', importance: 8, room: '/project',
+    sourceReflectionId: 'lesson-original', createdAt: Date.UTC(2026, 5, 1), lastUsed: Date.UTC(2026, 5, 2), usageCount: 12,
+    review: { shownIn30Days: 10, historyStartedAt: 1, sourceStatus: 'changed',
+      sourceFiles: ['/project/README.md'], suggestion: 'source changed' },
+  };
+  beforeEach(async () => {
+    notes = [structuredClone(original)];
+    const subscribe = () => () => undefined;
+    await TestBed.configureTestingModule({
+      imports: [WakeManagementComponent],
+      providers: [{ provide: MemoryIpcService, useValue: {
+        wakeListHints: async () => ({ success: true, data: structuredClone(notes) }),
+        wakeGenerate: async () => ({ success: true, data: {
+          identity: { content: 'Project background' }, essentialStory: { content: '## L1 — ESSENTIAL STORY\nBackground' }, totalTokens: 10,
+        } }),
+        onKgFactAdded: subscribe, onKgFactInvalidated: subscribe, onConvoImportComplete: subscribe,
+        onWakeHintAdded: subscribe,
+        onWakeContextGenerated: (callback: (data: unknown) => void) => { wakeGenerated = callback; return subscribe(); },
+      } }],
+    }).compileComponents();
+    fixture = TestBed.createComponent(WakeManagementComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  });
+  afterEach(() => { fixture.destroy(); TestBed.resetTestingModule(); });
+  const host = () => fixture.nativeElement as HTMLElement;
+  const button = (label: string) => Array.from(host().querySelectorAll<HTMLButtonElement>('button'))
+    .find((candidate) => candidate.textContent?.trim() === label)!;
+
+  it('renders the fold with source reason, real showing count and provenance', () => {
+    expect(host().textContent).toContain('Suggested for removal (1)');
+    expect(host().textContent).toContain('source changed');
+    expect(host().textContent).toContain('Shown 12 times');
+    expect(host().textContent).toContain('10 sessions in the last 30 days');
+    expect(host().textContent).toContain('from a lesson');
+    expect(button('Remove note')).toBeDefined();
+    expect(host().textContent).not.toMatch(/L0|L1|Wing|Wake Hints|used:|Importance|Room/);
+    expect(button('Rebuild starting notes').disabled).toBe(true);
+    expect(host().textContent).toContain('Pick a project first.');
+  });
+
+  it('refreshes persisted showing facts when a real start publishes a context event', async () => {
+    notes[0].usageCount = 13;
+    notes[0].review!.shownIn30Days = 11;
+    wakeGenerated({ totalTokens: 10 });
+    await Promise.resolve(); fixture.detectChanges();
+    expect(host().textContent).toContain('Shown 13 times');
+    expect(host().textContent).toContain('11 sessions in the last 30 days');
   });
 });

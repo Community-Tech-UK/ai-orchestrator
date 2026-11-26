@@ -27,6 +27,7 @@ AI Orchestrator is an Electron 42 + Angular 22 desktop app that coordinates Clau
 - `*_plan.md` means implementation work is active. Keep it and its linked `*_spec_planned.md` file uncommitted while work continues.
 - After every required item is implemented and verified, rewrite the Status block in both documents in place, update the spec's link to the plan's completed filename, rename the plan to `*_plan_completed.md`, and rename the spec from `*_spec_planned.md` to `*_spec_completed.md`.
 - Only `_completed` documents may be staged and committed with the completed work, subject to the Live-Test Deferral rules below.
+- After closing a plan or live test, run `npm run check:docs-retire`; report a `due` result so James can approve the next archive batch.
 
 ## Before Writing Code
 
@@ -119,7 +120,7 @@ Before renaming the plan:
 
 The livetest doc is itself a plan: run it against the rebuilt app (typically by dragging `*_livetest.md` files into a loop) and rename it `_livetest_completed.md` only when every check passes with evidence. Searching for `*_livetest.md` lists all pending live testing.
 
-Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance). Run `node scripts/next-lt-id.mjs --reserve` before filing a new defect. It reserves one durable identifier against the common root register and shared Git ledger, including uncommitted root rows; use that identifier once and never delete reservation files. The old invocation without `--reserve` is read-only inspection, not allocation. Remote independent clones must obtain their reservation from the coordinator checkout, never from a local ledger. See `docs/defect-id-reservations.md`. The register's index row is the defect's status; implementation notes go in the plan or livetest document that fixes it. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`. Agents do not read `livetest-remediation-register-archive-2026.md` unless an index row points there. Never add new work to a closed plan.
+Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance). Run `node scripts/next-lt-id.mjs --reserve` before filing a new defect. It reserves one durable identifier against the common root register and shared Git ledger, including uncommitted root rows; use that identifier once and never delete reservation files. The old invocation without `--reserve` is read-only inspection, not allocation. Remote independent clones must obtain their reservation from the coordinator checkout, never from a local ledger. See `docs/defect-id-reservations.md`. The register's index row is the defect's status; implementation notes go in the plan or livetest document that fixes it. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`. Agents do not read `livetest-remediation-register-archive-2026.md` unless an index row points there. Never add new work to a closed plan: `docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md` is history only.
 
 ## TypeScript and Angular Conventions
 
@@ -163,5 +164,7 @@ Native dependency and Electron packaging procedures are in `docs/packaging-nativ
 
 - `_scratch/` is disposable investigation output.
 - `_archive/` keeps stale reference material.
+- Retired docs live in `docs/_archive/`; `docs/_archive/INDEX.md` lists moves. Default text search skips that folder.
+- Code comments name plans by date and topic, not `docs/...` paths that completion renames or retirement can break.
 - Do not place active source code in either directory; Codemem skips them as children of a workspace.
-- The ignore list is `DEFAULT_CODE_INDEX_IGNORES` in `src/main/codemem/code-index-watcher.ts`.
+- The ignore list is `DEFAULT_CODE_INDEX_IGNORES` in `src/main/codemem/code-index-ignores.ts`.

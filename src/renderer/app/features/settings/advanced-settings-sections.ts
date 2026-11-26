@@ -54,6 +54,8 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
       // did nothing and then vanished. The key and its migration stay for
       // existing installs; only the control is gone.
       'parserBufferMaxKB',
+      'injectRepoMap',
+      'transcriptVirtualization',
       'commandDiagnosticsAvailable',
       'claudeCliDebugLogging',
       'claudeBashOutputMaxChars',

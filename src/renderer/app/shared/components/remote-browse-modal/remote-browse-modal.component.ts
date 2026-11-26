@@ -101,6 +101,7 @@ import type { FsEntry, FsProjectMatch } from '../../../../../shared/types/remote
                 <input
                   type="text"
                   class="search-input"
+                  aria-label="Search for a project folder"
                   placeholder="Search for a project folder…"
                   [ngModel]="searchQuery()"
                   (ngModelChange)="onSearchInput($event)"

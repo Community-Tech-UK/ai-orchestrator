@@ -8,15 +8,17 @@
  * never behind a chip.
  */
 
+import { helpersDockChip } from './helper-agents-chip';
+
 export type DockChipId =
   | 'review'
   | 'agents'
   | 'checkpoints'
+  | 'helpers'
   /** Planned registrations; ids are reserved so each lands typed in `DOCK_CHIPS`. */
   | 'goal'
   | 'compact-first'
-  | 'near-limit'
-  | 'helpers';
+  | 'near-limit';
 
 export interface DockChipIconCircle {
   cx: number;
@@ -54,6 +56,8 @@ export interface DockChipContext {
   reviewHasErrors: boolean;
   childCount: number;
   checkpointCount: number;
+  /** Native helper agents running inside this session — never child sessions. */
+  helperAgentsRunning: number;
 }
 
 export interface DockChipDef {
@@ -61,6 +65,12 @@ export interface DockChipDef {
   /** Needs-a-human chips sort first and never fold into "+N more". */
   blocker: boolean;
   icon: DockChipIcon;
+  /**
+   * Read-only status chip with no panel (part 7c's helper agents): it renders
+   * its label and tooltip in the strip but has nothing to open, so it is not a
+   * toggle and never claims an open panel.
+   */
+  informational?: boolean;
   /** Screen-reader line when the chip appears; absent means nothing is announced. */
   announce?: string;
   /** Return null when the chip has nothing to show; it is hidden then. */
@@ -166,6 +176,7 @@ export const DOCK_CHIPS: readonly DockChipDef[] = [
   reviewChip,
   agentsChip,
   checkpointsChip,
+  helpersDockChip,
 ];
 
 /**

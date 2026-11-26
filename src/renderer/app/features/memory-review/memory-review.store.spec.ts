@@ -28,7 +28,10 @@ function makeProposal(overrides: Partial<GovernedProposal> = {}): GovernedPropos
 }
 
 describe('MemoryReviewStore', () => {
+  let changed = () => { /* No listener until the store subscribes. */ };
+  const unsubscribe = vi.fn();
   const ipc = {
+    onChanged: vi.fn((callback: () => void) => { changed = callback; return unsubscribe; }),
     list: vi.fn(),
     get: vi.fn(),
     approve: vi.fn(),
@@ -41,6 +44,8 @@ describe('MemoryReviewStore', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ipc.list.mockReset();
+    changed = () => { /* No listener until the store subscribes. */ };
     ipc.list.mockResolvedValue({ success: true, data: [makeProposal()] });
     scanIpc.getStatus.mockResolvedValue({ success: true, data: null });
     TestBed.configureTestingModule({
@@ -50,6 +55,31 @@ describe('MemoryReviewStore', () => {
         { provide: LearningScanIpcService, useValue: scanIpc },
       ],
     });
+  });
+
+  it('refreshes pending proposals immediately on a backend change', async () => {
+    const store = TestBed.inject(MemoryReviewStore);
+    changed();
+    await vi.waitFor(() => expect(store.pendingCount()).toBe(1));
+    expect(ipc.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a late poll response from replacing a fresher pushed review list', async () => {
+    let resolvePoll!: (response: { success: true; data: GovernedProposal[] }) => void;
+    ipc.list.mockReturnValueOnce(new Promise(resolve => { resolvePoll = resolve; }));
+    const store = TestBed.inject(MemoryReviewStore);
+    const poll = store.refresh();
+    changed();
+    await vi.waitFor(() => expect(store.pendingCount()).toBe(1));
+    resolvePoll({ success: true, data: [] });
+    await poll;
+    expect(store.pendingCount()).toBe(1);
+  });
+
+  it('unsubscribes from pushes when its Angular owner is destroyed', () => {
+    TestBed.inject(MemoryReviewStore);
+    TestBed.resetTestingModule();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   it('loads proposals and separates pending from decided', async () => {

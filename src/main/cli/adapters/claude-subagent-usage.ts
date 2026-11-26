@@ -1,4 +1,5 @@
 import { asUnknownRecord } from './claude-cli-adapter.types';
+import { ClaudeNativeHelpers } from './claude-native-helpers';
 import {
   locateClaudeSubagent,
   readClaudeSubagentTranscriptModel,
@@ -221,6 +222,14 @@ export class ClaudeSubagentUsageTracker {
 }
 interface Host {emit(event:string,...args:unknown[]):boolean}
 const trackers=new WeakMap<Host,ClaudeSubagentUsageTracker>();
+const nativeHelpers = new WeakMap<Host, ClaudeNativeHelpers>();
+function updateNativeHelpers(host: Host, observe: (helpers: ClaudeNativeHelpers) => void): void {
+  let helpers = nativeHelpers.get(host);
+  if (!helpers) { helpers = new ClaudeNativeHelpers(); nativeHelpers.set(host, helpers); }
+  const before = helpers.summary.running;
+  observe(helpers);
+  if (before !== helpers.summary.running) host.emit('native_helpers', helpers.summary);
+}
 function tracker(host:Host):ClaudeSubagentUsageTracker {
   let value=trackers.get(host);
   if (!value) {value=new ClaudeSubagentUsageTracker({onFinal:sample=>host.emit('subagent_usage',sample)});trackers.set(host,value);}
@@ -232,6 +241,7 @@ export function getClaudeSubagentTracker(host:Host):ClaudeSubagentUsageTracker {
 }
 /** `location` names where the CLI keeps this session's helper files; pass it with every system frame (the session id can change). */
 export function observeClaudeSubagentUsage(host:Host,message:unknown,location?:ClaudeTranscriptLocationSource):void {
+  updateNativeHelpers(host, helpers => helpers.observe(message));
   const state=tracker(host);
   if (location!==undefined) state.setLocation(location);
   const sample=state.observe(message);if (sample) host.emit('subagent_usage',sample);
@@ -241,5 +251,6 @@ export function observeClaudeSubagentModel(host:Host,message:unknown):void {
   tracker(host).observeAssistant(message);
 }
 export function flushClaudeSubagentUsage(host:Host):void {
+  updateNativeHelpers(host, helpers => helpers.finishTurn());
   for (const sample of tracker(host).flush()) host.emit('subagent_usage',sample);
 }

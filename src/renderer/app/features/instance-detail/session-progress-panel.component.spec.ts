@@ -182,6 +182,22 @@ describe('SessionProgressPanelComponent', () => {
   });
 
   describe('output context menu', () => {
+    it('skips the backdrop in Tab order and closes with Escape from a menu item', () => {
+      createPanel();
+      fixture.componentInstance.outputMenu.set({ entry: makeEntry(), x: 0, y: 0 });
+      fixture.detectChanges();
+      const backdrop = fixture.nativeElement.querySelector('.ctx-menu-backdrop') as HTMLButtonElement;
+      expect(backdrop.tabIndex).toBe(-1);
+      expect(backdrop.getAttribute('aria-hidden')).toBe('true');
+      const cancelled = vi.fn();
+      document.addEventListener('keydown', cancelled);
+      try {
+        fixture.nativeElement.querySelector('.ctx-menu button').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        fixture.detectChanges();
+        expect(fixture.componentInstance.outputMenu()).toBeNull();
+        expect(cancelled).not.toHaveBeenCalled();
+      } finally { document.removeEventListener('keydown', cancelled); }
+    });
     it('opens the context menu at the cursor position on right-click', () => {
       createPanel();
       const entry = makeEntry();

@@ -78,6 +78,7 @@ function makeFakeStore() {
     loopError: signal<string | null>(null),
     repoJobError: signal<string | null>(null),
     automationError: signal<string | null>(null),
+    memoryReviewError: signal<string | null>(null),
     selectWorkspace: vi.fn(),
     selectItem: vi.fn((id: string) => selectedItemId.set(id)),
     clearSelection: vi.fn(() => {
@@ -89,6 +90,7 @@ function makeFakeStore() {
     retryLoops: vi.fn(async () => { /* noop */ }),
     retryRepoJobs: vi.fn(async () => { /* noop */ }),
     retryAutomations: vi.fn(async () => { /* noop */ }),
+    retryMemoryReviews: vi.fn(async () => { /* noop */ }),
     // WS-C2: WorkboardCardComponent reads snooze state directly off the store.
     isSnoozed: vi.fn(() => false),
     snoozeItem: vi.fn(),
@@ -238,6 +240,21 @@ describe('WorkboardPageComponent', () => {
     retry.click();
     expect(store.retryLoops).toHaveBeenCalled();
     // Other source cards still render.
+    expect(fixture.nativeElement.textContent).toContain('Alpha');
+  });
+
+  it('renders the memory-review source warning + Retry when the review source fails', async () => {
+    const lanes = emptyLanes();
+    lanes.working = [item({ id: 'instance:a', title: 'Alpha' })];
+    store.lanes.set(lanes);
+    store.memoryReviewError.set('review store offline');
+    const fixture = await render();
+
+    expect(fixture.nativeElement.textContent).toContain('Memory reviews: review store offline');
+    const retry = fixture.nativeElement.querySelector('.wb-source-error button') as HTMLButtonElement;
+    expect(retry.textContent?.trim()).toBe('Retry');
+    retry.click();
+    expect(store.retryMemoryReviews).toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('Alpha');
   });
 

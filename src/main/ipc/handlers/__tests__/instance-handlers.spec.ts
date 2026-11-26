@@ -34,10 +34,11 @@ vi.mock('electron', () => ({
 // 2. Mock the logger (avoids fs / Electron app.getPath usage)
 // ============================================================
 
+const mockHeldDecisionWarn = vi.hoisted(() => vi.fn());
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: mockHeldDecisionWarn,
     debug: vi.fn(),
     error: vi.fn(),
   }),
@@ -1182,6 +1183,29 @@ describe('instance-handlers', () => {
   // ----------------------------------------------------------
 
   describe('INPUT_REQUIRED_RESPOND', () => {
+    it.each([false, true])('refuses a held command without a decision even with enableYolo=%s', async enableYolo => {
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'example-instance',
+        requestId: 'example-held-request',
+        response: 'approved',
+        decisionScope: 'always',
+        metadata: { type: 'deferred_permission', enableYolo },
+        updatedInput: { command: 'echo EXAMPLE' },
+      });
+
+      expect(result).toMatchObject({ success: true, data: { responded: true, resumed: true } });
+      expect(result.data).not.toHaveProperty('yoloMode');
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledExactlyOnceWith(
+        'example-instance', false, undefined, expect.not.objectContaining({ yoloMode: true }),
+      );
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+      expect(mockInstanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith(
+        'example-instance', 'example-held-request',
+      );
+      expect(mockClearPrompt).toHaveBeenCalledWith('example-held-request');
+      expect(mockHeldDecisionWarn).toHaveBeenCalledWith('Held command answered without a decision; refused');
+    });
+
     it('forwards the request id and refusal note to the held or live answer', async () => {
       const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
         instanceId: 'inst-live', requestId: 'perm-live-example', response: 'Use the local data instead.',

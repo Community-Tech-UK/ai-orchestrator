@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import { createTables, MIGRATIONS, AUTOMATION_RUN_POLICY_MIGRATION } from './rlm-schema';
+import { AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION } from './rlm-migrations-081-085';
 
 const databases: ReturnType<typeof defaultDriverFactory>[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -8,7 +9,9 @@ afterEach(() => databases.splice(0).forEach(db => db.close()));
 describe('scheduled job migration', () => {
   it('uses the longest success, a thirty-minute floor and schedule-specific token defaults without overwriting configured limits', () => {
     const db = defaultDriverFactory(':memory:'); databases.push(db); createTables(db);
-    for (const migration of MIGRATIONS) if (migration.name !== AUTOMATION_RUN_POLICY_MIGRATION.name) db.exec(migration.up);
+    // The needs-attention rebuild reads the tables the policy migration creates, so it waits for it too.
+    const held = new Set([AUTOMATION_RUN_POLICY_MIGRATION.name, AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION.name]);
+    for (const migration of MIGRATIONS) if (!held.has(migration.name)) db.exec(migration.up);
     for (const [id, type, action] of [['short', 'cron', {}], ['long', 'oneTime', {}], ['custom', 'cron', { maxRunMinutes: 42, maxProcessedTokens: 123 }]] as const) {
       db.prepare(`INSERT INTO automations(id, name, schedule_type, schedule_json, missed_run_policy, concurrency_policy, action_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, 'skip', 'skip', ?, 1, 1)`).run(id, id, type, JSON.stringify({ type }), JSON.stringify({ prompt: 'Example', workingDirectory: '/repo', ...action }));

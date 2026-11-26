@@ -18,6 +18,7 @@ const hintRows: WakeHintRow[] = [];
 vi.mock('../persistence/rlm-database', () => ({
   getRLMDatabase: () => ({
     getRawDb: () => ({
+      transaction: (fn: () => void) => fn,
       prepare: (sql: string) => ({
         all: () => (sql.includes('SELECT * FROM wake_hints') ? hintRows : []),
         get: () => undefined,

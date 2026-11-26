@@ -78,50 +78,6 @@ export const RLM_HELP: HelpEntry = {
   ],
 };
 
-export const TRAINING_HELP: HelpEntry = {
-  sections: [
-    {
-      kind: 'callout',
-      variant: 'info',
-      heading: 'What this does',
-      body: 'Track training outcomes, visualise reward trends, discover top strategies, and manage training data through import, export, and configuration.',
-    },
-    {
-      kind: 'steps',
-      heading: 'How to record and view',
-      items: [
-        'Fill the Record Outcome form (task ID, prompt, and response are required).',
-        'Click Record to add the outcome; the dashboard refreshes automatically.',
-        'Check the side panel for the trend line, top strategies, and statistics.',
-        'Use Export JSON to back up, or paste JSON into Import to restore.',
-      ],
-    },
-    {
-      kind: 'list',
-      heading: 'Dashboard tabs',
-      items: [
-        'Overview: reward trend and headline statistics.',
-        'Strategies: top-performing strategies ranked by reward.',
-        'Patterns: recurring behaviours the trainer has spotted.',
-        'Insights: derived observations about what works.',
-        'Config: tuning values such as group size and learning rate.',
-      ],
-    },
-    {
-      kind: 'callout',
-      variant: 'warning',
-      heading: 'Reward values matter',
-      body: 'Rewards outside 0 to 1 are clamped. An outcome counts as a success when its reward is 0.6 or higher.',
-    },
-    {
-      kind: 'callout',
-      variant: 'tip',
-      heading: 'Watch the trend',
-      body: 'The trend panel shows whether reward is improving over time. Raise the strategy limit to see more top performers.',
-    },
-  ],
-};
-
 export const MEMORY_BROWSER_HELP: HelpEntry = {
   sections: [
     {

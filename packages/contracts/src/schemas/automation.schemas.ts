@@ -330,7 +330,7 @@ export const AutomationRunSchema = z.object({
   nextRetryAt: z.number().int().nonnegative().nullable().optional(),
   id: AutomationRunIdSchema,
   automationId: AutomationIdSchema,
-  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']),
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled', 'needs-attention']),
   trigger: AutomationTriggerSchema,
   scheduledAt: z.number().int().nonnegative(),
   startedAt: z.number().int().nonnegative().nullable(),

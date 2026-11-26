@@ -244,6 +244,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     timeout: options.timeout,
     maxTurns: options.maxTurns,
     maxBudgetUsd: options.maxBudgetUsd,
+    noSessionPersistence: options.noSessionPersistence,
     yoloMode: options.yoloMode,
     allowedTools: options.allowedTools,
     disallowedTools: options.disallowedTools,

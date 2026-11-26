@@ -28,7 +28,6 @@ const EXPECTED_PATHS = [
   '/worktrees',
   '/supervision',
   '/rlm',
-  '/training',
   '/memory',
   '/memory-review',
   '/memory/stats',
@@ -55,7 +54,6 @@ const EXPECTED_PATHS = [
   '/plugins',
   '/models',
   '/remote-config',
-  '/communication',
   '/multi-edit',
   '/editor',
   '/archive',
@@ -92,15 +90,16 @@ const VALID_KINDS: readonly ControlSurfaceKind[] = [
 const VALID_LAYOUTS: readonly ControlSurfaceLayout[] = ['standard', 'wide', 'fullBleed'];
 
 describe('control surface registry', () => {
+  // Training Data and Session Messaging were removed outright (oct-followups 5h), so only Find Session stays hidden.
   it('hides unfinished pages while preserving their route metadata', () => {
-    for (const id of ['training', 'communication', 'chat-search']) {
+    for (const id of ['chat-search']) {
       expect(CONTROL_SURFACES.find((item) => item.id === id)?.path).toBe(`/${id}`);
       expect(listControlNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
       expect(listDashboardNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
     }
   });
-  it('marks Training Data, Session Messaging and Find Session hidden, yet they still resolve by id and path', () => {
-    for (const id of ['training', 'communication', 'chat-search'] as const) {
+  it('marks Find Session hidden, yet it still resolves by id and path', () => {
+    for (const id of ['chat-search'] as const) {
       const item = getControlSurface(id);
       expect(item.path).toBe(`/${id}`);
       expect(item.showInControlNav).toBe(false);
@@ -111,7 +110,7 @@ describe('control surface registry', () => {
   it('lists every other surface in the Control Center nav', () => {
     const listed = listControlNavGroups(true).flatMap((group) => group.items.map((item) => item.id));
 
-    expect(listed).toHaveLength(CONTROL_SURFACES.length - 3);
+    expect(listed).toHaveLength(CONTROL_SURFACES.length - 1);
   });
 
   it('has unique ids and paths', () => {

@@ -107,6 +107,7 @@ module.exports = defineConfig([
       "ui-hints/no-hardcoded-shortcut": "error",
       "ui-hints/no-native-title": ["error", { scope: "all" }],
       "ui-hints/icon-control-needs-name-and-tooltip": "error",
+      "ui-hints/form-field-needs-name": "error",
     },
   }
 ]);

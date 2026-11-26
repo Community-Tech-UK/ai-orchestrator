@@ -81,6 +81,7 @@ export interface BuildWakeContextTextMsg {
   id: number;
   wing?: string;
   bypassCache?: boolean;
+  recordUsage?: boolean;
 }
 
 export interface BuildObservationContextMsg {

@@ -23,6 +23,7 @@ import {
 } from '../workspace/git/worktree-manager';
 import { CampaignCoordinator } from './campaign-coordinator';
 import { CampaignStore } from './campaign-store';
+import { campaignHeldBlockReason } from './campaign-worktree-landing';
 import { runLoopMigrations } from './loop-schema';
 import type { CampaignRun, CampaignSpec } from './campaign.types';
 import type { LoopStatus } from '../../shared/types/loop.types';
@@ -472,5 +473,21 @@ describe('campaign worktree landing — isolation boundaries', () => {
     const persisted = store.getCampaign('camp-halted-restart')!;
     expect(persisted.status).toBe('halted');
     expect(persisted.nodeRuns.get('a')?.worktreeLifecycle?.phase).toBe('cleaned');
+  });
+});
+
+describe('campaignHeldBlockReason', () => {
+  it('includes the node id and branch when the step has no label', () => {
+    const reason = campaignHeldBlockReason('node-a', undefined, 'session-branch-x');
+    expect(reason).toContain('node-a');
+    expect(reason).toContain('session-branch-x');
+    expect(reason).toContain('held for review');
+    expect(reason).not.toContain('skipped checks');
+    expect(reason).toContain('was not merged');
+  });
+
+  it('uses the step label when the node has one', () => {
+    const reason = campaignHeldBlockReason('node-a', 'Implement the fix', 'session-branch-x');
+    expect(reason).toContain('Implement the fix');
   });
 });

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
@@ -27,9 +27,18 @@ import { PlanQueueStore } from './plan-queue.store';
             <div class="actions">
               <button type="button" [disabled]="queue.pending()" (click)="queue.control(run.id, 'pause')">Pause</button>
               <button type="button" [disabled]="queue.pending()" (click)="queue.control(run.id, 'resume')">Resume</button>
-              <button type="button" [disabled]="queue.pending()" (click)="queue.control(run.id, 'cancel')">Cancel</button>
+              <button type="button" [disabled]="queue.pending()" (click)="confirming.set(run.id)">Cancel</button>
             </div>
           </header>
+          @if (confirming() === run.id) {
+            <div role="group" aria-label="Confirm cancelling plan queue">
+              <p>Cancel the whole run? Items not started are skipped for good.</p>
+              <div class="actions">
+                <button type="button" [disabled]="queue.pending()" (click)="confirmCancel(run.id)">Cancel the run</button>
+                <button type="button" (click)="confirming.set(null)">Keep going</button>
+              </div>
+            </div>
+          }
           <ul>
             @for (item of run.items; track item.id) {
               <li>
@@ -58,9 +67,15 @@ import { PlanQueueStore } from './plan-queue.store';
   `],
 })
 export class PlanQueueComponent {
+  protected readonly confirming = signal<string | null>(null);
   protected readonly queue = inject(PlanQueueStore);
   protected readonly waitsForDirectChangeChoice = waitsForDirectChangeChoice;
   private readonly router = inject(Router);
+  protected confirmCancel(runId: string): void {
+    if (this.confirming() !== runId || this.queue.pending()) return;
+    this.confirming.set(null);
+    void this.queue.control(runId, 'cancel');
+  }
   protected back(): void { void this.router.navigate(['/projects']); }
   protected open(id: string): void { void this.router.navigate(['/plan-queue', id]); }
 }

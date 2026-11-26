@@ -6,6 +6,7 @@ import type {
   ProposalAuditEntry,
 } from '../../../features/memory-review/memory-review.types';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
+import type { InboxChangedEvent } from '@contracts/schemas/observability';
 
 /**
  * Renderer IPC wrapper for the WS-A4 memory promotion review inbox: list/get
@@ -18,6 +19,10 @@ export class GovernedProposalIpcService {
 
   private get api() {
     return this.base.getApi();
+  }
+
+  onChanged(callback: (event: InboxChangedEvent) => void): () => void {
+    return this.api?.onMemoryReviewChanged(callback) ?? (() => { /* Browser mode. */ });
   }
 
   async list(query: {

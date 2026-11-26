@@ -69,6 +69,7 @@ import { reserveHelperAdmission } from '../work-admission/helper-admission';
 import { waitForRunOnNodeReadiness } from './run-on-node-readiness';
 import { configureAutomationInvocationMcp } from '../automations/automation-invocation-mcp';
 const logger = getLogger('AppInitialization');
+const isRemoteSpawn = (instance: Instance): boolean => typeof instance.metadata?.['spawnDepth'] === 'number';
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
 // Worker Copilot diagnosis can spend 3s on identity, 5s on version, and 30s
 // on its auth probe, plus process-termination grace between stages.
@@ -415,8 +416,6 @@ export function createOrchestratorToolsStep(
         // interactive sessions. Without this, idle one-shot agents accumulate
         // and permanently exhaust a node's maxConcurrentInstances capacity.
         terminateNodeInstances: async (args) => {
-          const isRemoteSpawn = (instance: Instance): boolean =>
-            typeof instance.metadata?.['spawnDepth'] === 'number';
           const terminated: { instanceId: string }[] = [];
           const skipped: { instanceId: string; reason: string }[] = [];
 
@@ -487,14 +486,14 @@ export function createOrchestratorToolsStep(
         readInstanceOutput: async (args, abortSignal) => {
           const deadline = Date.now() + (args.waitMs ?? 0);
           let instance = instanceManager.getInstance(args.instanceId);
-          if (!instance) {
+          if (!instance || !isRemoteSpawn(instance)) {
             return null;
           }
           // Poll until working ends, waitMs runs out, or the caller disconnects.
           while (WORKING_STATUSES.has(instance.status) && Date.now() < deadline && !abortSignal?.aborted) {
             await abortableSleep(Math.min(500, Math.max(0, deadline - Date.now())), abortSignal);
             instance = instanceManager.getInstance(args.instanceId);
-            if (!instance) {
+            if (!instance || !isRemoteSpawn(instance)) {
               return null;
             }
           }

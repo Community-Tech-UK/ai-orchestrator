@@ -3,6 +3,7 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { RepoJobStore } from '../../core/state/repo-job.store';
+import { MemoryReviewStore } from '../memory-review/memory-review.store';
 import {
   buildWorkboardLanes,
   deriveWorkspaceOptions,
@@ -41,6 +42,7 @@ export class WorkboardStore {
   private readonly automationStore = inject(AutomationStore);
   private readonly loopStore = inject(LoopStore);
   private readonly repoJobStore = inject(RepoJobStore);
+  private readonly memoryReviewStore = inject(MemoryReviewStore);
   private readonly needsYou = inject(NeedsYouStore);
 
   private readonly selectedWorkspace = signal<string>(ALL_WORKSPACES);
@@ -50,6 +52,7 @@ export class WorkboardStore {
   private readonly loopErrorSignal = signal<string | null>(null);
   private readonly automationErrorSignal = signal<string | null>(null);
   private readonly repoJobErrorSignal = signal<string | null>(null);
+  private readonly memoryReviewErrorSignal = signal<string | null>(null);
 
   constructor() {
     // Also support opening this page directly; loop wiring is idempotent.
@@ -121,6 +124,7 @@ export class WorkboardStore {
   readonly loopError = this.loopErrorSignal.asReadonly();
   readonly automationError = this.automationErrorSignal.asReadonly();
   readonly repoJobError = this.repoJobErrorSignal.asReadonly();
+  readonly memoryReviewError = this.memoryReviewErrorSignal.asReadonly();
 
   // ────── commands (view state only) ──────
 
@@ -156,10 +160,10 @@ export class WorkboardStore {
   }
 
   /**
-   * Refresh the loop, automation, and repository-job sources in parallel.
-   * Instances are push-driven by `InstanceStore`, so they are not refreshed
-   * here. Partial errors are surfaced per source without clearing the others;
-   * existing cards stay visible throughout.
+   * Refresh the loop, automation, repository-job and memory-review sources in
+   * parallel. Instances are push-driven by `InstanceStore`, so they are not
+   * refreshed here. Partial errors are surfaced per source without clearing
+   * the others; existing cards stay visible throughout.
    */
   async refresh(): Promise<void> {
     this.refreshingSignal.set(true);
@@ -174,6 +178,10 @@ export class WorkboardStore {
         this.repoJobStore.refresh(false).then(
           (ok) => this.repoJobErrorSignal.set(ok ? null : this.repoJobStore.error()),
           (err: unknown) => this.repoJobErrorSignal.set(errorMessage(err)),
+        ),
+        this.memoryReviewStore.refresh().then(
+          () => this.memoryReviewErrorSignal.set(this.memoryReviewStore.error()),
+          (err: unknown) => this.memoryReviewErrorSignal.set(errorMessage(err)),
         ),
       ]);
       this.loopErrorSignal.set(loopResult.ok ? null : loopResult.error);
@@ -198,6 +206,12 @@ export class WorkboardStore {
   async retryAutomations(): Promise<void> {
     await this.automationStore.refresh();
     this.automationErrorSignal.set(this.automationStore.error());
+  }
+
+  /** Retry only the memory-review source. */
+  async retryMemoryReviews(): Promise<void> {
+    await this.memoryReviewStore.refresh();
+    this.memoryReviewErrorSignal.set(this.memoryReviewStore.error());
   }
 
   // ────── WS-C2: snooze with hand-raise ──────

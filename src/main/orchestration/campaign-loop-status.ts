@@ -1,7 +1,12 @@
 import type { LoopStatus } from '../../shared/types/loop.types';
 import type { CampaignNodeStatus } from './campaign.types';
 
-export interface CampaignLoopStatusSnapshot { status: LoopStatus; endedAt: number | null }
+export interface CampaignLoopStatusSnapshot {
+  status: LoopStatus;
+  endedAt: number | null;
+  /** Merge-held loop work stays on its branch for review. */
+  endEvidence?: Record<string, unknown> | null;
+}
 export type CampaignLoopStatusReaderResult = LoopStatus | CampaignLoopStatusSnapshot | null;
 
 const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([

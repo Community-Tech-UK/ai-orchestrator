@@ -30,7 +30,7 @@ import { getHistoryManager } from '../history';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
-import { getAgentById } from '../../shared/types/agent.types';
+import { changeAgentModeImpl } from './lifecycle/agent-mode-change';
 import { getAgentRegistry } from '../agents/agent-registry';
 import { getPermissionManager } from '../security/permission-manager';
 import { generateId } from '../../shared/utils/id-generator';
@@ -123,7 +123,6 @@ import { removeInstanceSignalFence, setInstanceSignalFence } from './lifecycle/s
 import { isLiveTestQuestionFolder } from '../cli/adapters/live-test-question-fixtures';
 import { attemptInstanceFailover } from './instance-failover';
 import { classifyLoopError } from '../core/loop-error-classification';
-import { markAdapterStopping } from '../providers/adapter-stop-state';
 import { getFailoverManager } from '../providers/failover-manager';
 import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
 import { getNotificationService } from '../notifications/notification-service';
@@ -1660,7 +1659,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         instance.currentModel = resolvedModel;
         // Before the state-update below: the early created event could not
         // carry it, and the renderer's switch note reads it (plan 14d item 5).
-        instance.residentClaude = settingsAll.residentClaudeSession ?? true;
+        instance.residentClaude = true;
         const resolvedReasoningEffort = resolveSpawnReasoningEffort(config, resolvedCliType, resolvedModel);
         instance.reasoningEffort = resolvedReasoningEffort;
         // The early created event intentionally precedes model resolution AND
@@ -3073,204 +3072,22 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Change the agent mode for an instance while preserving conversation context
    */
   async changeAgentMode(instanceId: string, newAgentId: string): Promise<Instance> {
-    const instance = this.deps.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    const release = await getSessionMutex().acquire(instanceId, 'agent-mode-change');
-    try {
-      if (instance.status === 'busy') {
-        throw new Error('Cannot change agent mode while instance is busy. Please wait for the current operation to complete.');
-      }
-
-      if (instance.agentId === newAgentId) {
-        return instance;
-      }
-
-      // Resolve from registry first (allows markdown-defined agents). Fall back to built-ins for safety.
-      const newAgent = await getAgentRegistry().resolveAgent(instance.workingDirectory, newAgentId);
-      if (!newAgent) {
-        const builtin = getAgentById(newAgentId);
-        if (!builtin) throw new Error(`Agent ${newAgentId} not found`);
-      }
-
-      const oldAgentId = instance.agentId;
-      logger.info('Changing agent mode', { instanceId, oldAgentId, newAgentId });
-
-      const hasConversation = instance.outputBuffer.some(
-        (msg) => msg.type === 'user' || msg.type === 'assistant'
-      );
-
-      // Terminate existing adapter
-      const oldAdapter = this.deps.getAdapter(instanceId);
-      const oldAdapterCapabilities = this.getAdapterRuntimeCapabilities(oldAdapter);
-      if (oldAdapter) {
-        // The stop is ours. Without this fence the old process's exit (143) reads
-        // as an unexpected exit of an idle session, starts an auto-respawn that
-        // races the spawn below, and the session is destroyed (LT-1108).
-        markAdapterStopping(oldAdapter);
-        await oldAdapter.terminate(true);
-        this.deps.deleteAdapter(instanceId);
-      }
-
-      // Update instance with new agent
-      instance.agentId = newAgentId;
-      instance.agentMode = newAgent.mode;
-      this.transitionState(instance, 'initializing');
-
-      // If leaving plan mode, reset plan mode state
-      if (instance.planMode.enabled && newAgent.mode !== 'plan') {
-        instance.planMode = {
-          enabled: false,
-          state: 'off',
-          planContent: undefined,
-          approvedAt: undefined
-        };
-        logger.info('Auto-exited plan mode due to agent mode change', { instanceId, newAgentId });
-      }
-
-      const toolPermissions = buildToolPermissionConfig(
-        instance.toolPermissionsOverride ?? newAgent.permissions,
-        {
-          allowedToolsPolicy: 'standard-unless-yolo',
-          yoloMode: instance.yoloMode,
-        },
-      );
-      attachToolFilterMetadata(instance, toolPermissions.toolFilter);
-
-      const cliType = await this.resolveCliTypeForInstance(instance);
-      const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
-      const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
-
-      // Resume FROM the live id: a fork mints its own target, so `newSessionId`
-      // has no transcript and passing it as the source destroys the session (LT-008).
-      const resumeSourceSessionId = instance.sessionId;
-      const newSessionId = shouldResume && shouldForkSession
-        ? generateId()
-        : (shouldResume ? instance.sessionId : generateId());
-      instance.sessionId = newSessionId;
-
-      const spawnOptions: UnifiedSpawnOptions = {
-        instanceId: instance.id,
-        sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
-        workingDirectory: instance.workingDirectory,
-        systemPrompt: newAgent.systemPrompt,
-        yoloMode: instance.yoloMode,
-        launchMode: instance.launchMode,
-        model: instance.currentModel,
-        reasoningEffort: instance.reasoningEffort,
-        fastMode: instance.fastMode,
-        residentClaude: this.residentClaudeForSpawn(instance),
-        allowedTools: toolPermissions.allowedTools,
-        disallowedTools: toolPermissions.disallowedToolsForSpawn,
-        bare: instance.bareMode === true,
-        resume: shouldResume,
-        forkSession: shouldForkSession,
-        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation, instance.id) ?? undefined,
-        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
-          instance.executionLocation,
-          instance.id,
-          cliType,
-        ) ?? undefined,
-        nodePlacement: instance.nodePlacement,
-        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: stampRtkArm(instance, this.spawnConfigBuilder.getRtkSpawnConfig(instance.id), cliType, instance.executionLocation.type === 'local'),
-      };
-
-      let adapter = await this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
-
-      this.deps.setupAdapterEvents(instanceId, adapter);
-      this.deps.setAdapter(instanceId, adapter);
-
-      try {
-        let pid: number;
-        try {
-          pid = await adapter.spawn();
-          instance.processId = pid;
-          if (shouldResume && !(await this.waitForResumeHealth(instanceId))) {
-            throw new Error('Native resume did not stabilize after agent mode change');
-          }
-          await this.waitForInputReadinessBoundary(instanceId, adapter);
-        } catch (spawnError) {
-          if (shouldResume) {
-            logger.warn('Failed to spawn with resume, falling back to fresh session', { ...errorDiagnostic(spawnError), instanceId });
-            // Strip listeners before terminate so the doomed adapter's exit is
-            // not handled as a real instance exit → `error` (LT-008).
-            adapter.removeAllListeners();
-            await adapter.terminate(true);
-
-            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId(),
-              mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
-              browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id, cliType) ?? undefined,
-            };
-            instance.sessionId = fallbackOptions.sessionId;
-            adapter = await this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
-            this.deps.setupAdapterEvents(instanceId, adapter);
-            this.deps.setAdapter(instanceId, adapter);
-
-            pid = await adapter.spawn();
-            try {
-              await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
-            } catch (err) {
-              logger.warn('writeThroughIdentity failed after fresh fallback (agent-mode-change)', {
-                instanceId,
-                ...errorDiagnostic(err),
-              });
-            }
-            await this.waitForInputReadinessBoundary(instanceId, adapter);
-
-            if (hasConversation) {
-              this.prepareStatusForAdapterInput(instance);
-              await this.sendHeldHistory(instanceId, adapter, await this.buildFallbackHistory(instance, 'resume-failed-fallback'));
-            }
-          } else {
-            throw spawnError;
-          }
-        }
-
-        instance.processId = pid;
-        this.transitionState(instance, 'idle');
-        logger.info('Agent mode changed successfully', { instanceId, newAgentId, pid, resumed: shouldResume });
-
-        if (!shouldResume && hasConversation) {
-          await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, 'agent-mode-change'));
-        }
-
-        // Build a mode transition message. When resuming, the system prompt can't be changed,
-        // so we send an authoritative message that overrides the previous mode's instructions.
-        let modeChangeMessage: string;
-        if (oldAgentId === 'plan' && newAgentId !== 'plan') {
-          // Explicitly revoke plan mode restrictions since the old system prompt persists in the session
-          modeChangeMessage = `[SYSTEM MODE CHANGE - IMPORTANT]
-Your mode has been changed from PLAN to ${newAgent.name.toUpperCase()}.
-ALL previous PLAN MODE restrictions are now LIFTED. You are NO LONGER in plan mode.
-You now have FULL access to: read files, write files, edit files, execute bash commands, and all other tools.
-${newAgent.systemPrompt ? `New instructions: ${newAgent.systemPrompt}` : `You are in ${newAgent.name} mode: ${newAgent.description || 'Full access mode.'}`}
-Proceed with implementation. Do NOT request to switch modes - you are already in ${newAgent.name} mode.`;
-        } else {
-          modeChangeMessage = `[System: Agent mode changed to ${newAgent.name}. ${newAgent.description || ''}${newAgent.systemPrompt ? `\n\nNew instructions:\n${newAgent.systemPrompt}` : ''}]`;
-        }
-        await adapter.sendInput(modeChangeMessage);
-      } catch (error) {
-        this.transitionState(instance, 'error');
-        logger.error('Failed to change agent mode', undefined, { ...errorDiagnostic(error), instanceId, newAgentId });
-        throw error;
-      }
-
-      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
-      this.emit('agent-changed', {
-        instanceId,
-        oldAgentId,
-        newAgentId,
-        agentName: newAgent.name
-      });
-
-      return instance;
-    } finally {
-      release();
-    }
+    return changeAgentModeImpl({
+      ...this.deps,
+      transitionState: (instance, status) => this.transitionState(instance, status),
+      getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
+      resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
+      residentClaudeForSpawn: (instance) => this.residentClaudeForSpawn(instance),
+      createRuntimeAdapter: (cliType, options, location) => this.createRuntimeAdapter(cliType, options, location),
+      waitForResumeHealth: (id) => this.waitForResumeHealth(id),
+      waitForInputReadinessBoundary: (id, adapter) => this.waitForInputReadinessBoundary(id, adapter),
+      prepareStatusForAdapterInput: (instance) => this.prepareStatusForAdapterInput(instance),
+      buildFallbackHistory: (instance, reason) => this.buildFallbackHistory(instance, reason),
+      buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
+      spawnConfigBuilder: this.spawnConfigBuilder,
+      emitAgentChanged: (payload) => { this.emit('agent-changed', payload); },
+      emitSystemNotice: (instance, content, metadata) => this.emitSystemNotice(instance, content, metadata),
+    }, instanceId, newAgentId);
   }
 
   // ============================================

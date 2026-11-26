@@ -26,10 +26,10 @@ describe('ShortcutHintPipe', () => {
   });
 
   it('reflects a user customization made after the pipe was created (impure)', () => {
-    const before = pipe.transform('focus-input');
-    service.customizeBinding('focus-input', { key: 'q', modifiers: ['meta', 'alt', 'shift'] });
-    const after = pipe.transform('focus-input');
+    const before = pipe.transform('focus-output');
+    service.customizeBinding('focus-output', { key: 'q', modifiers: ['meta', 'alt', 'shift'] });
+    const after = pipe.transform('focus-output');
     expect(after).not.toBe(before);
-    expect(after).toBe(service.formatBindingByAction('focus-input'));
+    expect(after).toBe(service.formatBindingByAction('focus-output'));
   });
 });

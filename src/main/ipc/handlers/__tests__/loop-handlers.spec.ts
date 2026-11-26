@@ -7,6 +7,8 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../../../shared/types/loop.types';
 import { RESUME_OPERATOR_REVIEWED_FALLBACK_MAX_COST_CENTS, buildExistingSessionContext, registerLoopHandlers } from '../loop-handlers';
+import { getLoopViewFocus, setLoopViewFocus, _resetLoopViewFocusForTesting } from '../../../orchestration/loop-view-focus';
+import { _resetLoopPauseNotificationsForTesting } from '../../../orchestration/loop-pause-notification';
 import { ipcMain } from 'electron';
 
 const hoisted = vi.hoisted(() => ({
@@ -1675,5 +1677,43 @@ describe('LOOP_LIST_RUNS handler (global recent-run read model)', () => {
     expect(response.success).toBe(false);
     expect(response.error?.code).toBe('LOOP_LIST_RUNS_FAILED');
     expect(hoisted.store.listRuns).not.toHaveBeenCalled();
+  });
+});
+
+describe('LOOP_VIEW_FOCUS handler (4a change 3)', () => {
+  function register(): void {
+    registerLoopHandlers({
+      windowManager: { sendToRenderer: vi.fn() } as never,
+      instanceManager: makeInstanceManager([]),
+    });
+  }
+
+  beforeEach(() => {
+    _resetLoopViewFocusForTesting();
+    _resetLoopPauseNotificationsForTesting();
+  });
+
+  it('records the loop the HUD reports and clears it on a null report', async () => {
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_VIEW_FOCUS);
+    expect(getLoopViewFocus()).toBeNull();
+
+    expect(await handler({}, { loopRunId: 'loop-1' })).toEqual({ success: true, data: { ok: true } });
+    expect(getLoopViewFocus()).toBe('loop-1');
+
+    expect(await handler({}, { loopRunId: null })).toEqual({ success: true, data: { ok: true } });
+    expect(getLoopViewFocus()).toBeNull();
+  });
+
+  it('rejects an invalid payload before touching the view focus', async () => {
+    register();
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_VIEW_FOCUS);
+    setLoopViewFocus('loop-kept');
+
+    const response = await handler({}, { loopRunId: '' });
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('LOOP_VIEW_FOCUS_FAILED');
+    expect(getLoopViewFocus()).toBe('loop-kept');
   });
 });

@@ -3,6 +3,7 @@ import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type { Instance } from '../../../shared/types/instance.types';
 import type { RawCliPayload } from './claude-cli-adapter.types';
 import { processClaudeAssistantMessage, type ClaudeAssistantMessageHost } from './claude-assistant-message';
+import { applyClaudeResultUsage } from './claude-result-usage';
 import { recordInstanceContextCall } from '../../context/instance-cache-usage';
 import { CacheAnalyticsService } from '../../context/cache-analytics-service';
 
@@ -125,5 +126,34 @@ describe('claude per-call cache accounting across multi-frame calls', () => {
     expect(contexts.map(context => context['used'])).toEqual([20_005, 20_005, 20_005]);
     expect(host.lastObservedContextUsage).toEqual({ used: 20_005, total: 200_000 });
     expect(host.hasPerCallUsageThisTurn).toBe(true);
+  });
+});
+
+function host() {
+  return { emit: vi.fn().mockReturnValue(true), rememberToolUse: vi.fn(), emitAsyncWork: vi.fn(), emitAskUserQuestionInputRequired: vi.fn(), lastKnownContextWindow: 200_000, hasPerCallUsageThisTurn: false, lastObservedContextUsage: { used: 1000, total: 200_000 } } satisfies ClaudeAssistantMessageHost;
+}
+const helperMessage = { type: 'assistant', timestamp: 1 } as CliStreamMessage;
+describe('main conversation context usage', () => {
+  it('does not let helper usage overwrite the ring, but keeps output and busy status', () => {
+    const h = host();
+    processClaudeAssistantMessage(h, helperMessage, { type: 'assistant', parent_tool_use_id: 'helper', message: { content: [{ type: 'text', text: 'helper output' }], usage: { input_tokens: 180_000 } } });
+    expect(h.emit.mock.calls.filter(([event]) => event === 'context')).toEqual([]);
+    expect(h.lastObservedContextUsage.used).toBe(1000); expect(h.hasPerCallUsageThisTurn).toBe(false);
+    expect(h.emit).toHaveBeenCalledWith('status', 'busy'); expect(h.emit).toHaveBeenCalledWith('output', expect.objectContaining({ content: 'helper output' }));
+  });
+  it('keeps main-thread usage authoritative and result cost cannot overwrite it', () => {
+    const h = host();
+    processClaudeAssistantMessage(h, helperMessage, { type: 'assistant', parent_tool_use_id: '', message: { usage: { input_tokens: 2000 } } });
+    processClaudeAssistantMessage(h, helperMessage, { type: 'assistant', parent_tool_use_id: 'helper', message: { usage: { input_tokens: 180_000 } } });
+    applyClaudeResultUsage({ ...h, contextWindowFloor: 200_000 }, { type: 'result', total_cost_usd: 0.1, usage: { input_tokens: 190_000 } });
+    expect(h.lastObservedContextUsage.used).toBe(2000);
+    expect(h.emit.mock.calls.filter(([event]) => event === 'context')).toHaveLength(1);
+    expect(h.emit).toHaveBeenCalledWith('cost', { costEstimate: 0.1 });
+  });
+  it('allows the result fallback when only helper frames supplied usage', () => {
+    const h = host();
+    processClaudeAssistantMessage(h, helperMessage, { type: 'assistant', parent_tool_use_id: 'helper', message: { usage: { input_tokens: 180_000 } } });
+    applyClaudeResultUsage({ ...h, contextWindowFloor: 200_000 }, { type: 'result', usage: { input_tokens: 3000 } });
+    expect(h.emit).toHaveBeenCalledWith('context', expect.objectContaining({ used: 3000 }));
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Memory IPC Handlers
- * Handles Memory-R1, Unified Memory, Debate, and Training operations
+ * Handles Memory-R1, Unified Memory, and Debate operations
  */
 
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
@@ -42,7 +42,6 @@ import {
   UnifiedMemoryRecordWorkflowPayloadSchema,
   UnifiedMemoryRetrievePayloadSchema,
 } from '@contracts/schemas/session';
-// Training handlers moved to training-ipc-handler.ts
 import type {
   MemoryManagerDecision,
   MemoryEntry,
@@ -51,7 +50,6 @@ import type {
 } from '../../shared/types/memory-r1.types';
 import type { ActiveDebate, DebateStats } from '../../shared/types/debate.types';
 import { validatedHandler } from './validated-handler';
-// Training types moved to training-ipc-handler.ts
 
 function success<T>(data: T): IpcResponse<T> {
   return { success: true, data };
@@ -82,7 +80,6 @@ export function registerMemoryHandlers(deps: RegisterMemoryHandlersDeps = {}): v
   registerMemoryR1Handlers(deps);
   registerUnifiedMemoryHandlers(deps);
   registerDebateHandlers(deps);
-  // Note: Training handlers are registered separately via training-ipc-handler.ts
 }
 
 // ============ Memory-R1 Handlers ============
@@ -585,5 +582,3 @@ function createMemoryHandlerRegistrar(deps: RegisterMemoryHandlersDeps) {
     });
   };
 }
-
-// Note: Training handlers (GRPO) are now registered in training-ipc-handler.ts

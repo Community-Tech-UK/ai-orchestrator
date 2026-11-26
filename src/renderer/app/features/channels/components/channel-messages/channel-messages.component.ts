@@ -27,7 +27,7 @@ import { ChannelStore } from '../../../../core/state/channel.store';
       </div>
 
       <div class="filters">
-        <select class="filter-select" (change)="platformFilter.set($any($event.target).value)">
+        <select class="filter-select" aria-label="Filter by platform" (change)="platformFilter.set($any($event.target).value)">
           <option value="all">All Platforms</option>
           <option value="discord">Discord</option>
           <option value="whatsapp">WhatsApp</option>

@@ -70,6 +70,7 @@ interface AgentConfig {
                       <span class="field-label">Personality</span>
                       <select
                         class="field-select"
+                        aria-label="Personality"
                         [(ngModel)]="agent.personality"
                         (change)="updateAgentConfig(agent)"
                       >
@@ -85,6 +86,7 @@ interface AgentConfig {
                       <input
                         type="number"
                         class="field-input"
+                        aria-label="Timeout (seconds)"
                         [(ngModel)]="agent.timeout"
                         min="30"
                         max="600"
@@ -140,6 +142,7 @@ interface AgentConfig {
                   <span class="field-label">Strategy</span>
                   <select
                     class="field-select"
+                    aria-label="Strategy"
                     [(ngModel)]="synthesisStrategy"
                     (change)="updateSynthesisConfig()"
                   >
@@ -155,6 +158,7 @@ interface AgentConfig {
                     <input
                       type="number"
                       class="field-input"
+                      aria-label="Debate Rounds"
                       [(ngModel)]="debateRounds"
                       min="2"
                       max="6"
@@ -168,10 +172,11 @@ interface AgentConfig {
               <div class="field-row">
                 <div class="field">
                   <span class="field-label">Convergence Threshold</span>
-                  <input
-                    type="range"
-                    class="field-range"
-                    [(ngModel)]="convergenceThreshold"
+                    <input
+                      type="range"
+                      class="field-range"
+                      aria-label="Convergence Threshold"
+                      [(ngModel)]="convergenceThreshold"
                     min="0.5"
                     max="1"
                     step="0.05"
@@ -182,10 +187,11 @@ interface AgentConfig {
 
                 <div class="field">
                   <span class="field-label">Min Agreement</span>
-                  <input
-                    type="range"
-                    class="field-range"
-                    [(ngModel)]="minAgreement"
+                    <input
+                      type="range"
+                      class="field-range"
+                      aria-label="Min Agreement"
+                      [(ngModel)]="minAgreement"
                     min="0.3"
                     max="0.9"
                     step="0.05"

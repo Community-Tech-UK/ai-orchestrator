@@ -72,6 +72,9 @@
             <option value="continue">Continue</option>
             <option value="halt">Halt</option>
           </select>
+          @if (onNodeNeedsReview() === 'continue') {
+            <span class="cp-policy-hint">A step whose checks were skipped still pauses the campaign.</span>
+          }
         </label>
         <label class="cp-check">
           <input type="checkbox" [ngModel]="isolationEnabled()" (ngModelChange)="isolationEnabled.set($event)" />

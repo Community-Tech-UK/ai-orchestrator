@@ -21,14 +21,19 @@ export const RULE_CATALOGUE: Record<RuleCode, { title: string; fix: string; stat
   ['H10', 'Clickable non-control without a role', 'Use a real control or supply a role and keyboard handling.'],
   ['H11', 'Hover outside templates', 'Move authored hover text into an analysed template.'],
   ['H12', 'Measurement or exemption integrity', 'Fix the unreadable template, inert directive, or stale exemption.'],
-].map(([code, title, fix]) => [code, { title, fix: fix + (code !== 'H6' && code !== 'H7' && code !== 'H8' && code !== 'H12' ? guide : ''), status: (RULE_CODES as readonly string[]).includes(code!) ? 'ratchet' : code === 'H9' || code === 'H12' ? 'hard' : 'report' }])) as Record<RuleCode, { title: string; fix: string; status: string }>;
+  ['H13', 'Form field has no accessible name', 'Give the field a readable label or accessible name.'],
+  ['H14', 'Control contents require inspection', 'Inspect the child component; keep its per-owner opaque-control record current.'],
+].map(([code, title, fix]) => [code, { title, fix: fix + (code !== 'H6' && code !== 'H7' && code !== 'H8' && code !== 'H12' ? guide : ''), status: (RULE_CODES as readonly string[]).includes(code!) ? 'ratchet' : code === 'H9' || code === 'H12' || code === 'H13' ? 'hard' : 'report' }])) as Record<RuleCode, { title: string; fix: string; status: string }>;
 export const reasonKey = (fact: ElementFact): string => `${fact.ownerFile}#${fact.tag}.${fact.firstClass}`;
+export const isOpaqueControl = (fact: ElementFact): boolean => fact.control && fact.opaque && !fact.dataText && !fact.visible.some(text => WORD.test(text));
 export function evaluateFacts(facts: ElementFact[], reasons: Record<string, string> = HOVER_ONLY_REASONS): Violation[] {
   const violations: Violation[] = [];
   const usedReasons = new Set<string>();
   for (const fact of facts) {
     const add = (code: RuleCode, message = RULE_CATALOGUE[code].title): void => { violations.push({ code, ownerFile: fact.ownerFile, file: fact.file, line: fact.line, message }); };
     const eligible: RuleCode[] = [];
+    if (fact.field && !fact.name) eligible.push('H13');
+    if (isOpaqueControl(fact)) eligible.push('H14');
     if (fact.iconOnly && !fact.hidden) {
       if (!fact.name) eligible.push('H1a');
       else if (!fact.tooltip) eligible.push('H1b');

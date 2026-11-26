@@ -57,7 +57,7 @@
           >
             Block all
           </button>
-          <select
+          <select aria-label="Remember this decision for the batch"
             class="scope-select"
             [value]="batchScope()"
             (change)="batchScope.set($any($event.target).value)"

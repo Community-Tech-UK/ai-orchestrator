@@ -8,11 +8,15 @@ import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { LoopStore, type RefreshRecentRunsResult } from '../../core/state/loop.store';
 import { RepoJobStore } from '../../core/state/repo-job.store';
+import { GovernedProposalIpcService } from '../../core/services/ipc/governed-proposal-ipc.service';
+import { LearningScanIpcService } from '../../core/services/ipc/learning-scan-ipc.service';
+import type { GovernedProposal } from '../memory-review/memory-review.types';
 import { toWorkspaceId } from '../../../../shared/utils/workspace-key';
 import { WorkboardStore } from './workboard.store';
 import type { WorkboardInstanceInput } from './workboard.types';
 import { needsYouTestSources } from './needs-you.testing';
 import { NeedsYouStore } from './needs-you.store';
+import { MemoryReviewStore } from '../memory-review/memory-review.store';
 
 const NOW = 1_700_000_000_000;
 
@@ -43,6 +47,51 @@ function loop(overrides: Partial<LoopRunSummaryPayload> = {}): LoopRunSummaryPay
     initialPrompt: 'do it',
     iterationPrompt: null,
     ...overrides,
+  };
+}
+
+function proposal(overrides: Partial<GovernedProposal> = {}): GovernedProposal {
+  return {
+    id: 'rev-1',
+    kind: 'memory',
+    status: 'pending',
+    provenance: 'agent-derived',
+    title: 'Lesson: check locks',
+    description: 'Lesson: check locks',
+    payloadJson: JSON.stringify({
+      text: 'Lesson: check locks',
+      normalizedText: 'lesson: check locks',
+    }),
+    sourceSessionId: 'loop-run-1',
+    sourceMessageId: null,
+    createdAt: NOW - 1000,
+    decidedAt: null,
+    decidedBy: null,
+    decisionRationale: null,
+    reinforcements: 1,
+    relatedIdsJson: '[]',
+    tagsJson: '[]',
+    ...overrides,
+  };
+}
+
+function fakeGovernedProposalIpc() {
+  return {
+    onChanged: vi.fn((): (() => void) => () => { /* no push listener in tests */ }),
+    list: vi.fn(async (): Promise<{ success: boolean; data?: GovernedProposal[]; error?: { message: string } }> => ({
+      success: true,
+      data: [],
+    })),
+    get: vi.fn(async () => ({ success: false, error: { message: 'not used in these tests' } })),
+    approve: vi.fn(),
+    reject: vi.fn(),
+  };
+}
+
+function fakeLearningScanIpc() {
+  return {
+    run: vi.fn(),
+    getStatus: vi.fn(async () => ({ success: true, data: null })),
   };
 }
 
@@ -85,6 +134,8 @@ describe('WorkboardStore', () => {
   let automationStore: ReturnType<typeof fakeAutomationStore>;
   let loopStore: ReturnType<typeof fakeLoopStore>;
   let repoJobStore: ReturnType<typeof fakeRepoJobStore>;
+  let governedIpc: ReturnType<typeof fakeGovernedProposalIpc>;
+  let scanIpc: ReturnType<typeof fakeLearningScanIpc>;
   let store: WorkboardStore;
 
   beforeEach(() => {
@@ -93,6 +144,8 @@ describe('WorkboardStore', () => {
     automationStore = fakeAutomationStore();
     loopStore = fakeLoopStore();
     repoJobStore = fakeRepoJobStore();
+    governedIpc = fakeGovernedProposalIpc();
+    scanIpc = fakeLearningScanIpc();
 
     TestBed.configureTestingModule({
       providers: [
@@ -102,6 +155,11 @@ describe('WorkboardStore', () => {
         { provide: AutomationStore, useValue: automationStore },
         { provide: LoopStore, useValue: loopStore },
         { provide: RepoJobStore, useValue: repoJobStore },
+        // The real MemoryReviewStore against stubbed IPC (replacing the shared
+        // narrow double), so the 7j hydration path is exercised end to end.
+        MemoryReviewStore,
+        { provide: GovernedProposalIpcService, useValue: governedIpc },
+        { provide: LearningScanIpcService, useValue: scanIpc },
       ],
     });
     store = TestBed.inject(WorkboardStore);
@@ -208,7 +266,7 @@ describe('WorkboardStore', () => {
     expect(store.selectedWorkboardItem()).toBeNull();
   });
 
-  it('refreshes all three sources in parallel and reports partial errors without clearing others', async () => {
+  it('refreshes all four sources in parallel and reports partial errors without clearing others', async () => {
     loopStore.recentRuns.set([loop({ id: 'loop-keep' })]);
     loopStore.refreshRecentRuns.mockResolvedValueOnce({ ok: false, error: 'loop offline' });
     repoJobStore.refresh.mockResolvedValueOnce(false);
@@ -219,11 +277,61 @@ describe('WorkboardStore', () => {
     expect(loopStore.refreshRecentRuns).toHaveBeenCalled();
     expect(automationStore.refresh).toHaveBeenCalled();
     expect(repoJobStore.refresh).toHaveBeenCalledWith(false);
+    expect(governedIpc.list).toHaveBeenCalled();
     expect(store.loopError()).toBe('loop offline');
     expect(store.repoJobError()).toBe('jobs offline');
     expect(store.automationError()).toBeNull();
+    expect(store.memoryReviewError()).toBeNull();
     // A failed loop refresh does not clear the other sources' held data.
     expect(store.items().some((i) => i.id === 'loop-run:loop-keep')).toBe(true);
+  });
+
+  describe('memory-review source (7j hydration)', () => {
+    const memoryReviewKeys = () => store.requests()
+      .filter((entry) => entry.source === 'memory-review').map((entry) => entry.key);
+
+    it('hydrates existing reviews through Workboard refresh without a prior Memory review page visit', async () => {
+      // A pending review already exists when the Workboard opens; the Memory
+      // review page has never run, so the Workboard's own refresh is the only
+      // load path. Regression for the review-less Needs You lane.
+      governedIpc.list.mockResolvedValue({ success: true, data: [proposal({ id: 'rev-1' })] });
+
+      await store.refresh();
+
+      expect(governedIpc.list).toHaveBeenCalledTimes(1);
+      // Pending reviews reach Needs you as request entries (needs-you-sources), not as Workboard cards.
+      expect(memoryReviewKeys()).toEqual(['memory-review:rev-1']);
+      expect(store.memoryReviewError()).toBeNull();
+    });
+
+    it('re-lists reviews on every refresh so a missed push event is caught by the tick', async () => {
+      await store.refresh();
+      expect(memoryReviewKeys()).toEqual([]);
+
+      // The push event never arrived; only the Workboard's periodic refresh
+      // (the polling backstop) can catch up.
+      governedIpc.list.mockResolvedValue({ success: true, data: [proposal({ id: 'rev-2' })] });
+      await store.refresh();
+
+      expect(governedIpc.list).toHaveBeenCalledTimes(2);
+      expect(memoryReviewKeys()).toEqual(['memory-review:rev-2']);
+    });
+
+    it('reports a memory-review source error without clearing other sources, and retries', async () => {
+      instanceStore.instances.set([instance({ id: 'inst-1' })]);
+      governedIpc.list.mockResolvedValue({ success: false, error: { message: 'review store offline' } });
+
+      await store.refresh();
+
+      expect(store.memoryReviewError()).toBe('review store offline');
+      expect(store.items().some((i) => i.id === 'instance:inst-1')).toBe(true);
+
+      governedIpc.list.mockResolvedValue({ success: true, data: [] });
+      await store.retryMemoryReviews();
+
+      expect(governedIpc.list).toHaveBeenCalledTimes(2);
+      expect(store.memoryReviewError()).toBeNull();
+    });
   });
 
   describe('WS-C2 snooze with hand-raise', () => {

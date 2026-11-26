@@ -32,7 +32,7 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
       </svg>
     </button>
     @if (open()) {
-      <button type="button" class="backdrop" data-ui-hints-exempt="backdrop" aria-label="Close Session options" (click)="open.set(false); trigger.focus()"></button>
+      <button type="button" class="backdrop" tabindex="-1" aria-hidden="true" aria-label="Close Session options" (click)="open.set(false); trigger.focus()"></button>
       <section class="options" role="dialog" aria-label="Session options" (keydown.escape)="close($event, trigger)">
         <p class="posture">{{ posture() }}</p>
         <div class="option">

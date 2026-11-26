@@ -28,6 +28,7 @@ import {
 import type {
   WorkboardInstanceInput,
   WorkboardItem,
+  WorkboardMemoryReviewInput,
   WorkboardLane,
   WorkboardLanes,
   WorkboardProjectionInput,
@@ -148,6 +149,40 @@ export function repoJobStatusToPhase(status: RepoJobStatus): WorkflowLifecyclePh
 
 function isTerminalPhase(phase: WorkflowLifecyclePhase): boolean {
   return phase === 'completed' || phase === 'failed' || phase === 'cancelled';
+}
+
+// ---------------------------------------------------------------------------
+// Memory reviews (part 7j): a pending review is a "Needs you" item at once.
+// ---------------------------------------------------------------------------
+
+function attentionLevelForMemoryReviewStatus(
+  status: WorkboardMemoryReviewInput['status'],
+): AttentionLevel {
+  // A pending proposal is a human-decision review item; a decided one is idle.
+  return status === 'pending' ? 'review' : 'idle';
+}
+
+/** Memory-review status → lane (part 7j). */
+export function memoryReviewStatusToLane(status: WorkboardMemoryReviewInput['status']): WorkboardLane {
+  return attentionLevelToLane(attentionLevelForMemoryReviewStatus(status));
+}
+
+function memoryReviewToCandidate(review: WorkboardMemoryReviewInput): Candidate {
+  const terminal = review.status !== 'pending';
+  return {
+    relation: {
+      kind: 'memory-review',
+      id: review.id,
+      rawStatus: review.status,
+      phase: terminal ? 'completed' : 'pending',
+      lane: memoryReviewStatusToLane(review.status),
+      attentionLevel: attentionLevelForMemoryReviewStatus(review.status),
+      updatedAt: review.decidedAt ?? review.createdAt,
+      terminal,
+    },
+    title: review.title,
+    workingDirectory: '',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -378,6 +413,9 @@ function buildItem(
       case 'repo-job':
         item.repoJobId ??= relation.id;
         break;
+      case 'memory-review':
+        item.memoryReviewId ??= relation.id;
+        break;
       default:
         return assertNever(relation.kind);
     }
@@ -431,6 +469,13 @@ export function correlateWorkboard(input: Omit<WorkboardProjectionInput, 'now'>)
     const instanceRelation = takeInstance(candidate.backingInstanceId);
     if (instanceRelation) related.push(instanceRelation);
     items.push(buildItem(candidate, related, knownInstanceIds));
+  }
+
+  // Tier 1b — memory reviews (part 7j). Standalone items: a pending review
+  // must show in Needs You the moment it exists, and it consumes nothing.
+  const memoryReviewCandidates = input.memoryReviews.map(memoryReviewToCandidate).sort(byIdAsc);
+  for (const candidate of memoryReviewCandidates) {
+    items.push(buildItem(candidate, [], knownInstanceIds));
   }
 
   // Tier 2 — automation runs. Consume linked loop + instance.

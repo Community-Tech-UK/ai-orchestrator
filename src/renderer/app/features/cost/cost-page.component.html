@@ -46,9 +46,9 @@
   <!-- Metric cards row 1: cost & session aggregates -->
   <div class="metrics-row">
     <div class="metric-card">
-      <div class="metric-value" [attr.tabindex]="showCost() && hasEstimatedEntries() ? 0 : null" [appTooltip]="showCost() && hasEstimatedEntries() ? ('Includes ' + money(totalEstimatedCost()) + ' estimated (no provider-reported usage for those turns)') : ''">
+      <output class="metric-value" aria-live="off" [attr.aria-label]="estimatedTotalTitle() || null" [appTooltip]="estimatedTotalTitle()">
         {{ money(totalCost()) }}
-      </div>
+      </output>
       <div class="metric-label">
         API-price equivalent
         @if (hasEstimatedEntries()) {
@@ -119,7 +119,7 @@
                   <td class="num-col">{{ formatTokens(row.cacheReadTokens) }}</td>
                   <td class="num-col">{{ formatTokens(row.cacheWriteTokens) }}</td>
                   <td class="num-col">{{ formatTokens(row.outputTokens) }}</td>
-                  <td class="num-col mono">
+                  <td class="num-col mono" [attr.tabindex]="row.estimatedCost > 0 ? 0 : null" [attr.aria-label]="row.costHint || null" [appTooltip]="row.costHint">
                     @if (row.unknownCostCalls === row.calls && row.cost === 0) { Unknown }
                     @else { {{ row.estimatedCost > 0 ? '~' : '' }}{{ money(row.cost) }} }
                     @if (row.helperCost && row.helperCost > 0) {
@@ -196,17 +196,17 @@
     <div class="metric-card" [class.over-budget]="budgetStatus().daily.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().daily.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Daily Budget Used</div>
-      <div class="metric-sub">{{ money(budgetStatus().daily.usage) }} / {{ money(budgetStatus().daily.limit, 2) }}</div>
+      <div class="metric-sub">{{ money(budgetStatus().daily.usage) }} / {{ money(budgetStatus().daily.limit) }}</div>
     </div>
     <div class="metric-card" [class.over-budget]="budgetStatus().weekly.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().weekly.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Weekly Budget Used</div>
-      <div class="metric-sub">{{ money(budgetStatus().weekly.usage) }} / {{ money(budgetStatus().weekly.limit, 2) }}</div>
+      <div class="metric-sub">{{ money(budgetStatus().weekly.usage) }} / {{ money(budgetStatus().weekly.limit) }}</div>
     </div>
     <div class="metric-card" [class.over-budget]="budgetStatus().monthly.percentage >= 100">
       <div class="metric-value">{{ budgetStatus().monthly.percentage.toFixed(1) }}%</div>
       <div class="metric-label">Monthly Budget Used</div>
-      <div class="metric-sub">{{ money(budgetStatus().monthly.usage) }} / {{ money(budgetStatus().monthly.limit, 2) }}</div>
+      <div class="metric-sub">{{ money(budgetStatus().monthly.usage) }} / {{ money(budgetStatus().monthly.limit) }}</div>
     </div>
     <div class="metric-card">
       <div class="metric-value">{{ modelCount() }}</div>
@@ -261,7 +261,7 @@
             @for (row of modelRows(); track row.model) {
               <tr>
                 <td class="provider-cell">{{ row.model }}</td>
-                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
+                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [attr.aria-label]="row.costHint || null" [appTooltip]="row.costHint">
                   {{ row.hasEstimated ? '~' : '' }}{{ modelCostLabel(row) }}
                 </td>
                 <td class="num-col">
@@ -306,8 +306,8 @@
                 <td class="truncate-cell"><button type="button" class="btn session-open" [appTooltip]="row.sessionId" appTooltipFormat="code"
                   [disabled]="!costLabel(row.sessionId, row.instanceId).target" (click)="openSession(row.sessionId, row.instanceId)">{{ costLabel(row.sessionId, row.instanceId).title }}</button>
                   <button type="button" class="btn" [attr.aria-expanded]="expandedSessions().has(row.sessionId)" (click)="toggleSession(row)">Models and helpers</button></td>
-                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [appTooltip]="row.hasEstimated ? 'Includes at least one estimated entry (no provider-reported usage for that turn)' : ''">
-                  {{ row.hasEstimated ? '~' : '' }}{{ row.provider === 'copilot' && row.cost === 0 ? 'AI credits' : money(row.cost, 6) }}
+                <td class="num-col mono" [attr.tabindex]="row.hasEstimated ? 0 : null" [attr.aria-label]="row.provider === 'copilot' && row.cost === 0 ? null : row.costHint || null" [appTooltip]="row.provider === 'copilot' && row.cost === 0 ? '' : row.costHint">
+                  {{ row.hasEstimated ? '~' : '' }}{{ row.provider === 'copilot' && row.cost === 0 ? 'AI credits' : money(row.cost) }}
                 </td>
                 <td class="num-col">
                   <div class="bar-cell">
@@ -323,7 +323,7 @@
                 <tr><td [attr.colspan]="hasCredits() ? 6 : 5">
                   @if (breakdowns().get(row.sessionId); as detail) {
                     @if (detail.splitAvailable === false) { <p>Main/helper split not available yet.</p> }
-                    @else if (row.provider !== 'copilot' || detail.totalCostUsd > 0) { <p>Main conversation about {{ money(detail.mainCostUsd, 2) }} · helper agents and side models about {{ money(detail.helperCostUsd, 2) }}</p> }
+                    @else if (row.provider !== 'copilot' || detail.totalCostUsd > 0) { <p>Main conversation about {{ money(detail.mainCostUsd) }} · helper agents and side models about {{ money(detail.helperCostUsd) }}</p> }
                     @for (model of detail.byModel; track model.model) { <p>{{ model.model }} · {{ formatTokens(model.inputTokens + model.cacheReadTokens + model.cacheWriteTokens + model.outputTokens) }} tokens · {{ sessionModelCostLabel(model, row.provider) }}</p> }
                     @if (detail.aiCreditsNano !== undefined) { <p>{{ (detail.aiCreditsNano / 1000000000).toLocaleString() }} AI credits</p> }
                   } @else { <p>Not available yet</p> }
@@ -356,14 +356,14 @@
             </tr>
           </thead>
           <tbody>
-            @for (entry of entries(); track entry.id) {
+            @for (entry of entryRows(); track entry.id) {
               <tr>
                 <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
                 <td>{{ entry.model }}</td>
                 <td class="truncate-cell"><button class="btn" type="button" [appTooltip]="entry.sessionId" appTooltipFormat="code" [disabled]="!costLabel(entry.sessionId, entry.instanceId).target" (click)="openSession(entry.sessionId, entry.instanceId)">{{ costLabel(entry.sessionId, entry.instanceId).title }}</button></td>
                 <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
                 <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>
-                <td class="num-col mono">{{ entry.isEstimated ? '~' : '' }}{{ entry.provider === 'copilot' ? 'AI credits' : money(entry.cost, 6) }}</td>
+                <td class="num-col mono" [attr.aria-label]="entry.provider === 'copilot' ? null : entry.costHint || null" [appTooltip]="entry.provider === 'copilot' ? '' : entry.costHint">{{ entry.isEstimated ? '~' : '' }}{{ entry.provider === 'copilot' ? 'AI credits' : money(entry.cost) }}</td>
                 <td>
                   @if (entry.isEstimated) {
                     <span class="estimated-badge" tabindex="0" [appTooltip]="estimatedEntryHint">~ estimated</span>

@@ -4,6 +4,7 @@ import { foldDetail, planQueueCheckGroupLabel, planQueueWaitsForTicketAnswer, pl
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
+import { splitFindings } from '../../../../../shared/types/plan-queue-finding-triage';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
 import { PLAN_QUEUE_STAGE_TICK_MS, planQueueStageLine } from '../../../../../shared/utils/plan-queue-stage-text';
 import type {
@@ -107,6 +108,8 @@ export class PlanQueueItemListComponent {
   protected readonly stepLabel = planQueueStepLabel;
   protected readonly isNotReached = isNotReachedItem;
   protected readonly notReachedLabel = PLAN_QUEUE_NOT_REACHED_LABEL;
+  protected readonly lowerSeverityFindings = (verdict: PlanQueueVerdict) => splitFindings(verdict.findings).optional;
+  protected readonly suggestionsAreOptional = (verdict: PlanQueueVerdict) => verdict.verdict === 'PASS' || splitFindings(verdict.findings).blocking.length > 0;
   protected readonly verdictSummary = planQueueVerdictSummary;
   protected readonly parkHelp = planQueueDisplayParkReason;
   protected readonly foldedDetail = foldDetail;

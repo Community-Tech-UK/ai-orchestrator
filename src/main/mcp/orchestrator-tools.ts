@@ -678,7 +678,7 @@ export function createOrchestratorToolDefinitions(
     {
       name: 'read_node_output',
       description:
-        'Read the output produced by an instance previously started with run_on_node. Returns the most recent messages (assistant text, tool calls/results, errors), the instance status, and a `done` flag indicating whether the turn has completed. Optionally waits a bounded time for the turn to finish.',
+        'Read the output produced by an instance previously started with run_on_node; other sessions are not readable here. Returns the most recent messages (assistant text, tool calls/results, errors), the instance status, and a `done` flag indicating whether the turn has completed. Optionally waits a bounded time for the turn to finish.',
       inputSchema: {
         type: 'object',
         properties: {

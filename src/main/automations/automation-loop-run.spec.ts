@@ -80,7 +80,7 @@ function makeDeps(over: Partial<AutomationLoopRunDeps> = {}): AutomationLoopRunD
       recordStopFailure: vi.fn(),
       addProcessedUsage: (_runId, _instanceId, _source, tokens) => { processed += tokens; return processed; },
       attachLoopRun: vi.fn((runId: string, loopRunId: string) => makeRun({ id: runId, loopRunId })),
-      terminalizeRun: vi.fn((runId: string, status: 'succeeded' | 'failed' | 'skipped' | 'cancelled', error?: string, outputSummary?: string) => {
+      terminalizeRun: vi.fn((runId: string, status: 'succeeded' | 'failed' | 'skipped' | 'cancelled' | 'needs-attention', error?: string, outputSummary?: string) => {
         const run = makeRun({ id: runId, status, error: error ?? null, outputSummary: outputSummary ?? null });
         terminalized.push(run);
         return run;
@@ -149,30 +149,51 @@ describe('AutomationLoopRunDispatcher.dispatch', () => {
 });
 
 describe('AutomationLoopRunDispatcher terminal resolution', () => {
-  it('keeps a resident invocation usable across an ordinary pause, then revokes it at end', async () => {
+  it('an ordinary pause ends the run as needs-attention with the pause reason', () => {
+    const deps = makeDeps();
+    const dispatcher = new AutomationLoopRunDispatcher(deps);
+    dispatcher.track('ordinary-pause', makeRun({ id: 'run-1', automationId: 'auto-1' }));
+    dispatcher.handleLoopStateChanged({ loopRunId: 'ordinary-pause', state: { status: 'paused', endReason: 'No progress after 3 checks' } });
+    expect(deps.store.terminalizeRun).toHaveBeenCalledWith('run-1', 'needs-attention', expect.stringContaining('No progress after 3 checks'), undefined,
+      { now: 1000, outputFullRef: undefined, monitorOutput: undefined });
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'needs-attention' }), { retryable: false });
+    dispatcher.handleLoopStateChanged({ loopRunId: 'ordinary-pause', state: { status: 'completed' } });
+    expect(deps.onTerminal).toHaveBeenCalledTimes(1);
+  });
+  it('revokes a resident invocation when an ordinary pause ends the run', async () => {
     const deps = makeDeps(); const dispatcher = await startTracked(deps);
     automationInvocations.configure(id => id);
     const scope = automationInvocations.prepare({ workingDirectory: '/repo', instanceId: automationLoopChatId('auto-1', 'run-1') }, 'claude')!;
     scope.bind({ terminate: vi.fn(async () => undefined) } as unknown as CliAdapter);
     const callerId = scope.options.mcpConfig![0];
-    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'paused' } });
     dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'running' } });
     expect(automationInvocations.get(callerId)?.runId).toBe('run-1');
-    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'completed' } });
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'paused' } });
     expect(automationInvocations.get(callerId)).toBeUndefined();
   });
-  it('a sign-off pause fails its automation once while an ordinary pause stays live', () => {
+  it('a sign-off pause ends the run as needs-attention once', () => {
     const deps = makeDeps();
     const dispatcher = new AutomationLoopRunDispatcher(deps);
     dispatcher.track('sign-off', makeRun({ id: 'run-1', automationId: 'auto-1' }));
-    dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'paused' } });
-    expect(deps.onTerminal).not.toHaveBeenCalled();
     dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'paused', lastCompletionOutcome: 'unverifiable' } });
-    expect(deps.store.terminalizeRun).toHaveBeenCalledWith('run-1', 'failed', expect.stringContaining('Loop paused for sign-off'), undefined,
+    expect(deps.store.terminalizeRun).toHaveBeenCalledWith('run-1', 'needs-attention', expect.stringContaining('Loop paused for sign-off'), undefined,
       { now: 1000, outputFullRef: undefined, monitorOutput: undefined });
     dispatcher.handleLoopStateChanged({ loopRunId: 'sign-off', state: { status: 'completed' } });
     expect(deps.onTerminal).toHaveBeenCalledTimes(1);
-    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }), { retryable: false });
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({ status: 'needs-attention' }), { retryable: false });
+  });
+  it('keeps the verification reason in a sign-off pause note', () => {
+    const deps = makeDeps();
+    const dispatcher = new AutomationLoopRunDispatcher(deps);
+    dispatcher.track('sign-off', makeRun({ id: 'run-1', automationId: 'auto-1' }));
+    dispatcher.handleLoopStateChanged({
+      loopRunId: 'sign-off',
+      state: { status: 'paused', lastCompletionOutcome: 'unverifiable', endReason: 'Verification command is missing' },
+    });
+    expect(deps.onTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'needs-attention',
+      error: 'Loop paused for sign-off: Verification command is missing. Open the loop to Accept or Resume it',
+    }), { retryable: false });
   });
   it('failed steps and ended provider limits fail the automation, parked limits stay live', () => {
     const deps = makeDeps(); const dispatcher = new AutomationLoopRunDispatcher(deps);
@@ -244,7 +265,7 @@ describe('AutomationLoopRunDispatcher terminal resolution', () => {
   it('ignores non-terminal states and untracked loop runs; resolves each run once', async () => {
     const deps = makeDeps();
     const dispatcher = await startTracked(deps);
-    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'paused' } });
+    dispatcher.handleLoopStateChanged({ loopRunId: 'loop-run-9', state: { status: 'running' } });
     dispatcher.handleLoopStateChanged({ loopRunId: 'other-loop', state: { status: 'completed' } });
     expect(deps.store.terminalizeRun).not.toHaveBeenCalled();
 

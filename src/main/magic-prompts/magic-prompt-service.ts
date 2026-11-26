@@ -168,6 +168,7 @@ export class MagicPromptService {
           yoloMode: false,
           timeout: MAGIC_PROMPT_TIMEOUT,
           maxBudgetUsd: cliType === 'claude' ? 0.25 : undefined,
+          noSessionPersistence: cliType === 'claude' ? true : undefined,
         },
         'internal',
       ),

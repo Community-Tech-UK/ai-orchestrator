@@ -12,6 +12,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { windowTodos } from './todo-window';
 import type { TodoItem } from '../../../../shared/types/todo.types';
+import { BackdropEscapeDirective } from '../../shared/backdrop-escape.directive';
 import { TodoStore } from '../../core/state/todo.store';
 import type { Instance } from '../../core/state/instance/instance.types';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -58,7 +59,7 @@ export const STRIP_EXPANDED_FIELD: StorageField<boolean> = {
 @Component({
   selector: 'app-session-progress-panel',
   standalone: true,
-  imports: [AioTooltipDirective, NgTemplateOutlet],
+  imports: [AioTooltipDirective, BackdropEscapeDirective, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (shouldRender()) {
@@ -162,10 +163,12 @@ export const STRIP_EXPANDED_FIELD: StorageField<boolean> = {
         <button
           type="button"
           class="ctx-menu-backdrop"
-          data-ui-hints-exempt="backdrop"
+          tabindex="-1"
+          aria-hidden="true"
+          appBackdropEscape
+          (appBackdropEscape)="outputMenu.set(null)"
           aria-label="Close menu"
           (click)="outputMenu.set(null)"
-          (keydown.escape)="outputMenu.set(null)"
           (contextmenu)="$event.preventDefault(); outputMenu.set(null)"
         ></button>
         <div class="ctx-menu" role="menu" [style.left.px]="menu.x" [style.top.px]="menu.y">

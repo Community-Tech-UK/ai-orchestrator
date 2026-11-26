@@ -5,7 +5,7 @@ import { _resetReclaimHoldsForTesting, holdFromReclaim } from './reclaim-holds';
 import type { MemoryPressureLevel } from '../memory/memory-monitor';
 
 /** Test-only view of the governor's private dependency bag. */
-type GovernorInternals = { deps: GovernorDependencies };
+interface GovernorInternals { deps: GovernorDependencies }
 
 /** The mocks below intentionally implement only the slice of each dependency the governor touches. */
 const asDeps = (deps: unknown): Partial<GovernorDependencies> => deps as Partial<GovernorDependencies>;
@@ -27,7 +27,7 @@ describe('ResourceGovernor', () => {
     terminateInstance: vi.fn(),
   };
   const mockLogger = {
-    info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+    info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(),
   };
 
   const mockDeps = {
@@ -160,6 +160,7 @@ describe('ResourceGovernor', () => {
   function makeCriticalHarness(
     idleInstances: { id: string; lastActivity: number; hasConversation?: boolean }[],
     config?: Record<string, unknown>,
+    sessionHostsActiveLoop: (id: string) => boolean = () => false,
   ) {
     const terminateInstance = vi.fn((_id: string, _graceful?: boolean) => Promise.resolve());
     const hibernateInstance = vi.fn((_id: string) => Promise.resolve());
@@ -193,6 +194,7 @@ describe('ResourceGovernor', () => {
         emitSystemMessage,
       }),
       getLogger: () => mockLogger,
+      sessionHostsActiveLoop,
     }), config as unknown as Partial<ResourceGovernorConfig>);
 
     const terminatedEvents: unknown[] = [];
@@ -340,6 +342,40 @@ describe('ResourceGovernor', () => {
     await Promise.resolve();
 
     expect(h.terminateInstance).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('preserves loop chats before applying the reclaim cap (conversation: %s)', async (hasConversation) => {
+    const h = makeCriticalHarness([
+      { id: 'loop-chat', lastActivity: Date.now() - 60 * 60_000, hasConversation },
+      { id: 'ordinary', lastActivity: Date.now() - 10 * 60_000, hasConversation },
+    ], { maxReclaimsPerCriticalEpisode: 1 }, (id) => id === 'loop-chat');
+
+    h.fireCritical();
+    await Promise.resolve();
+
+    expect(h.hibernateInstance).not.toHaveBeenCalledWith('loop-chat');
+    expect(h.terminateInstance).not.toHaveBeenCalledWith('loop-chat', true);
+    expect(h.emitSystemMessage).not.toHaveBeenCalledWith('loop-chat', expect.anything(), expect.anything());
+    if (hasConversation) expect(h.hibernateInstance).toHaveBeenCalledWith('ordinary');
+    else expect(h.terminateInstance).toHaveBeenCalledWith('ordinary', true);
+    expect(h.terminatedEvents).toEqual([{ count: 1, reason: 'memory-critical' }]);
+    expect(mockLogger.debug).toHaveBeenCalledWith('Skipping automatic cleanup of loop chat', { instanceId: 'loop-chat' });
+  });
+
+  it('keeps sessions when loop ownership inspection fails and still reports memory pressure', () => {
+    const h = makeCriticalHarness([
+      { id: 'unknown', lastActivity: 0, hasConversation: true },
+    ], undefined, () => { throw new Error('ownership unavailable'); });
+    const recovery = vi.fn();
+    h.g.on('memory:critical-recovery', recovery);
+
+    h.fireCritical();
+
+    expect(h.hibernateInstance).not.toHaveBeenCalled();
+    expect(h.terminateInstance).not.toHaveBeenCalled();
+    expect(h.emitSystemMessage).not.toHaveBeenCalled();
+    expect(recovery).toHaveBeenCalledOnce();
+    expect(mockLogger.warn).toHaveBeenCalledWith('Cannot inspect loop ownership; preserving session', { instanceId: 'unknown' });
   });
 
   it('should not emit creation:resumed after advisory warning pressure', () => {

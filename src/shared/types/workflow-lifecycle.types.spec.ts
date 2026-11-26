@@ -68,6 +68,7 @@ describe('workflow lifecycle projection', () => {
       failed: 'failed',
       skipped: 'cancelled',
       cancelled: 'cancelled',
+      'needs-attention': 'blocked',
     };
 
     it.each(Object.entries(cases))('maps %s -> %s', (status, phase) => {

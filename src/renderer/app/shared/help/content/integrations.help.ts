@@ -245,39 +245,6 @@ export const REMOTE_CONFIG_HELP: HelpEntry = {
   ],
 };
 
-export const COMMUNICATION_HELP: HelpEntry = {
-  sections: [
-    {
-      kind: 'callout',
-      variant: 'info',
-      heading: 'What this does',
-      body: 'Sends messages between running sessions and manages communication bridges. Sessions can exchange text, commands, or data.',
-    },
-    {
-      kind: 'steps',
-      heading: 'Sending a message',
-      items: [
-        'Enter the From and To session IDs.',
-        'Choose a message type: text, command, or data.',
-        'Type the content and click Send.',
-        'Delivered messages appear in the Message Feed.',
-      ],
-    },
-    {
-      kind: 'callout',
-      variant: 'tip',
-      heading: 'Bridges avoid repeat routing',
-      body: 'A bridge connects two sessions bidirectionally so they can keep talking without a route per message.',
-    },
-    {
-      kind: 'callout',
-      variant: 'tip',
-      heading: 'Pick the right message type',
-      body: 'Use text for human-readable notes, command for directives, and data for structured payloads.',
-    },
-  ],
-};
-
 export const CHANNELS_HELP: HelpEntry = {
   sections: [
     {

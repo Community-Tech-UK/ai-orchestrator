@@ -58,6 +58,7 @@ describe('context worker main', () => {
   const recordTaskOutcome = vi.fn();
   const unifiedMemoryController = { recordTaskOutcome };
   const handleUnifiedMemoryWorkerRequest = vi.fn();
+  const getWakeUpText = vi.fn(() => 'wake text');
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -110,7 +111,7 @@ describe('context worker main', () => {
       // 'wake:context-generated' at module load, so the mock must expose the
       // EventEmitter surface the real WakeContextBuilder has (it extends
       // EventEmitter), not just getWakeUpText().
-      getWakeContextBuilder: () => ({ getWakeUpText: vi.fn(() => 'wake text'), on: vi.fn(), emit: vi.fn() }),
+      getWakeContextBuilder: () => ({ getWakeUpText, on: vi.fn(), emit: vi.fn() }),
     }));
     vi.doMock('../../mcp/mcp-runtime-tool-context', () => ({
       buildMcpRuntimeToolContextSelection: vi.fn(() => ({
@@ -207,6 +208,10 @@ describe('context worker main', () => {
         id: 42,
         result: expect.objectContaining({ context: 'from rlm' }),
       }));
+      handlers[0]?.({ type: 'build-wake-context-text', id: 43, wing: '/repo', recordUsage: false });
+      await flushMicrotasks();
+      expect(getWakeUpText).toHaveBeenCalledWith('/repo', { bypassCache: false, recordUsage: false });
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'rpc-response', id: 43, result: 'wake text' }));
     } finally {
       delete process.env['AIO_USER_DATA_PATH'];
       if (originalSendDescriptor) {

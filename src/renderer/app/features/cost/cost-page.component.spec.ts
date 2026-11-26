@@ -33,6 +33,7 @@ import type { EChartsOption } from 'echarts';
 import type { UsageInsightResponse } from '../../../../shared/usage-insight/usage-insight.types';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { formatMoneyExact } from '../../shared/utils/format-money';
 
 const SCANNING: UsageInsightResponse = { status: 'scanning', progress: { filesDone: 1, filesTotal: 4, bytesDone: 10, bytesTotal: 40 } };
 
@@ -224,6 +225,21 @@ describe('CostPageComponent — computed signals', () => {
     expect(component.totalCost()).toBeCloseTo(0.012345, 6);
   });
 
+  it('keeps the exact total available alongside the estimate explanation', () => {
+    component.summary.set(MOCK_SUMMARY);
+    expect(component.estimatedTotalTitle()).toContain('$0.012345');
+    expect(component.estimatedTotalTitle()).not.toContain('estimated');
+    component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });
+    expect(component.estimatedTotalTitle()).toContain('$0.012345');
+    expect(component.estimatedTotalTitle()).toContain('estimated');
+  });
+
+  // Main's shared exact formatter keeps the supplied number as is (see format-money.spec.ts).
+  it('uses the shared exact format for exact cost hints', () => {
+    expect(component.exactAmountTip(0.0000001)).toBe(`Exact amount: ${formatMoneyExact(0.0000001)}`);
+    expect(component.exactAmountTip(0.1 + 0.2)).toBe(`Exact amount: ${formatMoneyExact(0.1 + 0.2)}`);
+  });
+
   it('hides all dollar figures, including live budget alerts, when showCost is off', () => {
     (component as unknown as { showCost: () => boolean }).showCost = () => false;
     component.summary.set(MOCK_SUMMARY); component.entries.set(MOCK_ENTRIES);
@@ -294,12 +310,12 @@ describe('CostPageComponent — computed signals', () => {
     });
     fixture.detectChanges();
     const row = component.modelRows()[0];
-    expect(component.modelCostLabel(row)).toBe('12.4 AI credits · ≈$0.500000 at API prices');
+    expect(component.modelCostLabel(row)).toBe('12.4 AI credits · ≈$0.50 at API prices');
     const modelRow = fixture.nativeElement.querySelector('.provider-cell')?.closest('tr') as HTMLTableRowElement;
     expect(modelRow).not.toBeNull();
     expect(modelRow.textContent).toContain('12.4');
     expect(modelRow.textContent).toContain('AI credits');
-    expect(modelRow.textContent).toContain('$0.500000');
+    expect(modelRow.textContent).toContain('$0.50');
   });
 
   it('keeps the credits and marks the hidden dollars on a mixed row when showCost is off', () => {
@@ -359,7 +375,7 @@ describe('CostPageComponent — computed signals', () => {
     } });
     fixture.detectChanges();
     const row = fixture.nativeElement.querySelector('.provider-cell')?.closest('tr') as HTMLTableRowElement;
-    expect(row.textContent).toContain('≈$0.500000 at API prices');
+    expect(row.textContent).toContain('≈$0.50 at API prices');
     expect(row.textContent).toContain('some cost not available yet');
     if (aiCreditsNano !== undefined) expect(row.textContent).toContain('12.4 AI credits');
     (component as unknown as { showCost: () => boolean }).showCost = () => false;
@@ -378,7 +394,6 @@ describe('CostPageComponent — computed signals', () => {
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('mixed-history-model · 120 tokens · ≈$0.50 at API prices');
-    expect(text).toContain('≈$0.500000 at API prices');
     expect(text).toContain('2 AI credits');
     if (unknown) expect(text).toContain('some cost not available yet');
   });
@@ -586,13 +601,13 @@ describe('CostPageComponent — computed signals', () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     const metricTexts = () => Array.from(root.querySelectorAll('.metric-value')).map(element => element.textContent?.trim());
-    expect(metricTexts()).toContain('≈$0.0123 at API prices');
+    expect(metricTexts()).toContain('≈$0.01 at API prices');
     const tableFor = (title: string) => Array.from(root.querySelectorAll('.panel-card'))
       .find(panel => panel.querySelector('.panel-title')?.textContent?.trim() === title)
       ?.querySelector('table');
-    expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.009000 at API prices');
-    expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.007000 at API prices');
-    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(6)')?.textContent?.trim()).toBe('≈$0.004500 at API prices');
+    expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.01 at API prices');
+    expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.01 at API prices');
+    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(6)')?.textContent?.trim()).toBe('under 1 cent at API prices');
     const recentHeaders = Array.from(tableFor('Recent Entries')?.querySelectorAll('thead th') ?? []).map(th => th.textContent?.trim());
     expect(recentHeaders.filter(name => name === 'Session')).toHaveLength(1);
     expect(recentHeaders).not.toContain('Session ID');
@@ -600,8 +615,8 @@ describe('CostPageComponent — computed signals', () => {
     component.entries.set([{ ...MOCK_ENTRIES[0], isEstimated: true }]);
     component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });
     fixture.detectChanges();
-    expect(metricTexts()).toContain('≈$0.0123 at API prices');
-    expect(root.textContent).toContain('~≈$0.004500 at API prices');
+    expect(metricTexts()).toContain('≈$0.01 at API prices');
+    expect(root.textContent).toContain('~under 1 cent at API prices');
     expect(root.textContent).toContain('~ estimated');
   });
 
@@ -734,8 +749,8 @@ describe('CostPageComponent — computed signals', () => {
 });
 
 
-describe('Cost estimate focus hints', () => {
-  it('adds estimate-description tab stops only to costs that include estimates', async () => {
+describe('Cost exact-amount and estimate focus hints', () => {
+  it('keeps measured costs out of the tab order and explains estimates on keyboard focus', async () => {
     TestBed.resetTestingModule();
     TestBed.overrideComponent(CostPageComponent, {
       set: {
@@ -761,11 +776,21 @@ describe('Cost estimate focus hints', () => {
     }).compileComponents();
     const fixture = TestBed.createComponent(CostPageComponent);
     const component = fixture.componentInstance;
-    component.summary.set(MOCK_SUMMARY);
     fixture.detectChanges();
-    const estimateHosts = () => fixture.nativeElement.querySelectorAll('.metrics-row .metric-value[tabindex="0"], td.num-col.mono[tabindex="0"]');
+    await fixture.whenStable();
+    component.summary.set(MOCK_SUMMARY);
+    component.entries.set([]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.metrics-row .metric-value[tabindex="0"], td.num-col.mono[tabindex="0"]')).toHaveLength(0);
     expect(fixture.nativeElement.querySelector('[aria-label="Copilot AI credits"] .metric-value').tabIndex).toBe(0);
-    expect(estimateHosts()).toHaveLength(0);
+    const costHosts = () => Array.from(fixture.nativeElement.querySelectorAll('.metric-value[aria-label], td.num-col.mono[aria-label]')) as HTMLElement[];
+    const amounts = ['$0.012345', '$0.009', '$0.003345', '$0.007', '$0.005345'];
+    expect(costHosts()).toHaveLength(5);
+    costHosts().forEach((host, index) => {
+      const detail = host.getAttribute('aria-label');
+      expect(detail).toContain(amounts[index]);
+      expect(detail).not.toContain('estimated');
+    });
     component.summary.set({
       ...MOCK_SUMMARY,
       hasEstimatedEntries: true,
@@ -773,7 +798,31 @@ describe('Cost estimate focus hints', () => {
       byModel: { ...MOCK_SUMMARY.byModel, 'claude-3-5-sonnet-20241022': { ...MOCK_SUMMARY.byModel['claude-3-5-sonnet-20241022'], hasEstimated: true } },
       bySession: { ...MOCK_SUMMARY.bySession, 'sess-aaa': { ...MOCK_SUMMARY.bySession['sess-aaa'], hasEstimated: true } },
     });
+    component.entries.set([{ ...MOCK_ENTRIES[0], isEstimated: true }]);
+    const purposeRow = { key: 'helper' as const, calls: 1, inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0,
+      outputTokens: 0, reasoningTokens: 0, cost: 0.0000001, estimatedCost: 0.0000001,
+      estimatedShare: 1, unknownCostCalls: 0, freeCalls: 0 };
+    component.purposeSummary.set({ enabled: true, totals: purposeRow, byPurpose: [purposeRow], byProvider: [] });
     fixture.detectChanges();
-    expect(estimateHosts()).toHaveLength(3);
+    expect(fixture.nativeElement.querySelectorAll('.metrics-row .metric-value[tabindex="0"]')).toHaveLength(0);
+    expect(fixture.nativeElement.querySelectorAll('td.num-col.mono[tabindex="0"]')).toHaveLength(3);
+    expect(fixture.nativeElement.querySelectorAll('.estimated-badge[tabindex="0"]')).toHaveLength(2);
+    expect(costHosts().map(host => host.getAttribute('aria-label'))).toContain(`Includes at least one estimated entry (no provider-reported usage for that turn). Exact amount: ${formatMoneyExact(0.0000001)}`);
+    const measuredCost = costHosts().find(host => host.getAttribute('aria-label') === 'Exact amount: $0.003345');
+    expect(measuredCost).toBeDefined();
+    expect(measuredCost!.getAttribute('tabindex')).toBeNull();
+    const estimateHosts = Array.from(fixture.nativeElement.querySelectorAll('.estimated-badge[tabindex="0"], td.num-col.mono[tabindex="0"]')) as HTMLElement[];
+    for (const host of estimateHosts) {
+      const matches = host.matches.bind(host);
+      const spy = vi.spyOn(host, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
+      host.focus();
+      fixture.detectChanges();
+      const hint = document.getElementById(host.getAttribute('aria-describedby')!)?.textContent ?? host.getAttribute('aria-label') ?? '';
+      expect(hint.toLowerCase()).toContain('estimat');
+      if (host.matches('td')) expect(hint).toContain('Exact amount: $');
+      host.blur();
+      spy.mockRestore();
+    }
+    fixture.destroy();
   });
 });

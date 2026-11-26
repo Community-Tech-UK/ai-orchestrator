@@ -53,6 +53,7 @@ describe('LocalInstanceManager — carried Claude spawn policy', () => {
       readOnlyReview: true as const,
       maxTurns: 8,
       maxBudgetUsd: 1,
+      noSessionPersistence: true as const,
     };
     await manager.spawn({ instanceId: 'claude-1', cliType: 'claude', workingDirectory: '/tmp', yoloMode: false, claudeSpawnPolicy });
 
@@ -70,7 +71,7 @@ describe('LocalInstanceManager — carried Claude spawn policy', () => {
 
     const options = createAdapter.mock.calls[0][1] as Record<string, unknown>;
     expect(options['bashOutputMaxChars']).toBe(0); // Only the controller resolves this setting.
-    for (const key of ['machineSession', 'contextCeilingTokens', 'readOnlyReview', 'maxTurns', 'maxBudgetUsd']) {
+    for (const key of ['machineSession', 'contextCeilingTokens', 'readOnlyReview', 'maxTurns', 'maxBudgetUsd', 'noSessionPersistence']) {
       expect(options).not.toHaveProperty(key);
     }
   });
@@ -84,8 +85,8 @@ describe('LocalInstanceManager — carried Claude spawn policy', () => {
 
   it('keeps the policy on wire validation and fails closed on an unknown policy field', () => {
     const base = { instanceId: 'claude-3', cliType: 'claude', workingDirectory: '/tmp' };
-    expect(InstanceSpawnParamsSchema.parse({ ...base, claudeSpawnPolicy: { machineSession: 'node-run', maxTurns: 8 } }).claudeSpawnPolicy)
-      .toEqual({ machineSession: 'node-run', maxTurns: 8 });
+    expect(InstanceSpawnParamsSchema.parse({ ...base, claudeSpawnPolicy: { machineSession: 'node-run', maxTurns: 8, noSessionPersistence: true } }).claudeSpawnPolicy)
+      .toEqual({ machineSession: 'node-run', maxTurns: 8, noSessionPersistence: true });
     expect(() => InstanceSpawnParamsSchema.parse({ ...base, claudeSpawnPolicy: { maxTurns: 8, futurePolicy: true } })).toThrow();
     expect(() => InstanceSpawnParamsSchema.parse({ ...base, claudeSpawnPolicy: { machineSession: 'not-a-reason' } })).toThrow();
   });

@@ -2,8 +2,62 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { computeMigrationChecksum, createMigrationsTable, createTables, getAppliedMigrations, MIGRATIONS, runMigrations } from './rlm-schema';
-import { RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
+import { AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION, RLM_MIGRATIONS_081_085 } from './rlm-migrations-081-085';
 import { CostTracker } from '../../core/system/cost-tracker';
+
+function columnNames(db: SqliteDriver, table: string): string[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>().map((c) => c.name);
+}
+
+const INSERT_RUN = `
+  INSERT INTO automation_runs (id, automation_id, status, trigger, scheduled_at, created_at, updated_at)
+  VALUES ('run-1', 'auto-1', 'needs-attention', 'manual', 1, 1, 1)
+`;
+
+describe('083_automation_run_needs_attention_status', () => {
+  let db: SqliteDriver;
+
+  beforeEach(() => {
+    db = defaultDriverFactory(':memory:');
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+    db.pragma('foreign_keys = OFF');
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('accepts a needs-attention run and keeps every accumulated column', () => {
+    db.exec(INSERT_RUN);
+    expect(db.prepare('SELECT status FROM automation_runs').get<{ status: string }>()!.status).toBe('needs-attention');
+    for (const column of ['attempt', 'max_attempts', 'next_retry_at', 'next_retry_attempt', 'next_retry_max_attempts', 'loop_run_id', 'outcome', 'thread_prompt_delivered']) {
+      expect(columnNames(db, 'automation_runs')).toContain(column);
+    }
+  });
+
+  it('preserves rows across the rollback and folds needs-attention into failed', () => {
+    db.exec(INSERT_RUN);
+    db.exec(AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION.down);
+    expect(db.prepare('SELECT status FROM automation_runs').get<{ status: string }>()!.status).toBe('failed');
+    expect(() => db.exec(INSERT_RUN.replace("VALUES ('run-1', 'auto-1', 'needs-attention'", "VALUES ('run-2', 'auto-1', 'needs-attention'"))).toThrow();
+  });
+  it('keeps the cascading run facts and usage rows across the rebuild', () => {
+    db.pragma('foreign_keys = ON');
+    db.prepare(`INSERT INTO automations
+      (id, name, schedule_type, schedule_json, missed_run_policy, concurrency_policy, action_json, created_at, updated_at)
+      VALUES ('auto-1', 'Job placeholder', 'cron', '{}', 'skip', 'skip', '{}', 1, 1)`).run();
+    db.exec(INSERT_RUN);
+    db.exec(`INSERT INTO automation_run_facts (run_id, processed_tokens) VALUES ('run-1', 7)`);
+    db.exec(`INSERT INTO automation_run_usage (run_id, instance_id, provider_tokens) VALUES ('run-1', 'instance-1', 5)`);
+    db.exec(AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION.down);
+    db.exec(AUTOMATION_RUN_NEEDS_ATTENTION_MIGRATION.up);
+    expect(db.prepare('SELECT processed_tokens FROM automation_run_facts').get()).toEqual({ processed_tokens: 7 });
+    expect(db.prepare('SELECT provider_tokens FROM automation_run_usage').get()).toEqual({ provider_tokens: 5 });
+  });
+});
 
 describe('081_browser_audit_command_id', () => {
   let db: SqliteDriver;

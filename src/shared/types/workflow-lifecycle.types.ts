@@ -108,6 +108,9 @@ export function automationRunStatusToPhase(status: AutomationRunStatus): Workflo
     case 'skipped': // didn't run by policy — terminal, non-failure
     case 'cancelled':
       return 'cancelled';
+    // The run is over but its loop is paused waiting on a human.
+    case 'needs-attention':
+      return 'blocked';
     default:
       return assertNever(status);
   }

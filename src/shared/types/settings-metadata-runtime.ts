@@ -114,6 +114,21 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     type: 'number', category: 'advanced', min: 0, max: CODEX_TURN_CEILING_MAX_TOKENS,
   },
   {
+    key: 'injectRepoMap',
+    label: 'Include a repository map',
+    description: 'Give new sessions a compact map of the project\'s files and symbols. Turn this off to save prompt tokens. Applies to new sessions; existing sessions keep their current map.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'transcriptVirtualization',
+    label: 'Render long conversations faster',
+    description: 'Render only the visible part of a long conversation to reduce screen work. Applies immediately. Experimental: scrolling and message heights may be less reliable.',
+    type: 'boolean',
+    category: 'advanced',
+    stage: 'experimental',
+  },
+  {
     key: 'outputBufferSize',
     label: 'Messages kept in memory per agent',
     description: 'How many recent messages stay in memory for each agent. Older ones move to disk (when disk storage is on).',
@@ -179,6 +194,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'cumulativeTokenCompactionTrigger',
+    hidden: true,
     label: 'Compact after token spend',
     description: 'Automatically compact an agent once it has spent this many tokens since its last compaction, regardless of how full its context window is — a cost cap for long sessions. 0 turns it off.',
     type: 'number',

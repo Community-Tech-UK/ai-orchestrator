@@ -289,6 +289,24 @@ describe('paused runs never continue work or park it', () => {
     expect(host.instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ initialPrompt: expect.stringContaining('Fix missing guard') }));
     expect(item).toMatchObject({ state: 'working', pendingInstruction: null, heldAt: null });
   });
+  it.each([true, false])('preserves finding triage when held work resumes (blocking findings: %s)', async hasBlocking => {
+    const low = { severity: 'low' as const, confidence: 90, summary: 'Optional wording change' };
+    const findings = hasBlocking ? [...fail.findings, low] : [low];
+    item = { ...item, state: 'fixing', verdict: { ...fail, findings }, verifierInstanceId: null, round: 1 };
+    await flow.hold(item.id);
+    run.status = 'running';
+    await flow.startItem(item);
+    const prompt = vi.mocked(host.instances.createInstance).mock.calls[0][0].initialPrompt!;
+    if (hasBlocking) {
+      expect(prompt).toContain('Fix missing guard');
+      expect(prompt).not.toContain(low.summary);
+      expect(prompt).toContain('1 lower-severity suggestions');
+    } else {
+      expect(prompt).toContain(low.summary);
+      expect(prompt).not.toContain('lower-severity suggestions');
+    }
+    expect(item.verdict?.findings).toEqual(findings);
+  });
   it('tells a held fixing worker where its moved planning files went, as the normal fix path does', async () => {
     vi.mocked(describePlanningMoves).mockResolvedValue('notes_history.md is now at /root/notes_history.md\nEdit planning files at those root paths, not in your worktree.');
     item = { ...item, state: 'fixing', verdict: fail, verifierInstanceId: null, round: 1 };

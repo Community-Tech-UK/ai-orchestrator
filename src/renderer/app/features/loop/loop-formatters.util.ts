@@ -12,6 +12,7 @@
  * need (the loop control component runs a 1Hz tick) and pass `now` in
  * if they want to override (mostly for tests).
  */
+import { formatMoneyPlain } from '../../shared/utils/format-money';
 import type { LoopIterationPayload } from '@contracts/schemas/loop';
 
 /** Renders a wall-clock duration in milliseconds as `Ns`, `NmSs`, `NhMm`,
@@ -453,7 +454,7 @@ export function formatTimestamp(ts: number): string {
  *  out of templates, where the implicit number→string coercion is easy
  *  to mis-key. */
 export function formatCostCents(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatMoneyPlain(cents / 100);
 }
 
 // ============ Inspector progress header ============

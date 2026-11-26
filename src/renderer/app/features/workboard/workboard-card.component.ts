@@ -12,6 +12,7 @@ const SOURCE_LABELS: Record<WorkboardSourceKind, string> = {
   'automation-run': 'Automation',
   'loop-run': 'Loop',
   instance: 'Session',
+  'memory-review': 'Memory review',
 };
 
 /** Friendly source label for a badge, e.g. `loop-run` → `Loop`. */

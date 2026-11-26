@@ -26,6 +26,11 @@ describe('worker overlay goes through the shared output-cap helper (A19, Step 9a
 
 import { buildClaudeCliArgs } from '../adapters/claude-cli-argv-builder';
 
+const persistenceWarnings = vi.hoisted(() => vi.fn());
+vi.mock('../../logging/logger', () => ({
+  getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: persistenceWarnings, error: vi.fn() }),
+}));
+
 describe('worker Claude turn caps', () => {
   it.each([1, 8, 50])('forwards the positive integer cap %s', maxTurns => {
     const args = buildWorkerArgs('claude', { maxTurns, maxBudgetUsd: 1 }, 'fixture', { role: 'user', content: 'review' });
@@ -61,6 +66,30 @@ describe('worker Claude turn caps', () => {
       expect(worker.slice(worker.indexOf(flag), worker.indexOf(flag) + 2))
         .toEqual(direct.slice(direct.indexOf(flag), direct.indexOf(flag) + 2));
     }
+  });
+});
+
+describe('worker Claude transcript persistence', () => {
+  it('passes the explicit request only for fresh Claude', () => {
+    const message = { role: 'user' as const, content: 'review' };
+    expect(buildWorkerArgs('claude', { noSessionPersistence: true }, null, message)).toContain('--no-session-persistence');
+    expect(buildWorkerArgs('claude', { maxBudgetUsd: 1, machineSession: 'review' }, null, message)).not.toContain('--no-session-persistence');
+    expect(buildWorkerArgs('claude', { noSessionPersistence: false }, null, message)).not.toContain('--no-session-persistence');
+    expect(buildWorkerArgs('gemini', { noSessionPersistence: true }, null, message)).not.toContain('--no-session-persistence');
+  });
+
+  it.each([
+    { resume: true, forkSession: false, sessionId: 'fixture-session' },
+    { resume: true, forkSession: false, sessionId: null },
+    { resume: true, forkSession: true, sessionId: 'fixture-session' },
+    { resume: false, forkSession: true, sessionId: null },
+  ])('warns and retains transcripts for continuation intent (%j)', ({ sessionId, ...options }) => {
+    persistenceWarnings.mockClear();
+    expect(buildWorkerArgs('claude', { ...options, noSessionPersistence: true }, sessionId,
+      { role: 'user', content: 'review' })).not.toContain('--no-session-persistence');
+    expect(persistenceWarnings).toHaveBeenCalledExactlyOnceWith(
+      'Ignoring --no-session-persistence for a resumed or forked Claude session',
+    );
   });
 });
 

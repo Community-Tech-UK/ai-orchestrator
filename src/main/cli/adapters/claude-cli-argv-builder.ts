@@ -331,6 +331,14 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--max-budget-usd', String(spawnOptions.maxBudgetUsd));
   }
 
+  if (spawnOptions.noSessionPersistence === true) {
+    if (input.shouldUseNativeResume || spawnOptions.resume || spawnOptions.forkSession) {
+      logger.warn('Ignoring --no-session-persistence for a resumed or forked Claude session');
+    } else {
+      args.push('--no-session-persistence');
+    }
+  }
+
   // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
   if (
     !plain && !spawnOptions.readOnlyReview && spawnOptions.yoloMode &&

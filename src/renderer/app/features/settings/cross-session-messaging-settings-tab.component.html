@@ -5,13 +5,14 @@
 >
   <div class="setting-row">
     <div class="setting-info">
-      <span class="setting-name">Enable cross-session messaging</span>
+      <span class="setting-name" id="cross-session-messaging-enabled-label">Enable cross-session messaging</span>
       <span class="setting-hint">Off by default. When off, no session can send or receive relayed messages, and an agent can read only its own earlier conversation or a session you point at with @session.</span>
     </div>
     <label class="toggle-label">
       <input
         type="checkbox"
         class="toggle-input"
+        aria-labelledby="cross-session-messaging-enabled-label"
         [checked]="settings().enabled"
         (change)="toggleEnabled()"
       />
@@ -24,7 +25,7 @@
   @if (settings().enabled) {
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-name">Allow cross-project messages</span>
+        <span class="setting-name" id="cross-project-messages-label">Allow cross-project messages</span>
         <span class="setting-hint">
           When off, sessions can only message other sessions in the same working directory.
         </span>
@@ -33,6 +34,7 @@
         <input
           type="checkbox"
           class="toggle-input"
+          aria-labelledby="cross-project-messages-label"
           [checked]="settings().allowCrossProject"
           (change)="toggleAllowCrossProject()"
         />
@@ -47,7 +49,7 @@
         <span class="setting-name">Max relay hops</span>
         <span class="setting-hint">How many times a message can be relayed onward before it's rejected.</span>
       </div>
-      <input
+      <input aria-label="Max relay hops"
         type="number"
         class="number-input"
         min="0"
@@ -62,7 +64,7 @@
         <span class="setting-name">Rate limit (messages/minute)</span>
         <span class="setting-hint">Per source-target pair. Excess sends are rejected, not queued.</span>
       </div>
-      <input
+      <input aria-label="Rate limit (messages per minute)"
         type="number"
         class="number-input"
         min="1"
@@ -79,11 +81,12 @@
       </p>
       @for (instance of liveInstances(); track instance.id) {
         <div class="consent-row">
-          <span class="consent-name">{{ instance.displayName || instance.id }}</span>
+          <span class="consent-name" [id]="'message-consent-name-' + instance.id">{{ instance.displayName || instance.id }}</span>
           <label class="toggle-label" [class.pending]="isTogglePending(instance.id)">
             <input
               type="checkbox"
               class="toggle-input"
+              [attr.aria-labelledby]="'message-consent-name-' + instance.id"
               [checked]="instance.allowIncomingSessionMessages ?? false"
               [disabled]="isTogglePending(instance.id)"
               (change)="toggleInstanceConsent(instance.id, !(instance.allowIncomingSessionMessages ?? false))"

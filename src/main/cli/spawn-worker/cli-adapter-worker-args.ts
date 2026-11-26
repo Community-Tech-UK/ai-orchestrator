@@ -7,6 +7,9 @@ import { claudePermissionHooks, type ClaudePermissionHooks } from '../adapters/c
 import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { wrapSystemInstructions } from '../adapters/system-instruction-wrapper';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('CliAdapterWorkerArgs');
 
 export function buildWorkerArgs(
   cliType: 'claude' | 'gemini',
@@ -42,6 +45,13 @@ function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null)
   if (!args.includes('--resume') && typeof options.maxBudgetUsd === 'number'
     && Number.isFinite(options.maxBudgetUsd) && options.maxBudgetUsd > 0) {
     args.push('--max-budget-usd', String(options.maxBudgetUsd));
+  }
+  if (options.noSessionPersistence === true) {
+    if (options.resume || options.forkSession) {
+      logger.warn('Ignoring --no-session-persistence for a resumed or forked Claude session');
+    } else {
+      args.push('--no-session-persistence');
+    }
   }
   if (options.model) args.push('--model', options.model);
   const effort = mapClaudeReasoningEffort(options.reasoningEffort);

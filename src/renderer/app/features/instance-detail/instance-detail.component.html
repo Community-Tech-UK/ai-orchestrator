@@ -2,6 +2,7 @@
       <app-drop-zone
         [pasteOwner]="pasteDraftOwner"
         class="full-drop-zone"
+        [attachmentProvider]="inst.runtimeSummary?.kind === 'local-model' ? 'local-model' : inst.provider"
         (filesDropped)="onFilesDropped($event)"
         (imagesPasted)="onImagesPasted($event)"
         (filePathDropped)="onFilePathDropped($event)"
@@ -220,6 +221,7 @@
       <app-drop-zone
         [pasteOwner]="pasteDraftOwner"
         class="full-drop-zone"
+        [attachmentProvider]="preview.runtimeSummary?.kind === 'local-model' ? 'local-model' : historyPreviewComposerProvider()"
         (filesDropped)="onHistoryPreviewFilesDropped($event)"
         (imagesPasted)="onHistoryPreviewImagesPasted($event)"
         (filePathDropped)="onHistoryPreviewFilePathDropped($event)"

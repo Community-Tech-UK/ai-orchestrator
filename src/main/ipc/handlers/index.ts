@@ -53,7 +53,6 @@ export { registerRecentDirectoriesHandlers } from './recent-directories-handlers
 export { registerEcosystemHandlers } from './ecosystem-handlers';
 export { registerConsensusHandlers } from './consensus-handlers';
 export { registerRoutingHandlers } from './routing-handlers';
-export { registerCommunicationHandlers } from './communication-handlers';
 export { registerRemoteObserverHandlers } from './remote-observer-handlers';
 export { registerRemoteNodeHandlers } from './remote-node-handlers';
 export { registerComputersHandlers } from './computers-handlers';

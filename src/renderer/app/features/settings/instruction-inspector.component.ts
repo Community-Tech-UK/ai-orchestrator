@@ -115,6 +115,7 @@ import type {
           <div class="instruction-draft-path">{{ instructionDraftPath() }}</div>
           <textarea
             class="editor"
+            aria-label="Migration draft content"
             [value]="instructionDraftContent()"
             (input)="onInstructionDraftEdit($event)"
             spellcheck="false"

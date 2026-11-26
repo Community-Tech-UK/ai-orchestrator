@@ -13,6 +13,7 @@ export function checkLink(config: ConfigBlock[], baseline: Baseline): string[] {
   check('no-hardcoded-shortcut', total('H5') === 0);
   check('icon-control-needs-name-and-tooltip', total('H1a') + total('H1b') === 0);
   check('no-native-title', total('H2a') === 0);
+  check('form-field-needs-name', true);
   const title = rules['ui-hints/no-native-title'];
   const option = Array.isArray(title) ? title[1] as { scope?: string } | undefined : undefined;
   const all = total('H2a') + total('H2b') + total('H2c') === 0;

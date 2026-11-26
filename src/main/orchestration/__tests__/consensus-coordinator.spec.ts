@@ -171,7 +171,7 @@ describe('ConsensusCoordinator', () => {
       const result = await ConsensusCoordinator.getInstance().query('question', undefined, { providers: [{ provider: 'claude' }] });
       expect(result.responses[0]).toMatchObject({ success: false, content: '', error: 'Provider budget exceeded' });
       expect(rows[0]).toMatchObject({ outcome: 'budget-exceeded', usage: { cost: 0.0064186 } });
-      expect(createAdapterMock).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ maxBudgetUsd: 1 }) }));
+      expect(createAdapterMock).toHaveBeenCalledWith(expect.objectContaining({ options: expect.objectContaining({ maxBudgetUsd: 1, noSessionPersistence: true }) }));
       expect(adapter.sendInput).toHaveBeenCalledOnce();
     } finally { stop(); }
   });

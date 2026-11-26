@@ -347,6 +347,47 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(['gemini', 'antigravity', 'ollama'] as const)('disables file attachment for a live %s session', (provider) => {
+    fixture.componentRef.setInput('provider', provider);
+    fixture.detectChanges();
+    const emit = vi.spyOn(component.addFiles, 'emit');
+    const button = fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(fixture.nativeElement.querySelector('.attachment-unavailable')?.textContent).toContain('cannot take attachments yet');
+    component.onAddFiles();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it.each(['claude', 'codex', 'copilot', 'cursor', 'opencode', 'grok'] as const)('allows file attachment for %s', (provider) => {
+    fixture.componentRef.setInput('provider', provider);
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement).disabled).toBe(false);
+    expect(fixture.nativeElement.querySelector('.attachment-unavailable')).toBeNull();
+  });
+
+  it('uses the draft provider and local-model runtime target before a session exists', () => {
+    fixture.componentRef.setInput('instanceId', 'new');
+    newSessionDraft.provider.set('gemini');
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement).getAttribute('aria-disabled')).toBe('true');
+    newSessionDraft.provider.set('claude');
+    newSessionDraft.modelRuntimeTarget.set({ kind: 'local-model', source: 'this-device', selectorId: 'local', endpointProvider: 'ollama', endpointId: 'ollama', modelId: 'example' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement).getAttribute('aria-disabled')).toBe('true');
+    expect(fixture.nativeElement.querySelector('.attachment-unavailable')?.textContent).toContain('Local-model');
+  });
+
+  it('honours a dormant chat local-model attachment provider despite its Claude display name', () => {
+    fixture.componentRef.setInput('provider', 'claude');
+    fixture.componentRef.setInput('attachmentProviderOverride', 'local-model');
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement).getAttribute('aria-disabled')).toBe('true');
+    fixture.componentRef.setInput('attachmentProviderOverride', 'codex');
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('.btn-attach') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('restores cancelled queue text before the existing text and keeps an edit stash', () => {
     component.message.set('Existing draft'); component.restoreTextToComposer('Cancelled'); fixture.detectChanges();
     expect(component.message()).toBe('Cancelled\n\nExisting draft');

@@ -36,6 +36,7 @@ import { getInstanceAsyncWorkRegistry } from '../instance-async-work-registry';
 import { globalPauseHoldsAutomaticInput } from '../../global-pause/global-pause-service';
 import { waitForGlobalPauseInput } from '../../global-pause/global-pause-input';
 import { getWorkAdmission } from '../../work-admission/work-admission';
+import { sessionHostsActiveLoop } from '../../orchestration/session-hosts-active-loop';
 import { shouldProbeAdapterProcess } from '../stale-runtime-reconciler';
 
 const logger = getLogger('IdleMonitor');
@@ -116,6 +117,7 @@ export interface IdleMonitorDeps {
    * real SessionMutex; injectable so specs can drive the guard deterministically.
    */
   isLifecycleLocked?: (id: string) => boolean;
+  sessionHostsActiveLoop?: (id: string) => boolean;
 }
 
 export class IdleMonitor {
@@ -127,6 +129,17 @@ export class IdleMonitor {
 
   private isLifecycleLocked(instanceId: string): boolean {
     return (this.deps.isLifecycleLocked ?? ((id: string) => getSessionMutex().isLocked(id)))(instanceId);
+  }
+
+  private hostsActiveLoop(instanceId: string): boolean {
+    let protectedSession = true;
+    try {
+      protectedSession = (this.deps.sessionHostsActiveLoop ?? sessionHostsActiveLoop)(instanceId);
+    } catch {
+      logger.warn('Cannot inspect loop ownership; preserving session', { instanceId });
+    }
+    if (protectedSession) logger.debug('Skipping automatic cleanup of loop chat', { instanceId });
+    return protectedSession;
   }
 
   /**
@@ -348,6 +361,7 @@ export class IdleMonitor {
       if (getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)) return;
 
       if (instance.status === 'idle' && now - instance.lastActivity > idleThreshold) {
+        if (this.hostsActiveLoop(instance.id)) return;
         // Harness-authored turns are stored as system messages (LT-657) but are
         // still conversation: a session driven only by them must hibernate, not die.
         const hasUserMessages = instance.outputBuffer.some(
@@ -401,6 +415,7 @@ export class IdleMonitor {
         && now - instance.lastActivity >= MEMORY_PRESSURE_MIN_IDLE_MS
         && !getInstanceAsyncWorkRegistry().hasInhibitor(instance.id)
       ) {
+        if (this.hostsActiveLoop(instance.id)) return;
         idleInstances.push(instance);
       }
     });

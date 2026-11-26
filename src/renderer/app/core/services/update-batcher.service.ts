@@ -67,6 +67,7 @@ export interface StateUpdate {
   waitReason?: InstanceWaitReason | null;
   /** Live provider-owned background work. null means "clear"; undefined preserves. */
   backgroundWork?: InstanceBackgroundWork | null;
+  nativeHelpers?: import('../../../../shared/types/instance.types').NativeHelperSummary | null;
   /**
    * True when the instance's adapter self-manages context auto-compaction
    * (Claude CLI always; Codex in app-server mode). Suppresses the orchestrator's
@@ -155,6 +156,7 @@ export class UpdateBatcherService {
         ? update.desiredRuntime
         : existing?.desiredRuntime,
       backgroundWork: update.backgroundWork !== undefined ? update.backgroundWork : existing?.backgroundWork,
+      nativeHelpers: update.nativeHelpers !== undefined ? update.nativeHelpers : existing?.nativeHelpers,
       computerUseMode: update.computerUseMode !== undefined
         ? update.computerUseMode
         : existing?.computerUseMode,

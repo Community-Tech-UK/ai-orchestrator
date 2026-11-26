@@ -3,6 +3,7 @@
  * Usage analytics, tool metrics, and session summaries.
  */
 
+import { formatMoneyPlain } from '../../shared/utils/format-money';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -17,7 +18,6 @@ import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { EchartsThemedComponent } from '../../shared/components/echarts-themed/echarts-themed.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { EChartsOption } from 'echarts';
-import { formatMoneyPlain } from '../../shared/utils/format-money';
 
 // ─── Local Interfaces ──────────────────────────────────────────────────────────
 

@@ -247,6 +247,7 @@ describe('UnifiedMemoryController hardening', () => {
 
     expect(result.wakeContext).toContain('Identity: Orchestrator');
     expect(result.totalTokens).toBeGreaterThan(0);
+    expect(wakeContextBuilderMock.getWakeUpText).toHaveBeenCalledWith(undefined, { recordUsage: false });
 
     const cached = await memory.retrieve('project continuity', 'task-5', {
       sessionId: 'session-ctx',

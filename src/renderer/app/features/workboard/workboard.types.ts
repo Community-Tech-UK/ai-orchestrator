@@ -27,7 +27,7 @@ export const WORKBOARD_LANE_ORDER: readonly WorkboardLane[] = [
 ] as const;
 
 /** Which source domain a record came from. */
-export type WorkboardSourceKind = 'repo-job' | 'automation-run' | 'loop-run' | 'instance';
+export type WorkboardSourceKind = 'repo-job' | 'automation-run' | 'loop-run' | 'instance' | 'memory-review';
 
 /**
  * One source record that participated in a correlated item. Every relation
@@ -85,6 +85,7 @@ export interface WorkboardItem {
   loopRunId?: string;
   automationRunId?: string;
   repoJobId?: string;
+  memoryReviewId?: string;
 }
 
 /** A workspace choice for the filter control. */
@@ -113,6 +114,20 @@ export interface WorkboardInstanceInput {
   pendingApprovalCount?: number;
 }
 
+/**
+ * Structural view of a governed memory-review proposal (part 7j): a pending
+ * review is a "Needs you" item the moment it exists. Kept structural, like
+ * `WorkboardInstanceInput`, so the projection does not import the memory-review
+ * feature's local types.
+ */
+export interface WorkboardMemoryReviewInput {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected' | 'superseded';
+  title: string;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
 /** Immutable input to the pure projection. `now` is injected for determinism. */
 export interface WorkboardProjectionInput {
   instances: readonly WorkboardInstanceInput[];
@@ -122,6 +137,8 @@ export interface WorkboardProjectionInput {
    *  `configSnapshot` is absent. */
   automations: readonly Automation[];
   repoJobs: readonly RepoJobRecord[];
+  /** Governed memory-review proposals (part 7j). */
+  memoryReviews: readonly WorkboardMemoryReviewInput[];
   now: number;
   pausedForYou?: ReadonlyMap<string, 'sign-off' | 'blocked' | 'step-failed' | 'stuck'>;
 }

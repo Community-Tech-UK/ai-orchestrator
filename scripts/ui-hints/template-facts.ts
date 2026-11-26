@@ -1,6 +1,7 @@
 import { parseTemplate, TmplAstRecursiveVisitor, tmplAstVisitAll, TmplAstElement, TmplAstText, TmplAstBoundText, ASTWithSource } from '@angular/compiler';
 import { expressionText, hoverText } from './hover-strings';
 import { renderedTextStream } from './rendered-text-stream';
+import { namedFormFields, type FormNameElement } from './form-field-names.js';
 import { CONTROL_TAGS, FIELD_TAGS, HOVER_BINDINGS, INTERACTIVE_ROLES, TOOLTIP_PROVIDERS, WORD, type AttributeFact, type ElementFact, type TemplateSource } from './types';
 import type ts from 'typescript';
 
@@ -24,9 +25,25 @@ export function parseFacts(source: TemplateSource, files: ts.SourceFile[] = [sou
     }
   }
   const facts: ElementFact[] = [];
-  const byNode = new Map<TmplAstElement, ElementFact>();
+  const naming: FormNameElement[] = [];
+  const parents: number[] = [];
+  const branches: [number, number][] = [];
   const ancestors: ElementFact[] = [];
   class Visitor extends TmplAstRecursiveVisitor {
+    private nextGroup = 0;
+    private groups: { id: number; nextArm: number }[] = [];
+    override visitIfBlock(node: Parameters<TmplAstRecursiveVisitor['visitIfBlock']>[0]): void {
+      this.groups.push({ id: this.nextGroup++, nextArm: 0 }); super.visitIfBlock(node); this.groups.pop();
+    }
+    override visitSwitchBlock(node: Parameters<TmplAstRecursiveVisitor['visitSwitchBlock']>[0]): void {
+      this.groups.push({ id: this.nextGroup++, nextArm: 0 }); super.visitSwitchBlock(node); this.groups.pop();
+    }
+    override visitIfBlockBranch(node: Parameters<TmplAstRecursiveVisitor['visitIfBlockBranch']>[0]): void {
+      const group = this.groups.at(-1)!; branches.push([group.id, group.nextArm++]); super.visitIfBlockBranch(node); branches.pop();
+    }
+    override visitSwitchBlockCaseGroup(node: Parameters<TmplAstRecursiveVisitor['visitSwitchBlockCaseGroup']>[0]): void {
+      const group = this.groups.at(-1)!; branches.push([group.id, group.nextArm++]); super.visitSwitchBlockCaseGroup(node); branches.pop();
+    }
     override visitElement(node: TmplAstElement): void {
       const attributes: AttributeFact[] = [
         ...node.attributes.map(attr => ({ name: attr.name, text: attr.value, form: 'static' as const })),
@@ -62,32 +79,16 @@ export function parseFacts(source: TemplateSource, files: ts.SourceFile[] = [sou
         disabled: get('disabled')?.source,
       };
       facts.push(fact);
-      byNode.set(node, fact);
+      naming.push({ tag, attributes: attributes.map(attr => ({ name: attr.name, value: attr.text ?? attr.expression, form: attr.form })), readable: text.fragments.some(value => value.trim()) || text.data, parent: parents.at(-1), branches: [...branches] });
+      parents.push(facts.length - 1);
       ancestors.push(fact);
       super.visitElement(node);
       ancestors.pop();
+      parents.pop();
     }
   }
   tmplAstVisitAll(new Visitor(), parsed.nodes);
-  // Label association is a second pass so a later sibling label names an earlier input.
-  for (const fact of facts.filter(fact => fact.field)) {
-    const id = fact.attributes.find(attr => attr.name === 'id')?.text;
-    const label = facts.find(label => label.tag === 'label' && id && label.attributes.some(attr => attr.name === 'for' && attr.text === id));
-    if (label?.visible.some(text => WORD.test(text))) fact.name = true;
-  }
-  class Labels extends TmplAstRecursiveVisitor {
-    labelName = false;
-    override visitElement(node: TmplAstElement): void {
-      const previous = this.labelName;
-      if (node.name === 'label') { const text = new TextCollector(); tmplAstVisitAll(text, node.children); this.labelName = text.fragments.some(value => WORD.test(value)) || text.data; }
-      if (this.labelName && (FIELD_TAGS as readonly string[]).includes(node.name)) {
-        const fact = byNode.get(node);
-        if (fact) fact.name = true;
-      }
-      super.visitElement(node);
-      this.labelName = previous;
-    }
-  }
-  tmplAstVisitAll(new Labels(), parsed.nodes);
+  const named = namedFormFields(naming);
+  facts.forEach((fact, index) => { if (fact.field) fact.name = named.has(index); });
   return { facts, visible: renderedTextStream(parsed.nodes, 'visible'), vocabulary: renderedTextStream(parsed.nodes, 'vocabulary') };
 }

@@ -19,7 +19,7 @@
                 models instead of the main frontier model.
               </div>
             </div>
-            <input
+            <input aria-label="Enable auxiliary models"
               type="checkbox"
               [checked]="settingsStore.get('auxiliaryLlmEnabled')"
               (change)="onEnabledChange($event)"
@@ -37,7 +37,7 @@
                 Metered calls reserve their estimated cost before they run.
               </div>
             </div>
-            <input
+            <input aria-label="Daily cloud spend cap (USD)"
               id="auxiliary-daily-spend-cap"
               type="number"
               min="0"
@@ -57,7 +57,7 @@
               <div class="field-label">Routing mode</div>
               <div class="field-hint">Controls how the router picks an endpoint for each slot.</div>
             </div>
-            <select
+            <select aria-label="Routing mode"
               [value]="settingsStore.get('auxiliaryLlmRoutingMode')"
               (change)="onRoutingModeChange($event)"
             >
@@ -79,7 +79,7 @@
                 for other features such as embeddings.
               </div>
             </div>
-            <input
+            <input aria-label="Use this machine's local Ollama"
               type="checkbox"
               [checked]="settingsStore.get('auxiliaryLlmUseLocalhostOllama')"
               (change)="onUseLocalhostOllamaChange($event)"
@@ -99,7 +99,7 @@
                 model selection purely heuristic.
               </div>
             </div>
-            <input
+            <input aria-label="Let aux model influence loop routing"
               type="checkbox"
               [checked]="settingsStore.get('auxiliaryLlmRoutingClassificationEnabled')"
               (change)="onRoutingClassificationChange($event)"

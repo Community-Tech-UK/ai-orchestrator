@@ -135,6 +135,7 @@ export class ClaudeCliProvider extends BaseProvider {
       model,
       maxTokens: options.maxTokens,
       maxBudgetUsd: options.maxBudgetUsd,
+      noSessionPersistence: options.noSessionPersistence,
       systemPrompt: options.systemPrompt,
       yoloMode: options.yoloMode,
       ...(Object.keys(accountEnv.env).length > 0 ? { env: accountEnv.env } : {}),

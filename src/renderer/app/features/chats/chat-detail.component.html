@@ -2,6 +2,7 @@
   <app-drop-zone
     [pasteOwner]="pasteDraftOwner"
     class="full-drop-zone"
+    [attachmentProvider]="detail.chat.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : detail.chat.provider || 'claude'"
     (filesDropped)="onFilesDropped($event)"
     (imagesPasted)="onImagesPasted($event)"
     (folderDropped)="onFolderDropped($event)"
@@ -186,6 +187,7 @@
       [outputMessages]="messages()"
       [instanceStatus]="statusForUi()"
       [provider]="providerForUi()"
+      [attachmentProviderOverride]="detail.chat.modelRuntimeTarget?.kind === 'local-model' ? 'local-model' : detail.chat.provider"
       [currentModel]="modelForUi()"
       [currentReasoningEffort]="detail.chat.reasoningEffort"
       [accountProfileId]="currentInstance()?.accountProfileId"

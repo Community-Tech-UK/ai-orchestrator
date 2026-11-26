@@ -63,7 +63,6 @@ const mocks = vi.hoisted(() => ({
     defaultCli: 'claude',
     outputStyle: 'default',
     injectRepoMap: false,
-    residentClaudeSession: true,
     defaultModel: undefined as string | undefined,
     defaultModelByProvider: {} as Record<string, string>,
   },

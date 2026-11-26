@@ -314,6 +314,34 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.pq-item-awaiting-answer')).toHaveLength(1);
   });
 
+  it('keeps optional verifier suggestions readable in the item detail', () => {
+    fixture.componentRef.setInput('items', [makeItem({ verdict: {
+      verdict: 'PASS', findings: [{ severity: 'low', confidence: 90, summary: 'Consider a shorter name', file: 'fixture.ts:1', evidence: 'Readable but long name' }], gatesRun: [], documentComplete: true, needJames: [],
+    } })]);
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('details');
+    expect(detail).not.toBeNull();
+    expect(detail.textContent).toContain('The checker left 1 optional suggestion');
+    expect(detail.textContent).toContain('Consider a shorter name');
+    expect(detail.textContent).toContain('fixture.ts:1');
+  });
+
+  it.each([true, false])('labels lower findings on a FAIL according to whether they go back to the worker (blocking: %s)', hasBlocking => {
+    const findings = [{ severity: 'low' as const, confidence: 90, summary: 'Shorten this name' }];
+    fixture.componentRef.setInput('items', [makeItem({ verdict: {
+      verdict: 'FAIL', findings: hasBlocking ? [{ severity: 'high', confidence: 95, summary: 'Missing guard' }, ...findings] : findings,
+      gatesRun: [], documentComplete: false, needJames: [],
+    } })]);
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector('details') as HTMLElement;
+    expect(detail.textContent).toContain('Shorten this name');
+    if (hasBlocking) expect(detail.textContent).toContain('1 optional suggestion');
+    else {
+      expect(detail.textContent).not.toContain('optional');
+      expect(detail.textContent).toContain('back to the worker');
+    }
+  });
+
   it('Skip asks first and emits only after Skip it', () => {
     fixture.componentRef.setInput('items', [makeItem({ id: 'item-skip', state: 'queued' })]);
     fixture.detectChanges();

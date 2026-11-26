@@ -175,6 +175,7 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
 
             <textarea
               class="textarea"
+              aria-label="Hook JSON to import or export"
               [value]="importExportJson()"
               (input)="onImportExportInput($event)"
               placeholder="Paste exported hook JSON here"

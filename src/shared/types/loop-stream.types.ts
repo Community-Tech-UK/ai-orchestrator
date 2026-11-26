@@ -94,4 +94,7 @@ export interface LoopRunSummary {
   openOutstandingCount?: number;
   /** Durable managed-worktree promotion/cleanup state, when isolation was used. */
   worktreeLifecycle?: LoopWorktreeLifecycle;
+  /** Persisted loop end evidence; `mergeHold: true` means the run's work was
+   *  kept on its session branch instead of merged (review hold). */
+  endEvidence?: Record<string, unknown>;
 }

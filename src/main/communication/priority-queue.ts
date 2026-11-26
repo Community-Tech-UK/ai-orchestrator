@@ -5,7 +5,6 @@
  * Priorities: 'now' > 'next' > 'later'. FIFO within each bucket.
  * Supports optional per-message TTL via expiresAt timestamp.
  *
- * Intended as the internal message store for CrossInstanceComm.
  * Standalone — no Electron or Node.js imports required.
  */
 

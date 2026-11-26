@@ -49,6 +49,7 @@ import { rejectCompletionOnStaleArtifacts } from './loop-artifact-freshness';
 import { handleFailedAttempt } from './loop-attempt-review-pause';
 import { resetFinishBudget, updateFinishPhase, type ReviewDrivenTerminal } from './loop-finish-phase';
 import { applyReviewDrivenTerminal } from './loop-review-driven-terminal';
+import { stageMergeHold } from './loop-merge-hold';
 import { noteBuilderSpend, foldPingPongSpend } from './loop-spend-ledger';
 import { reviewBudgetExceeded } from './loop-review-budget';
 import { applyOutstandingCompletionGate } from './loop-outstanding-completion';
@@ -130,14 +131,8 @@ import {
   buildEnvelopeRewrapCorrection,
   detectMalformedCompletionEnvelope,
 } from './loop-envelope-rewrap';
-import {
-  defaultBranchSelector,
-  type LoopBranchSelector,
-} from './loop-branch-select';
-import {
-  defaultLoopMemoryStore,
-  type LoopMemoryStore,
-} from './loop-memory';
+import { defaultBranchSelector, type LoopBranchSelector } from './loop-branch-select';
+import { defaultLoopMemoryStore, type LoopMemoryStore } from './loop-memory';
 import { applyLoopContextSurvivalDecision, defaultLoopContextSurvivalManager, type LoopContextSurvivalManager } from './loop-context-survival';
 import {
   decideDegradedRetry,
@@ -218,6 +213,7 @@ import {
   moveBlockedFileAside as moveBlockedFileAsideHelper,
   preflightBlockedSignal,
   rememberLoopTerminalIntent,
+  recordLoopPause,
   readBlockedFileIfPresent as readBlockedFileIfPresentHelper,
   clearFreshEyesReuseCache,
   reconcileRestoredLoopState,
@@ -243,6 +239,7 @@ import { getLessonStore } from '../memory/lesson-store';
 import { getRecallTraceStore } from '../memory/retrieval-eval/recall-trace-store';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { notifyLoopTerminal } from './loop-terminal-notification';
+import { notifyLoopPaused } from './loop-pause-notification';
 import { reportInterventionReceipts } from './intervention-receipt';
 import { clearInFlightIteration } from './loop-state-helpers';
 import { captureReviewLessonForVerdict } from './loop-review-lesson-capture-wiring';
@@ -298,6 +295,14 @@ type LoopResourceGovernor = (state: LoopState) => LongRunResourceDecision | null
 
 export class LoopCoordinator extends EventEmitter {
   private static instance: LoopCoordinator | null = null;
+
+  override emit(eventName: string | symbol, ...args: unknown[]): boolean {
+    if (eventName === 'loop:paused-no-progress') {
+      const pause = recordLoopPause(args[0], (id) => this.lifecycle.getState(id));
+      if (pause) notifyLoopPaused(pause.loopRunId, pause.reason);
+    }
+    return super.emit(eventName, ...args);
+  }
 
   private lifecycle = new LoopLifecycleStateManager();
   /** Transient per-run convergence, reset, failover, and cap hints. */
@@ -1356,6 +1361,7 @@ export class LoopCoordinator extends EventEmitter {
     if (!state) return false;
     if (state.status !== 'running') return false;
     state.status = 'paused';
+    state.endReason = 'Paused by request';
     this.pingPongReviewAborts.abortPause(loopRunId, 'loop paused');
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop paused (manual)', { loopRunId });
@@ -1431,6 +1437,8 @@ export class LoopCoordinator extends EventEmitter {
     if (state.status === 'provider-limit') this.providerLimitHandler.applyManualResumeOverride(state.config.provider, loopRunId);
     // Resumes the cap clock only if restart admission is open; otherwise the next pre-iteration sync does, before caps are checked.
     state.status = 'running'; syncLoopGlobalPauseClock(state);
+    state.endReason = undefined;
+    if (state.lastCompletionOutcome === 'unverifiable') state.lastCompletionOutcome = undefined;
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;
     resetFinishBudget(state);
@@ -3128,14 +3136,17 @@ export class LoopCoordinator extends EventEmitter {
             continue;
           }
           if (
-            pingPongTerminal.status === 'completed'
+            (pingPongTerminal.status === 'completed' || pingPongTerminal.status === 'completed-needs-review')
             && state.config.audit.finalAuditMode === 'gate'
             && finalAudit.status === 'needs-review'
           ) {
-            pingPongTerminal = {
-              status: 'completed-needs-review',
-              reason: 'Final audit requires operator review before this loop can be considered cleanly complete.',
-            };
+            if (pingPongTerminal.status === 'completed') {
+              pingPongTerminal = {
+                status: 'completed-needs-review',
+                reason: 'Final audit requires operator review before this loop can be considered cleanly complete.',
+              };
+            }
+            stageMergeHold(state, 'final-audit-blocked');
           }
         }
         if (pingPongTerminal.status === 'completed') {
@@ -3240,6 +3251,7 @@ export class LoopCoordinator extends EventEmitter {
           reason,
           acceptedByOperator: false,
         });
+        stageMergeHold(state, 'stalled');
         this.terminate(state, 'completed-needs-review', reason);
         return;
       }
@@ -3308,6 +3320,7 @@ export class LoopCoordinator extends EventEmitter {
             reason,
             acceptedByOperator: false,
           });
+          stageMergeHold(state, 'stalled');
           this.terminate(state, 'completed-needs-review', reason);
           return;
         }
@@ -3722,7 +3735,6 @@ export class LoopCoordinator extends EventEmitter {
     log?: { seq: number; cause: string },
   ): void {
     state.status = 'paused';
-    state.endReason = reason;
     if (!this.completionContext.hasConvergenceNote(state.id)) {
       this.completionContext.setConvergenceNote(state.id, reason);
     }

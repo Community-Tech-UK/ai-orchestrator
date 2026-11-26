@@ -13,6 +13,7 @@ import {
   type DockChipDef,
 } from './session-status-dock.rules';
 import { SessionStatusDockComponent } from './session-status-dock.component';
+import { helpersDockChip } from './helper-agents-chip';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { IpcFacadeService, VcsIpcService } from '../../core/services/ipc';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -49,6 +50,9 @@ const alwaysOnChip = (id: DockChipDef['id'], blocker = false): DockChipDef => ({
   describe: () => ({ label: id, title: `Toggle ${id}`, badge: null }),
 });
 
+/** The strip reads the native-helper summary from the instance list (part 7c). */
+const storeInstances = signal<readonly { id: string; nativeHelpers?: { running: number } }[]>([]);
+
 describe('session-status-dock rules (Phase 5 handoff guard)', () => {
   let fixture: ComponentFixture<SessionStatusDockComponent>;
   const listSessionSnapshots = vi.fn(
@@ -58,6 +62,7 @@ describe('session-status-dock rules (Phase 5 handoff guard)', () => {
   async function createDock(snapshots: unknown[] = []): Promise<void> {
     listSessionSnapshots.mockReset();
     listSessionSnapshots.mockImplementation(() => Promise.resolve({ success: true, data: snapshots }));
+    storeInstances.set([]);
     await TestBed.configureTestingModule({
       imports: [SessionStatusDockComponent],
       providers: [
@@ -75,8 +80,10 @@ describe('session-status-dock rules (Phase 5 handoff guard)', () => {
         {
           provide: InstanceStore,
           useValue: {
+            instances: storeInstances,
             instanceActivities: signal(new Map()),
-            getInstance: () => undefined,
+            // Reads the signal like the real store, so the helper chip reacts.
+            getInstance: (id: string) => storeInstances().find((instance) => instance.id === id),
           },
         },
       ],
@@ -96,6 +103,7 @@ describe('session-status-dock rules (Phase 5 handoff guard)', () => {
   it('renders no approval or question component inside the strip, with every chip opened', async () => {
     await createDock([{ id: 'snap-1' }, { id: 'snap-2' }]);
     fixture.componentRef.setInput('childrenIds', ['child-1']);
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 1 } }]);
     fixture.componentInstance.onReviewStarted();
     await settle();
 
@@ -103,7 +111,14 @@ describe('session-status-dock rules (Phase 5 handoff guard)', () => {
     expect(strip).toBeTruthy();
     const chips = strip.querySelectorAll('.dock-chips > .inspector-toggle[data-chip-id]');
     expect(chips.length).toBe(DOCK_CHIPS.length);
-    for (const chip of Array.from(chips)) {
+    // Informational registrations (the helper-agents chip) have no panel to
+    // open and are not toggles; only real toggle chips are opened here.
+    const toggleChips = strip.querySelectorAll(
+      '.dock-chips > button.inspector-toggle[data-chip-id]',
+    );
+    expect(toggleChips.length).toBe(DOCK_CHIPS.filter((def) => !def.informational).length);
+    for (const chip of Array.from(toggleChips)) {
+      expect((chip as HTMLButtonElement).getAttribute('aria-expanded')).toBe('false');
       (chip as HTMLButtonElement).click();
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('.inspector-panels')).toBeTruthy();
@@ -167,6 +182,87 @@ describe('session-status-dock rules (Phase 5 handoff guard)', () => {
     const overflowList = fixture.nativeElement.querySelector('.dock-overflow-list');
     expect(overflowList).toBeTruthy();
     expect(overflowList.querySelector('[data-chip-id="helpers"]')).toBeTruthy();
+  });
+
+  it('folds the registered helper-agents chip into "+N more" after the strip cap', async () => {
+    // Part 7c's strip-overflow contract: once other chips fill the strip at
+    // Phase 5 step 16's limit, the registered helper chip sits in the overflow.
+    await createDock();
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 2 } }]);
+    fixture.componentRef.setInput('chipDefs', [
+      alwaysOnChip('review'),
+      alwaysOnChip('agents'),
+      alwaysOnChip('checkpoints'),
+      alwaysOnChip('goal'),
+      alwaysOnChip('compact-first'),
+      helpersDockChip,
+    ]);
+    await settle();
+
+    const chipButtons = fixture.nativeElement.querySelectorAll(
+      '.dock-chips > .inspector-toggle[data-chip-id]',
+    );
+    expect(chipButtons).toHaveLength(DOCK_CHIP_VISIBLE_CAP);
+    expect(fixture.nativeElement.querySelector('[data-chip-id="helpers"]')).toBeNull();
+
+    const overflowToggle = fixture.nativeElement.querySelector(
+      '.dock-overflow-toggle',
+    ) as HTMLButtonElement;
+    expect(overflowToggle).toBeTruthy();
+    expect(overflowToggle.textContent).toContain('+1 more');
+
+    overflowToggle.click();
+    fixture.detectChanges();
+
+    const overflowList = fixture.nativeElement.querySelector('.dock-overflow-list');
+    expect(overflowList).toBeTruthy();
+    const helpersChip = overflowList.querySelector('[data-chip-id="helpers"]') as HTMLElement;
+    expect(helpersChip).toBeTruthy();
+    expect(helpersChip.textContent).toContain('2 helper agents running');
+    // Informational: no toggle button and no panel behind the chip.
+    expect(overflowList.querySelector('button[data-chip-id="helpers"]')).toBeNull();
+  });
+
+  it('shows the registered helper-agents chip in the strip under the cap and hides at zero', async () => {
+    await createDock();
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 1 } }]);
+    await settle();
+    const chip = fixture.nativeElement.querySelector(
+      '.dock-chips [data-chip-id="helpers"]',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain('1 helper agent running');
+
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 2 } }]);
+    await settle();
+    expect(
+      fixture.nativeElement.querySelector('.dock-chips [data-chip-id="helpers"]').textContent,
+    ).toContain('2 helper agents running');
+
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 0 } }]);
+    await settle();
+    expect(fixture.nativeElement.querySelector('[data-chip-id="helpers"]')).toBeNull();
+  });
+
+  it('counts only native helpers in the helper chip, never separate child sessions', async () => {
+    await createDock();
+    fixture.componentRef.setInput('childrenIds', ['child-1', 'child-2']);
+    storeInstances.set([
+      { id: 'inst-1', nativeHelpers: { running: 1 } },
+      { id: 'child-1', nativeHelpers: { running: 5 } },
+      { id: 'child-2', nativeHelpers: { running: 7 } },
+    ]);
+    await settle();
+    expect(
+      fixture.nativeElement.querySelector('.dock-chips [data-chip-id="helpers"]').textContent,
+    ).toContain('1 helper agent running');
+    expect(
+      fixture.nativeElement.querySelector('.dock-chips [data-chip-id="agents"]').textContent,
+    ).toContain('Agents (2)');
+
+    // Two child sessions and no native helpers: the helper chip stays hidden.
+    storeInstances.set([{ id: 'inst-1', nativeHelpers: { running: 0 } }]);
+    await settle();
+    expect(fixture.nativeElement.querySelector('[data-chip-id="helpers"]')).toBeNull();
   });
 
   it('Escape closes a chip panel and returns focus to the chip', async () => {
@@ -566,6 +662,7 @@ describe('DOCK_CHIPS registry', () => {
       'review',
       'agents',
       'checkpoints',
+      'helpers',
     ]);
     expect(DOCK_CHIP_VISIBLE_CAP).toBe(5);
   });

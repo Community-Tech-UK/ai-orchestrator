@@ -16,6 +16,7 @@ import {
   LoopInferVerifyPayloadSchema,
   LoopAssessScopePayloadSchema,
 } from '@contracts/schemas/loop';
+import { LoopViewFocusPayloadSchema } from '@contracts/schemas/loop-view-focus';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { buildAwayRecap } from '../../orchestration/away-recap';
 import { registerLoopWorktreeResolveHandler } from './loop-worktree-resolve-handler';
@@ -28,6 +29,7 @@ import { cancelLoopOrCloseStoredRun } from '../../orchestration/loop-cancel-or-c
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig, markInteractiveLoopStart } from '../../orchestration/loop-start-config';
+import { reportLoopViewFocus } from '../../orchestration/loop-pause-notification';
 import { assessLoopScope, type LoopScopeAssessment } from '../../orchestration/loop-scope-assessment';
 import { loadLoopRecipeRegistry } from '../../orchestration/loop-recipes';
 import { readUtf8FileHead } from '../../orchestration/bounded-file-read';
@@ -449,6 +451,19 @@ export function registerLoopHandlers(deps: {
       return { success: true, data: { ok, state } };
     } catch (error) {
       return errorResponse('LOOP_ACCEPT_COMPLETION_FAILED', error);
+    }
+  });
+
+  // 4a change 3: the renderer reports the loop its HUD shows (or none), so a
+  // pause notice is suppressed only while that loop is on screen and any
+  // notice deferred while it was is delivered on the change of view.
+  ipcMain.handle(IPC_CHANNELS.LOOP_VIEW_FOCUS, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopViewFocusPayloadSchema, payload, 'LOOP_VIEW_FOCUS');
+      reportLoopViewFocus(validated.loopRunId);
+      return { success: true, data: { ok: true } };
+    } catch (error) {
+      return errorResponse('LOOP_VIEW_FOCUS_FAILED', error);
     }
   });
 

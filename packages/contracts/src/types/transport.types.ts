@@ -8,6 +8,7 @@ import type {
   ContextUsage,
   FileAttachment,
   InstanceBackgroundWork,
+  NativeHelperSummary,
   InstanceRecoveryMethod,
   InstanceStatus,
   InstanceWaitReason,
@@ -157,6 +158,8 @@ export interface InstanceStateUpdatePayload {
    * outlives the turn that started it. null clears; undefined preserves.
    */
   backgroundWork?: InstanceBackgroundWork | null;
+  /** Live native helpers, including foreground agents. null clears; undefined preserves. */
+  nativeHelpers?: NativeHelperSummary | null;
   /** Claude/Codex account-pool profile the session runs on; undefined preserves. */
   accountProfileId?: string;
   /** How that account was chosen (default, failover, …). */

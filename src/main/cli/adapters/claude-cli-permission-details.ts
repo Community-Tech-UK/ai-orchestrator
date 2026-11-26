@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { isHarnessRefusal } from './claude-permission-response';
 
 import { generateId } from '../../../shared/utils/id-generator';
+import { matchesClaudeDenialSentence } from './claude-denial-patterns';
 
 export interface ClaudeToolUseContext {
   name: string;
@@ -16,58 +17,17 @@ export interface ClaudePermissionDetails {
 
 /**
  * Detect whether a tool_result error content indicates a permission denial.
- * Claude CLI has changed its denial wording across versions, so we match
- * several known patterns rather than a single literal string.
+ * Runtime callers must provide the original tool context. Content-only calls
+ * remain available for the pure sentence classifier and legacy callers.
  */
-export function isPermissionDenialContent(content: string): boolean {
+export function isPermissionDenialContent(
+  content: string,
+  toolUseId?: string,
+  toolUseContexts?: ReadonlyMap<string, ClaudeToolUseContext>,
+): boolean {
   if (isHarnessRefusal(content)) return false;
-  // A Bash tool_result that opens with "Exit code N" means the command actually
-  // EXECUTED — a permission-denied tool call never runs. Any denial-sounding
-  // text after that prefix is the command's own output (`grep: /x: Permission
-  // denied`, `ssh: Permission denied (publickey)`, a 403 body, ...), not the CLI.
-  if (/^\s*exit code\s+\d+/i.test(content)) {
-    return false;
-  }
-
-  // Current non-interactive Claude also uses this whole-message denial.
-  // Anchor it so approval wording in a command's output is not actionable.
-  if (/^this command requires approval\.?$/i.test(content.trim())) {
-    return true;
-  }
-
-  // Mask Unix-style "<prefix>: Permission denied" occurrences before pattern
-  // matching. That shape is always tool/command output (grep, sed, bash, ssh
-  // "root@host: Permission denied (publickey)"); CLI denial messages never put
-  // a colon-prefixed subject in front of the phrase.
-  const lower = content
-    .toLowerCase()
-    .replace(/\S+:\s*permission denied(?:\s*\(publickey[^)]*\))?/g, ' ');
-  const patterns = [
-    "haven't granted it yet",
-    "hasn't been granted",
-    "permission denied",
-    "not allowed to",
-    "not permitted",
-    "requires permission",
-    "does not have permission",
-    "need permission",
-    "must grant permission",
-    "allow this tool",
-    "tool is not approved",
-    "denied by permission",
-    "permission to use this tool",
-    "tool use is not allowed",
-    "is not allowed in",
-    "isn't allowed",
-    "not authorized",
-  ];
-  const claudeRequestedPermissionPattern =
-    /\bclaude requested permissions? to (?:access|add|change|create|delete|edit|execute|modify|move|open|read|remove|rename|run|update|use|view|write)\b/i;
-  const commandRequiresApprovalPattern = /^\s*this command requires approval\.?\s*$/i;
-
-  return patterns.some(p => lower.includes(p))
-    || claudeRequestedPermissionPattern.test(content)
-    || commandRequiresApprovalPattern.test(content);
+  if (toolUseContexts && (!toolUseId || !toolUseContexts.has(toolUseId))) return false;
+  return matchesClaudeDenialSentence(content);
 }
 
 export function extractPermissionDetails(
@@ -82,6 +42,7 @@ export function extractPermissionDetails(
   let displayPath: string | undefined;
 
   const patterns: RegExp[] = [
+    /permissions? to (\w+) from (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
     /permissions? to (\w+) to (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
     /permissions? to (\w+) on (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
     /permissions? to (\w+) for (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,

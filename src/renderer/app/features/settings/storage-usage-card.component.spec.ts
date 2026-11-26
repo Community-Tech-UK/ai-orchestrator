@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { readFileSync } from 'fs';
@@ -6,11 +6,12 @@ import { basename } from 'path';
 import { StorageUsageCardComponent } from './storage-usage-card.component';
 import { StorageUsageStore } from '../../core/state/storage-usage.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import type { StorageCleanupPreview, StorageUsage } from '../../../../shared/types/storage.types';
 await resolveComponentResources(url => Promise.resolve(url.endsWith('.html') ? readFileSync(`src/renderer/app/features/settings/${basename(url)}`, 'utf8') : ''));
 const preview: StorageCleanupPreview = { previewId: 'fixture', target: 'event-record', items: [], bytes: 1024 ** 3, estimatedCount: 4_900_000, oldestAt: 1, newestAt: 2, consequence: 'This cannot be undone. The conversation file stays the same size until you also choose Shrink the file.', reversible: false };
 describe('disk usage card', () => {
-  const store = { usage: signal<StorageUsage | null>(null), preview: signal<StorageCleanupPreview | null>(null), busy: signal(false), loading: signal(false), error: signal<string | null>(null), refresh: vi.fn(), review: vi.fn(), run: vi.fn(), cancel: vi.fn(() => store.preview.set(null)), stopPolling: vi.fn() };
+  const store = { usage: signal<StorageUsage | null>(null), preview: signal<StorageCleanupPreview | null>(null), busy: signal(false), loading: signal(false), error: signal<string | null>(null), result: signal(null), refresh: vi.fn(), review: vi.fn(), run: vi.fn(), cancel: vi.fn(() => store.preview.set(null)), stopPolling: vi.fn() };
   const settings = { settings: signal({ codexBackupKeepThree: false }), set: vi.fn(), error: signal<string | null>(null) };
   beforeEach(async () => {
     vi.clearAllMocks(); store.preview.set(null); store.usage.set(null); store.busy.set(false);
@@ -230,5 +231,78 @@ describe('disk usage card', () => {
     const element = render().nativeElement as HTMLElement;
     expect(element.textContent).toContain(`fixture ${target} consequence`);
     expect(element.textContent).toContain('1.00 GiB');
+  });
+  it('labels attachment preview rows as folders while counting their session copies', () => {
+    store.preview.set({ ...preview, target: 'claude-attachments', estimatedCount: 2,
+      items: [{ name: '/project/.claude-attachments', bytes: 11, createdAt: 1, sessions: 2 }] });
+    const element = render().nativeElement as HTMLElement;
+    expect(element.textContent).toContain('About 2 items');
+    expect(element.querySelector('details summary')?.textContent).toBe('Folders containing old copies (1)');
+    expect(element.querySelector('details li')?.textContent).toContain('2 sessions');
+  });
+
+  it('offers the RTK trim without claiming it frees disk space, and leaves empty file cleanups unavailable', () => {
+    store.usage.set({ measuredAt: 1, rows: [
+      { id: 'rtk-history', label: 'RTK command history', bytes: 100, reclaimableBytes: 0, target: 'rtk-history', note: 'The file on disk keeps its size.' },
+      { id: 'activity-logs', label: 'Logs', bytes: 0, reclaimableBytes: 0, target: 'activity-logs', note: 'Nothing old enough.' },
+    ], reclaimableBytes: 0, progress: null });
+    const element = render().nativeElement as HTMLElement;
+    const [rtk, logs] = [...element.querySelectorAll<HTMLButtonElement>('.usage-row button')];
+    expect(rtk.classList.contains('aio-reason-disabled')).toBe(false);
+    expect(logs.classList.contains('aio-reason-disabled')).toBe(true);
+    rtk.click();
+    expect(store.review).toHaveBeenCalledExactlyOnceWith('rtk-history');
+    expect(store.run).not.toHaveBeenCalled();
+    expect(element.textContent).not.toContain('can be cleared');
+  });
+});
+
+describe('RTK cleanup result in the rendered card', () => {
+  const rtkPreview: StorageCleanupPreview = {
+    ...preview, previewId: 'rtk-ticket', target: 'rtk-history', estimatedCount: 3, bytes: 240,
+    items: [{ name: 'RTK command history', bytes: 240, createdAt: 1 }],
+  };
+  const api = {
+    storageGetUsage: vi.fn(async () => ({ success: true, data: { measuredAt: 1, rows: [], reclaimableBytes: 0, progress: null } })),
+    storagePreviewCleanup: vi.fn(async () => ({ success: true, data: rtkPreview })),
+    storageRunCleanup: vi.fn(),
+  };
+  const settings = { settings: signal({ codexBackupKeepThree: false }), set: vi.fn(), error: signal<string | null>(null) };
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [StorageUsageCardComponent],
+      providers: [{ provide: ElectronIpcService, useValue: { getApi: () => api } }, { provide: SettingsStore, useValue: settings }],
+    }).compileComponents();
+  });
+  afterEach(() => TestBed.resetTestingModule());
+
+  it.each([
+    { name: 'zero rows removed before a busy stop', removed: 0, stoppedEarly: true, role: 'alert' },
+    { name: 'some rows removed before a busy stop', removed: 2, stoppedEarly: true, role: 'alert' },
+    { name: 'full row trim', removed: 3, stoppedEarly: false, role: 'status' },
+  ])('announces $name and requires a fresh preview to retry', async ({ removed, stoppedEarly, role }) => {
+    api.storageRunCleanup.mockResolvedValue({ success: true, data: { target: 'rtk-history', removed, bytesFreed: 0, stoppedEarly } });
+    const fixture = TestBed.createComponent(StorageUsageCardComponent);
+    fixture.detectChanges();
+    const store = TestBed.inject(StorageUsageStore);
+    await store.review('rtk-history');
+    fixture.detectChanges();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-confirm]')!.click();
+    await vi.waitFor(() => expect(store.preview()).toBeNull());
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const notice = element.querySelector(`[role="${role}"]`);
+    expect(notice).not.toBeNull();
+    expect(notice!.textContent).toContain(`${removed} entries`);
+    expect(notice!.textContent).toContain('file on disk keeps its size');
+    if (stoppedEarly) {
+      expect(notice!.textContent).toContain('may be busy');
+      expect(notice!.textContent).toContain('Review again');
+    }
+    expect(element.querySelector('[data-confirm]')).toBeNull();
+    expect(api.storageRunCleanup).toHaveBeenCalledExactlyOnceWith('rtk-history', 'rtk-ticket');
   });
 });

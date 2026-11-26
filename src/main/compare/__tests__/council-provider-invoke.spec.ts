@@ -51,6 +51,7 @@ describe('invokeProviderOneShot', () => {
     const send = vi.fn(async () => ({ content: 'partial', metadata: { budgetExceeded: true }, usage: { cost: 0.0064186, inputTokens: 0, outputTokens: 0 } }));
     deps.createAdapter = vi.fn((_type, options) => {
       expect(options.maxBudgetUsd).toBe(1);
+      expect(options.noSessionPersistence).toBe(true);
       return { sendMessage: send } as unknown as CliAdapter;
     });
     try {

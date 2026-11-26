@@ -131,6 +131,17 @@ describe('rtk-tracking-reader', () => {
         expect(result).toContain('Library/Application Support');
       }
     });
+
+    it('honours RTK_DB_PATH like rtk itself does', () => {
+      const previous = process.env['RTK_DB_PATH'];
+      try {
+        process.env['RTK_DB_PATH'] = path.join(tempRoot, 'rtk-override.db');
+        expect(getRtkTrackingDbPath()).toBe(path.join(tempRoot, 'rtk-override.db'));
+      } finally {
+        if (previous === undefined) delete process.env['RTK_DB_PATH'];
+        else process.env['RTK_DB_PATH'] = previous;
+      }
+    });
   });
 
   describe('isAvailable', () => {

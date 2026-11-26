@@ -21,3 +21,29 @@ describe('loop end wording', () => {
     expect(endReason).toContain('Stop point for Harness work');
   });
 });
+it('names why nothing was merged for the stall and final-check holds', () => {
+  expect(describeLoopEnd({ status: 'completed-needs-review', mergeHeld: true, mergeHoldKind: 'stalled', branch: 'loop/task', roundsFinished: 3, endedAt: 1000 }).sentence).toContain('the loop stalled');
+  expect(describeLoopEnd({ status: 'completed-needs-review', mergeHeld: true, mergeHoldKind: 'final-audit-blocked', branch: 'loop/task', roundsFinished: 3, endedAt: 1000 }).sentence).toContain('final check needs your sign-off');
+  expect(describeLoopEnd({ status: 'completed-needs-review', mergeHeld: true, mergeHoldKind: 'stalled', branch: 'loop/task', roundsFinished: 3, endedAt: 1000 }).sentence).toContain('loop/task');
+});
+
+it('keeps passed-audit no-change review distinct from restored historical final-audit holds', () => {
+  const input = { status: 'completed-needs-review', mergeHeld: true, branch: 'loop/kept', roundsFinished: 3, endedAt: 1000 };
+  const noChange = describeLoopEnd({ ...input, mergeHoldKind: 'verified-no-change' });
+  expect(noChange.sentence).toContain('no production changes and needs your review');
+  expect(noChange.sentence).toContain('loop/kept');
+  expect(noChange.sentence).not.toContain('final check needs your sign-off');
+  const restored = JSON.parse(JSON.stringify({ mergeHoldKind: 'final-audit-blocked' })) as { mergeHoldKind: string };
+  expect(describeLoopEnd({ ...input, ...restored }).sentence).toContain('final check needs your sign-off');
+});
+
+
+it.each([undefined, 'historical-kind', ''])('keeps an unrecorded hold reason factual (%s)', (mergeHoldKind) => {
+  const end = describeLoopEnd({
+    status: 'completed-needs-review', mergeHeld: true, mergeHoldKind,
+    branch: 'loop/kept', roundsFinished: 3, endedAt: 1000,
+  });
+  expect(end.sentence).toContain('Nothing was merged because the work is held for review.');
+  expect(end.sentence).toContain('loop/kept');
+  expect(end.sentence).not.toContain('skipped');
+});

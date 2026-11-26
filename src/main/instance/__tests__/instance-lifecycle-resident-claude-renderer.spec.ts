@@ -343,6 +343,7 @@ function makeFakeAdapter() {
       selfManagedAutoCompaction: true,
     }),
     on: vi.fn(),
+    off: vi.fn(),
   };
 }
 

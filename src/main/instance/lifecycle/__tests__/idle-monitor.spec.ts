@@ -308,6 +308,7 @@ describe('IdleMonitor', () => {
       deleteAdapter: vi.fn(),
       transitionState: vi.fn(),
       terminateInstance,
+      sessionHostsActiveLoop: () => false,
       hibernateInstance: vi.fn(async () => undefined),
       dispatchRecovery: vi.fn(async () => undefined),
     } as never);
@@ -344,6 +345,7 @@ describe('IdleMonitor', () => {
       transitionState: vi.fn(),
       terminateInstance,
       hibernateInstance,
+      sessionHostsActiveLoop: () => false,
       dispatchRecovery: vi.fn(async () => undefined),
     } as never);
 
@@ -365,6 +367,7 @@ describe('IdleMonitor', () => {
       getAdapter: () => undefined, queueUpdate: vi.fn(), deleteAdapter: vi.fn(),
       transitionState: vi.fn(), terminateInstance: vi.fn(async () => undefined),
       hibernateInstance, dispatchRecovery: vi.fn(async () => undefined),
+      sessionHostsActiveLoop: () => false,
     });
     recordInstanceTurnEnding(child.id, 'content_filter');
     monitor.check();
@@ -490,5 +493,71 @@ describe('IdleMonitor', () => {
     // 2 stale candidates → ceil(2/2) = 1 terminated, the oldest.
     expect(terminateInstance).toHaveBeenCalledTimes(1);
     expect(terminateInstance).toHaveBeenCalledWith('stale-oldest', true);
+  });
+
+  it.each([false, true])('idle cleanup preserves a loop chat (conversation: %s)', (hasConversation) => {
+    const instances = ['loop-chat', 'ordinary'].map((id) => ({
+      id, parentId: 'parent', status: 'idle', lastActivity: Date.now() - 600_000,
+      outputBuffer: hasConversation ? [{ type: 'user' }] : [],
+    } as Instance));
+    const terminateInstance = vi.fn(async () => undefined);
+    const hibernateInstance = vi.fn(async () => undefined);
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 5 }),
+      getRecoveryEngine: () => null, getActivityDetectors: () => new Map(),
+      getInstance: (id: string) => instances.find((instance) => instance.id === id),
+      forEachInstance: (cb: (instance: Instance, id: string) => void) => instances.forEach((instance) => cb(instance, instance.id)),
+      getAdapter: () => undefined, queueUpdate: vi.fn(), deleteAdapter: vi.fn(), transitionState: vi.fn(),
+      terminateInstance, hibernateInstance, dispatchRecovery: vi.fn(async () => undefined),
+      sessionHostsActiveLoop: (id: string) => id === 'loop-chat',
+    } as never);
+
+    monitor.check();
+
+    expect(terminateInstance).not.toHaveBeenCalledWith('loop-chat', true);
+    expect(hibernateInstance).not.toHaveBeenCalledWith('loop-chat');
+    if (hasConversation) expect(hibernateInstance).toHaveBeenCalledWith('ordinary');
+    else expect(terminateInstance).toHaveBeenCalledWith('ordinary', true);
+  });
+
+  it('memory pressure filters loop chats before choosing half of the idle children', () => {
+    const instances = ['loop-chat', 'ordinary'].map((id, index) => ({
+      id, parentId: 'parent', status: 'idle', lastActivity: Date.now() - (20 - index) * 60_000,
+    } as Instance));
+    const terminateInstance = vi.fn(async () => undefined);
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+      getRecoveryEngine: () => null, getActivityDetectors: () => new Map(),
+      getInstance: (id: string) => instances.find((instance) => instance.id === id),
+      forEachInstance: (cb: (instance: Instance, id: string) => void) => instances.forEach((instance) => cb(instance, instance.id)),
+      getAdapter: () => undefined, queueUpdate: vi.fn(), deleteAdapter: vi.fn(), transitionState: vi.fn(),
+      terminateInstance, hibernateInstance: vi.fn(async () => undefined), dispatchRecovery: vi.fn(async () => undefined),
+      sessionHostsActiveLoop: (id: string) => id === 'loop-chat',
+    } as never);
+
+    monitor.terminateIdleHalf();
+
+    expect(terminateInstance.mock.calls).toEqual([['ordinary', true]]);
+  });
+
+  it.each(['idle', 'memory'] as const)('preserves sessions when %s cleanup cannot inspect loop ownership', (path) => {
+    const instance = { id: 'unknown', parentId: 'parent', status: 'idle',
+      lastActivity: 0, outputBuffer: [] } as unknown as Instance;
+    const terminateInstance = vi.fn(async () => undefined);
+    const hibernateInstance = vi.fn(async () => undefined);
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 5 }),
+      getRecoveryEngine: () => null, getActivityDetectors: () => new Map(),
+      getInstance: () => instance, forEachInstance: (cb) => cb(instance, instance.id),
+      getAdapter: () => undefined, queueUpdate: vi.fn(), deleteAdapter: vi.fn(), transitionState: vi.fn(),
+      terminateInstance, hibernateInstance, dispatchRecovery: vi.fn(async () => undefined),
+      sessionHostsActiveLoop: () => { throw new Error('ownership unavailable'); },
+    });
+
+    if (path === 'idle') monitor.check();
+    else monitor.terminateIdleHalf();
+
+    expect(terminateInstance).not.toHaveBeenCalled();
+    expect(hibernateInstance).not.toHaveBeenCalled();
   });
 });

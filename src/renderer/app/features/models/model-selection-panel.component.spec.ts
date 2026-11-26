@@ -104,6 +104,11 @@ describe('ModelSelectionPanelComponent', () => {
       .map((el) => (el as HTMLElement).textContent?.trim() ?? '');
   }
 
+  it('gives the model search a name beyond its placeholder', () => {
+    setInputs();
+    expect((fixture.nativeElement.querySelector('input[type="search"]') as HTMLInputElement).getAttribute('aria-label')).toBe('Search models');
+  });
+
   function focusModelRow(): HTMLElement {
     const select = fixture.nativeElement.querySelector('.model-picker-row__select') as HTMLButtonElement;
     const matches = select.matches.bind(select);

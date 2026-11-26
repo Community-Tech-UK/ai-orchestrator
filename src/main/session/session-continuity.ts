@@ -19,6 +19,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { errorDiagnostic } from '../logging/source-diagnostics';
 import { SnapshotIndex } from './snapshot-index';
+import { SessionContinuityLookupIndex } from './session-continuity-lookup-index';
 import { TerminationGateManager, type SessionTerminationGate, type TerminationGateResult } from './termination-gate-manager';
 import { SnapshotManager } from './snapshot-manager';
 import { cleanupContinuityOrphanedTmpFiles, quarantineFile, repairFile, validateTranscript } from './session-repair';
@@ -157,6 +158,7 @@ export class SessionContinuityManager extends EventEmitter {
   private readonly autoSave: SessionAutoSaveCoordinator;
   private readonly persistenceEpochs = new ContinuityWriteEpochs();
   private snapshotIndex: SnapshotIndex;
+  private readonly lookupIndex: SessionContinuityLookupIndex;
   /** Extracted termination gate orchestration. */
   readonly gateManager: TerminationGateManager;
   /** Extracted snapshot persistence and retention. */
@@ -177,6 +179,8 @@ export class SessionContinuityManager extends EventEmitter {
     this.recoveryMetadataDir = path.join(this.continuityDir, 'recovery-metadata');
     this.snapshotDir = path.join(this.continuityDir, 'snapshots');
     this.quarantineDir = path.join(this.continuityDir, 'quarantine');
+    this.lookupIndex = new SessionContinuityLookupIndex({ stateDir: this.stateDir, metadataDir: this.recoveryMetadataDir,
+      indexPath: path.join(this.continuityDir, 'lookup-index.json'), readState: (file) => this.readPayload<SessionState>(file) });
 
     this.snapshotIndex = new SnapshotIndex();
     this.gateManager = new TerminationGateManager();
@@ -277,6 +281,7 @@ export class SessionContinuityManager extends EventEmitter {
     await this.buildSnapshotIndex();
     await this.pruneOnStartup();
     this.startGlobalAutoSave();
+    this.lookupIndex.start();
     this.initDegraded = false;
   }
 
@@ -368,15 +373,9 @@ export class SessionContinuityManager extends EventEmitter {
       return null;
     }
 
-    const directStateFile = path.join(this.stateDir, `${normalized}.json`);
-    const direct = await this.readPayload<SessionState>(directStateFile);
-    if (direct) {
-      return normalizeStateForContinuity(direct, this.config.redactToolOutputs);
-    }
-
-    let files: string[] = [];
     try {
-      files = await fs.promises.readdir(this.stateDir);
+      const state = await this.lookupIndex.find(normalized);
+      return state ? normalizeStateForContinuity(state, this.config.redactToolOutputs) : null;
     } catch (error) {
       logger.error('Failed to scan session state directory for identifier lookup', error instanceof Error ? error : undefined, {
         stateDir: this.stateDir,
@@ -384,19 +383,6 @@ export class SessionContinuityManager extends EventEmitter {
       });
       return null;
     }
-
-    for (const file of files) {
-      if (!file.endsWith('.json') || file === `${normalized}.json`) {
-        continue;
-      }
-
-      const state: SessionState | null = await this.readPayload<SessionState>(path.join(this.stateDir, file));
-      if (state && getStateLookupKeys(state).includes(normalized)) {
-        return normalizeStateForContinuity(state, this.config.redactToolOutputs);
-      }
-    }
-
-    return null;
   }
 
   private async selectStateFilesForStartup(files: string[]): Promise<string[]> {
@@ -570,6 +556,7 @@ export class SessionContinuityManager extends EventEmitter {
     this.autoSave.clearPendingAutoSaveTimer(instanceId);
     await discardContinuityTracking(instanceId, [this.sessionStates, this.dehydratedStateIds, this.stateActivityTimestamps, this.stateRecoveryMetadata, this.dirty, this.incompleteTranscriptIds],
     [this.stateDir, this.recoveryMetadataDir]);
+    this.lookupIndex.remove(instanceId);
   }
 
   /**
@@ -641,6 +628,7 @@ export class SessionContinuityManager extends EventEmitter {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       await fs.promises.unlink(path.join(this.recoveryMetadataDir, `${instanceId}.json`)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+      this.lookupIndex.remove(instanceId);
       this.sessionStates.delete(instanceId);
       this.dehydratedStateIds.delete(instanceId);
       this.stateActivityTimestamps.delete(instanceId);
@@ -1408,6 +1396,7 @@ export class SessionContinuityManager extends EventEmitter {
           stateFile, assertSessionStatePayloadSize(this.serializePayload(normalizedState)), isCurrent,
         ));
       if (!stateCommitted || !isCurrent()) return false;
+      await this.lookupIndex.upsert(normalizedState);
       const stateStat = await this.persistenceOperations.statStateFile(stateFile);
       if (!isCurrent()) return false;
       const metadataCommitted = await this.persistenceOperations.writePayloadAtomic(
@@ -1703,6 +1692,7 @@ export class SessionContinuityManager extends EventEmitter {
    */
   shutdown(): void {
     this.autoSave.stop();
+    void this.lookupIndex.close();
 
     // Flush any buffered event-log entries (fire-and-forget; Electron is quitting).
     void getSessionPersistenceQueue().shutdown({ drain: false });

@@ -16,13 +16,19 @@ export function unwrap(node: ts.Expression): ts.Expression {
   while (ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isParenthesizedExpression(node)) node = node.expression;
   return node;
 }
-export function collectTemplates(root: string): Collection {
-  const files = walk(join(root, 'src/renderer'));
+export interface TemplateReader {
+  files(directory: string): string[];
+  exists(file: string): boolean;
+  read(file: string): string;
+}
+const diskReader: TemplateReader = { files: walk, exists: existsSync, read: file => readFileSync(file, 'utf8') };
+export function collectTemplates(root: string, reader: TemplateReader = diskReader): Collection {
+  const files = reader.files(join(root, 'src/renderer'));
   const result: Collection = { templates: [], sourceFiles: [], errors: [], componentCount: 0 };
   const references = new Map<string, number>();
   const problem = (file: string, line: number, message: string): void => { result.errors.push({ code: 'H12', ownerFile: file, file, line, message }); };
   for (const file of files.filter(isProductionTs)) {
-    const text = readFileSync(file, 'utf8');
+    const text = reader.read(file);
     const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
     result.sourceFiles.push(sourceFile);
     const ownerFile = normalizePath(relative(root, file));
@@ -83,8 +89,8 @@ export function collectTemplates(root: string): Collection {
           else {
             const templateFile = resolve(dirname(file), initializer.text);
             references.set(templateFile, (references.get(templateFile) ?? 0) + 1);
-            if (!existsSync(templateFile)) { problem(ownerFile, line, 'missing templateUrl: ' + initializer.text); continue; }
-            result.templates.push({ ownerFile, file: normalizePath(relative(root, templateFile)), text: readFileSync(templateFile, 'utf8'), firstLine: 1, imports, sourceFile, component: node });
+            if (!reader.exists(templateFile)) { problem(ownerFile, line, 'missing templateUrl: ' + initializer.text); continue; }
+            result.templates.push({ ownerFile, file: normalizePath(relative(root, templateFile)), text: reader.read(templateFile), firstLine: 1, imports, sourceFile, component: node });
           }
         }
       }

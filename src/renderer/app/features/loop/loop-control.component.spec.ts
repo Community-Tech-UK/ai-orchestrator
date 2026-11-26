@@ -88,6 +88,7 @@ describe('LoopControlComponent', () => {
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
     acceptCompletion: ReturnType<typeof vi.fn>;
+    reportViewFocus: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -133,6 +134,7 @@ describe('LoopControlComponent', () => {
       onCapReached: vi.fn(() => noop),
       onError: vi.fn(() => noop),
       acceptCompletion: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
+      reportViewFocus: vi.fn(),
     };
 
     TestBed.overrideComponent(LoopControlComponent, {
@@ -161,6 +163,35 @@ describe('LoopControlComponent', () => {
     fixture = TestBed.createComponent(LoopControlComponent);
     (fixture.componentInstance as unknown as { chatId: () => string }).chatId = () => 'chat-1';
     fixture.detectChanges();
+  });
+
+  it('reports the loop its HUD shows, and reports none when the view is left (4a change 3)', () => {
+    // The HUD starts with no loop on screen.
+    expect(ipc.reportViewFocus).toHaveBeenCalledWith(null);
+    ipc.reportViewFocus.mockClear();
+
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+    expect(ipc.reportViewFocus).toHaveBeenLastCalledWith('loop-1');
+
+    fixture.destroy();
+    expect(ipc.reportViewFocus).toHaveBeenLastCalledWith(null);
+  });
+
+  it('stops reporting the loop once its run ends', () => {
+    ipc.reportViewFocus.mockClear();
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+    expect(ipc.reportViewFocus).toHaveBeenLastCalledWith('loop-1');
+    ipc.reportViewFocus.mockClear();
+
+    // The run ends: no loop is on screen in this HUD any more.
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'completed', endedAt: 1778310004000, endReason: 'done' },
+    }));
+    fixture.detectChanges();
+    expect(ipc.reportViewFocus).toHaveBeenLastCalledWith(null);
   });
 
   it('opens an inspectable trace with persisted iterations and full activity', async () => {

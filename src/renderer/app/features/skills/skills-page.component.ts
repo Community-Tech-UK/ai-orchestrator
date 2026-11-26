@@ -92,6 +92,7 @@ const DEFAULT_DISCOVERY_PATHS = '.claude/skills\n.codex/skills\nskills';
             <div class="panel-title">Skill Matching</div>
             <textarea
               class="textarea small"
+              aria-label="Task description"
               [value]="matchText()"
               placeholder="Describe your task to get trigger recommendations"
               (input)="onMatchTextInput($event)"

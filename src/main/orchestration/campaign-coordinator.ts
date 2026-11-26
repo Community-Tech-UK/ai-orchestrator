@@ -3,12 +3,7 @@ import { getLogger } from '../logging/logger';
 import { getLoopCoordinator } from './loop-coordinator';
 import { getLoopStoreService } from './loop-store';
 import { CampaignStore } from './campaign-store';
-import type {
-  CampaignNode,
-  CampaignNodeRun,
-  CampaignRun,
-  CampaignSpec,
-} from './campaign.types';
+import type { CampaignNode, CampaignNodeRun, CampaignRun, CampaignSpec } from './campaign.types';
 import { evaluatePredicate, validateCampaignSpec } from './campaign-validation';
 import type { LoopStatus, LoopWorktreeLifecycle } from '../../shared/types/loop.types';
 import { prepareLoopStartConfig } from './loop-start-config';
@@ -16,9 +11,9 @@ import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import {
   CampaignWorktreeLanding,
-  campaignLandingBlockReason,
   defaultCampaignLandingDeps,
 } from './campaign-worktree-landing';
+import { nodeTerminalDecision } from './campaign-node-terminal-policy';
 import {
   isActiveCampaignNodeStatus,
   isLoopProviderLimited,
@@ -60,7 +55,7 @@ export class CampaignCoordinator extends EventEmitter {
   private loopStatusReader: CampaignLoopStatusReader = (loopRunId) => {
     try {
       const summary = getLoopStoreService().store.getRunSummary(loopRunId);
-      return summary ? { status: summary.status, endedAt: summary.endedAt } : null;
+      return summary ? { status: summary.status, endedAt: summary.endedAt, endEvidence: summary.endEvidence } : null;
     } catch {
       return null;
     }
@@ -141,7 +136,7 @@ export class CampaignCoordinator extends EventEmitter {
     });
     coordinator.on('loop:state-changed', ({ loopRunId, state }: {
       loopRunId: string;
-      state: { status: LoopStatus; endedAt?: number | null };
+      state: { status: LoopStatus; endedAt?: number | null; endEvidence?: Record<string, unknown> };
     }) => {
       if (state.status === 'running') {
         void this.onLoopRunning(loopRunId);
@@ -149,11 +144,17 @@ export class CampaignCoordinator extends EventEmitter {
       const snapshot: CampaignLoopStatusSnapshot = {
         status: state.status,
         endedAt: state.endedAt ?? null,
+        endEvidence: state.endEvidence,
       };
       if (isLoopProviderLimited(snapshot)) {
         void this.onLoopProviderLimited(loopRunId);
       } else if (isLoopTerminal(snapshot)) {
-        void this.onLoopTerminal(loopRunId, snapshot.status, snapshot.endedAt);
+        void this.onLoopTerminal(
+          loopRunId,
+          snapshot.status,
+          snapshot.endedAt,
+          snapshot.endEvidence?.['mergeHold'] === true,
+        );
       }
     });
 
@@ -202,7 +203,12 @@ export class CampaignCoordinator extends EventEmitter {
             campaign.pausedReason = undefined;
             this.store.upsertCampaign(campaign);
           }
-          await this.onLoopTerminal(nodeRun.loopRunId, loopSnapshot.status, loopSnapshot.endedAt);
+          await this.onLoopTerminal(
+            nodeRun.loopRunId,
+            loopSnapshot.status,
+            loopSnapshot.endedAt,
+            loopSnapshot.endEvidence?.['mergeHold'] === true,
+          );
           continue;
         }
 
@@ -231,7 +237,7 @@ export class CampaignCoordinator extends EventEmitter {
         // A node whose loop never started owns an unused worktree: preserve it.
         if (!node.loopRunId) return isActiveCampaignNodeStatus(node.status) ? null : 'failed';
         const snapshot = normalizeLoopStatusSnapshot(this.loopStatusReader(node.loopRunId));
-        return snapshot && isLoopTerminal(snapshot) ? snapshot.status : null;
+        return snapshot && isLoopTerminal(snapshot) ? snapshot : null;
       });
       const activeIds = new Set(active.map((campaign) => campaign.id));
       for (const entry of this.worktreeLanding.haltedLoopsToIndex(campaigns, activeIds)) {
@@ -442,9 +448,16 @@ export class CampaignCoordinator extends EventEmitter {
     nodeId: string,
     loopRunId: string | undefined,
     loopStatus: LoopStatus,
+    mergeHold = false,
   ): Promise<LoopWorktreeLifecycle | undefined> {
     try {
-      return await this.worktreeLanding.land({ campaign, nodeId, loopRunId, loopStatus });
+      return await this.worktreeLanding.land({
+        campaign,
+        nodeId,
+        loopRunId,
+        loopStatus,
+        endEvidence: mergeHold ? { mergeHold: true } : undefined,
+      });
     } catch (err) {
       logger.warn('Campaign node worktree landing failed', {
         campaignId: campaign.id,
@@ -501,7 +514,12 @@ export class CampaignCoordinator extends EventEmitter {
     this.pauseCampaign(campaign, reason);
   }
 
-  private async onLoopTerminal(loopRunId: string, loopStatus: LoopStatus, endedAt: number | null = null): Promise<void> {
+  private async onLoopTerminal(
+    loopRunId: string,
+    loopStatus: LoopStatus,
+    endedAt: number | null = null,
+    mergeHold = false,
+  ): Promise<void> {
     const mapping = this.loopRunToNode.get(loopRunId);
     if (!mapping) return;
 
@@ -514,7 +532,7 @@ export class CampaignCoordinator extends EventEmitter {
       const halted = nodeStatus === 'provider-limit' ? null : this.store?.getCampaign(campaignId);
       if (halted) {
         this.loopRunToNode.delete(loopRunId);
-        await this.releaseNodeWorktree(halted, nodeId, loopRunId, loopStatus);
+        await this.releaseNodeWorktree(halted, nodeId, loopRunId, loopStatus, mergeHold);
       }
       return;
     }
@@ -528,7 +546,7 @@ export class CampaignCoordinator extends EventEmitter {
     // Merge the node's worktree back BEFORE it counts as terminal, so its
     // dependants start from a base that already contains its work and the
     // campaign cannot complete while a landing is still in flight.
-    const landing = await this.releaseNodeWorktree(campaign, nodeId, loopRunId, loopStatus);
+    const landing = await this.releaseNodeWorktree(campaign, nodeId, loopRunId, loopStatus, mergeHold);
     this.updateNodeRun(campaign, nodeId, {
       status: nodeStatus,
       endedAt: Date.now(),
@@ -538,41 +556,22 @@ export class CampaignCoordinator extends EventEmitter {
     this.emit('campaign:node-terminal', { campaignId, nodeId, status: nodeStatus });
     if (this.activeCampaigns.get(campaignId) !== campaign) return;
 
-    const landingBlock = nodeStatus === 'completed' || nodeStatus === 'completed-needs-review'
-      ? campaignLandingBlockReason(nodeId, landing)
-      : null;
-    if (landingBlock && nodeStatus === 'completed-needs-review' && campaign.spec.policy.onNodeNeedsReview === 'halt') {
-      this.markCampaignHalted(campaign, `Node ${nodeId} reached completed-needs-review (policy: halt); ${landingBlock}`);
+    const decision = nodeTerminalDecision({
+      nodeId,
+      nodeStatus,
+      onNodeNeedsReview: campaign.spec.policy.onNodeNeedsReview,
+      mergeHold,
+      label: campaign.spec.nodes.find((node) => node.id === nodeId)?.label,
+      landing,
+    });
+    if (decision.kind === 'pause') {
+      this.pauseCampaign(campaign, decision.reason);
       return;
     }
-    if (landingBlock) {
-      this.pauseCampaign(campaign, landingBlock);
+    if (decision.kind === 'halt') {
+      this.markCampaignHalted(campaign, decision.reason);
       return;
     }
-
-    // Handle needs-review per policy.
-    if (nodeStatus === 'completed-needs-review') {
-      const onNeedsReview = campaign.spec.policy.onNodeNeedsReview;
-      if (onNeedsReview === 'pause-campaign') {
-        this.pauseCampaign(campaign, `Node ${nodeId} reached completed-needs-review`);
-        return;
-      } else if (onNeedsReview === 'halt') {
-        this.markCampaignHalted(campaign, `Node ${nodeId} reached completed-needs-review (policy: halt)`);
-        return;
-      }
-      // 'continue' — fall through to advance.
-    }
-
-    if (nodeStatus === 'failed') {
-      this.pauseCampaign(campaign, `Node ${nodeId} failed; waiting for operator review`);
-      return;
-    }
-
-    if (nodeStatus === 'operator-halted') {
-      this.markCampaignHalted(campaign, `Node ${nodeId} was cancelled by the operator`);
-      return;
-    }
-
     await this.advanceCampaign(campaignId);
   }
 

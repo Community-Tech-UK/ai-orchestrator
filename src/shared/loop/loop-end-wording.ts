@@ -2,7 +2,7 @@ import { LOOP_HARNESS_STOP_PREFIX } from '../utils/harness-stop';
 
 export interface LoopEndDescriptionInput {
   status: string; endReason?: string | null; roundsFinished: number; endedAt: number | null;
-  mergeHeld?: boolean; branch?: string;
+  mergeHeld?: boolean; mergeHoldKind?: string; branch?: string;
 }
 const HEADLINES: Record<string, string> = {
   completed: 'Finished', 'completed-needs-review': 'Ended · see notes', 'attempt-failed': 'Stopped: a step failed',
@@ -27,8 +27,13 @@ export function describeLoopEnd(input: LoopEndDescriptionInput): { headline: str
   // Ended by the error path, but on purpose: Harness stopped a round at its own token limit.
   if (reason.startsWith(LOOP_HARNESS_STOP_PREFIX)) headline = 'Stopped by Harness at the Codex round limit';
   let sentence = reason;
-  if (input.mergeHeld) sentence = 'Nothing was merged because a check was skipped. Merge it when you have looked.'
-    + (input.branch ? ` The work is on branch ${input.branch}.` : '');
+  if (input.mergeHeld) {
+    const held = input.mergeHoldKind === 'stalled' ? 'Nothing was merged because the loop stalled.'
+      : input.mergeHoldKind === 'verified-no-change' ? 'Nothing was merged because the loop made no production changes and needs your review.'
+      : input.mergeHoldKind === 'final-audit-blocked' ? 'Nothing was merged because the final check needs your sign-off.'
+      : 'Nothing was merged because the work is held for review.';
+    sentence = `${held} Merge it when you have looked.` + (input.branch ? ` The work is on branch ${input.branch}.` : '');
+  }
   else if (/signal=/.test(reason)) sentence = 'The agent said it was done and the checks passed.';
   else if (/cap=/.test(reason)) sentence = /no completion was attempted/.test(reason)
     ? "The agent hadn't said it was done yet." : 'The configured limit was reached before the work finished.';

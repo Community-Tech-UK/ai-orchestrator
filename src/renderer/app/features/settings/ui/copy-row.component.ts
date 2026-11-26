@@ -14,6 +14,7 @@ import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directi
           type="text"
           class="copy-input"
           [class.mono]="mono()"
+          [attr.aria-label]="label()"
           [value]="value()"
           readonly
         />

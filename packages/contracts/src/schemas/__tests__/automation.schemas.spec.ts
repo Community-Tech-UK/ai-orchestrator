@@ -25,6 +25,16 @@ const baseCreatePayload = {
 const maxCatalogModelId = `${'m'.repeat(509)}-v1`;
 const tooLongCatalogModelId = `${'m'.repeat(510)}-v1`;
 
+describe('AutomationRunSchema status', () => {
+  it('accepts the terminal attention outcome for a paused loop', () => {
+    expect(AutomationRunSchema.shape.status.parse('needs-attention')).toBe('needs-attention');
+  });
+
+  it('rejects unknown run outcomes', () => {
+    expect(AutomationRunSchema.shape.status.safeParse('unknown').success).toBe(false);
+  });
+});
+
 describe('AutomationCreatePayloadSchema destination', () => {
   it('accepts bounded webhook triggers and defaults their filter list', () => {
     const parsed = AutomationCreatePayloadSchema.parse({

@@ -537,19 +537,6 @@ export class MarkdownService {
   }
 
   /**
-   * Setup click handlers for copy buttons in a container
-   */
-  setupCopyHandlers(container: HTMLElement): void {
-    const buttons = container.querySelectorAll('.copy-button[data-copy-id]');
-    buttons.forEach((button) => {
-      const copyId = button.getAttribute('data-copy-id');
-      if (copyId) {
-        button.addEventListener('click', () => { void this.handleCopyClick(copyId); });
-      }
-    });
-  }
-
-  /**
    * Highlight code blocks in a container asynchronously using requestIdleCallback.
    * Blocks are processed incrementally so input events are never starved.
    */
@@ -598,21 +585,4 @@ export class MarkdownService {
     }
   }
 
-  /**
-   * Setup click handlers for file path elements in a container
-   */
-  setupFilePathHandlers(container: HTMLElement, onFileClick: (filePath: string) => void): void {
-    const filePaths = container.querySelectorAll('.file-path[data-file-path]');
-    filePaths.forEach((element) => {
-      const filePath = element.getAttribute('data-file-path');
-      if (filePath && !element.hasAttribute('data-handler-attached')) {
-        element.setAttribute('data-handler-attached', 'true');
-        element.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onFileClick(filePath);
-        });
-      }
-    });
-  }
 }

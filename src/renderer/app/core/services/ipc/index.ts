@@ -37,9 +37,7 @@ export { QuotaIpcService } from './quota-ipc.service';
 export { LoggingIpcService } from './logging-ipc.service';
 export { StatsIpcService } from './stats-ipc.service';
 export { SearchIpcService } from './search-ipc.service';
-export { TrainingIpcService } from './training-ipc.service';
 export { RecentDirectoriesIpcService } from './recent-directories-ipc.service';
-export { CommIpcService } from './comm-ipc.service';
 export { SessionShareIpcService } from './session-share-ipc.service';
 export { RemoteObserverIpcService } from './remote-observer-ipc.service';
 export { PairBothIpcService } from './pair-both-ipc.service';
@@ -76,7 +74,6 @@ import { CostIpcService } from './cost-ipc.service';
 import { LoggingIpcService } from './logging-ipc.service';
 import { StatsIpcService } from './stats-ipc.service';
 import { SearchIpcService } from './search-ipc.service';
-import { TrainingIpcService } from './training-ipc.service';
 import { SessionShareIpcService } from './session-share-ipc.service';
 
 /**
@@ -125,7 +122,6 @@ export class IpcFacadeService {
   readonly logging = inject(LoggingIpcService);
   readonly stats = inject(StatsIpcService);
   readonly search = inject(SearchIpcService);
-  readonly training = inject(TrainingIpcService);
   readonly sessionShare = inject(SessionShareIpcService);
 
   // ============================================
@@ -604,14 +600,5 @@ export class IpcFacadeService {
   verificationCancel = this.verification.verificationCancel.bind(this.verification);
 
   // ============================================
-  // Training Service Methods
-  // ============================================
 
-  trainingRecordOutcome = this.training.trainingRecordOutcome.bind(this.training);
-  trainingGetStats = this.training.trainingGetStats.bind(this.training);
-  trainingExportData = this.training.trainingExportData.bind(this.training);
-  trainingImportData = this.training.trainingImportData.bind(this.training);
-  trainingGetTrend = this.training.trainingGetTrend.bind(this.training);
-  trainingGetTopStrategies = this.training.trainingGetTopStrategies.bind(this.training);
-  trainingConfigure = this.training.trainingConfigure.bind(this.training);
 }

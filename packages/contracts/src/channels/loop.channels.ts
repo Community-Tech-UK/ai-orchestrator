@@ -44,6 +44,10 @@ export const LOOP_CHANNELS = {
   LOOP_PINGPONG_SKIP_ROUND: 'loop:pingpong-skip-round',
   /** Ping-pong operator control: force the loop into human arbitration. */
   LOOP_PINGPONG_FORCE_ARBITRATION: 'loop:pingpong-force-arbitration',
+  /** 4a change 3: the renderer reports the loop its HUD shows (or null when no
+   *  loop is on screen), so a pause notice is suppressed only while the paused
+   *  loop itself is visible and is delivered once the operator leaves it. */
+  LOOP_VIEW_FOCUS: 'loop:view-focus',
 
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',

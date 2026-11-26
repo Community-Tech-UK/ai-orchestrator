@@ -100,7 +100,7 @@ describe('CliVerificationCoordinator verification lifecycle events', () => {
     const rows: CostAttributionRecord[] = []; const stop = subscribeCostAttribution(row => rows.push(row));
     try {
       const response = await testSeam(coordinator).runAgent(request, agent, 0, makeSession(request)) as AgentResponse;
-      expect(provider.initialize).toHaveBeenCalledWith(expect.objectContaining({ maxBudgetUsd: 0.25 }));
+      expect(provider.initialize).toHaveBeenCalledWith(expect.objectContaining({ maxBudgetUsd: 0.25, noSessionPersistence: true }));
       expect(response).toMatchObject({ response: '', confidence: 0, error: 'Provider budget exceeded' });
       expect(rows[0]).toMatchObject({ outcome: 'budget-exceeded', usage: { cost: 0.0064186 } });
       expect(provider.sendMessage).toHaveBeenCalledOnce();

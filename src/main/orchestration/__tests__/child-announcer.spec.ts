@@ -324,3 +324,26 @@ describe('ChildAnnouncer', () => {
     });
   });
 });
+
+describe('tokens wording (part 6a)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ChildAnnouncer._resetForTesting();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('says "not measured" instead of a number when no spend was recorded', () => {
+    const announcer = ChildAnnouncer.getInstance();
+    const message = announcer.formatAnnouncement(makeAnnouncement({ tokensUsed: undefined }));
+    expect(message).toContain('not measured');
+    expect(message).not.toContain('undefined tokens');
+    expect(message).not.toContain('180000 tokens');
+  });
+
+  it('still prints the recorded spend', () => {
+    const announcer = ChildAnnouncer.getInstance();
+    const message = announcer.formatAnnouncement(makeAnnouncement({ tokensUsed: 40_000 }));
+    expect(message).toContain('40000 tokens');
+    expect(message).not.toContain('not measured');
+  });
+});

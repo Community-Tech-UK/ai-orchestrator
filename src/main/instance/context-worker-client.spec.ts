@@ -51,6 +51,14 @@ describe('ContextWorkerClient (LT-170: cross-process skill-activation forwarding
     );
   });
 
+  it('carries read-only wake builds across the worker boundary', async () => {
+    const pending = client.buildWakeContextText('/repo', false);
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number };
+    expect(posted).toMatchObject({ type: 'build-wake-context-text', wing: '/repo', recordUsage: false });
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id, result: 'Project memory.' });
+    await expect(pending).resolves.toBe('Project memory.');
+  });
+
   it('re-emits a worker-forwarded activation on the main process singleton so the existing renderer-push listener fires', () => {
     const received: SkillActivation[] = [];
     getSkillAttribution().on('activation', (activation: SkillActivation) => {

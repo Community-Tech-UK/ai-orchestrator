@@ -6,6 +6,7 @@ import {
   _resetForTesting,
 } from './pending-approval-watcher';
 import type { PendingApprovalLike } from './pending-approval-digest';
+import { mergePendingAndLiveApprovals, observeLiveWaitingStatus, type LiveWaitingInstance } from './live-waiting-approvals';
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -53,6 +54,39 @@ describe('startPendingApprovalWatcher (N9)', () => {
     vi.advanceTimersByTime(50);
     expect(onDigest).toHaveBeenCalledTimes(1);
     expect(onDigest.mock.calls[0]![0]).toContain('1 session is blocked');
+  });
+
+  it('reminds once about a live-only Codex question older than five minutes', () => {
+    const instance: LiveWaitingInstance = { id: 'codex-question', status: 'waiting_for_input', yoloMode: false };
+    observeLiveWaitingStatus(instance, instance.status, clock - 600_000);
+    const onDigest = vi.fn();
+    startPendingApprovalWatcher({
+      listPending: () => mergePendingAndLiveApprovals([], [instance], clock),
+      pollMs: 10, now, onDigest,
+    });
+    vi.advanceTimersByTime(100);
+    expect(onDigest).toHaveBeenCalledTimes(1);
+    expect(onDigest.mock.calls[0]?.[0]).toBe(
+      '1 session is blocked on 1 approval. The oldest has been waiting 10 minutes.',
+    );
+  });
+
+  it('clears a live-only wait on resume and re-arms for the next question', () => {
+    const instance: LiveWaitingInstance = { id: 'claude-question', status: 'waiting_for_input', yoloMode: false };
+    observeLiveWaitingStatus(instance, instance.status, clock - 600_000);
+    const onDigest = vi.fn();
+    startPendingApprovalWatcher({
+      listPending: () => mergePendingAndLiveApprovals([], [instance], clock),
+      pollMs: 10, now, onDigest,
+    });
+    vi.advanceTimersByTime(20);
+    instance.status = 'busy';
+    vi.advanceTimersByTime(20);
+    instance.status = 'waiting_for_permission';
+    observeLiveWaitingStatus(instance, instance.status, clock);
+    clock += 300_000;
+    vi.advanceTimersByTime(20);
+    expect(onDigest).toHaveBeenCalledTimes(2);
   });
 
   /** A reminder every five minutes is how an operator learns to ignore it. */

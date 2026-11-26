@@ -78,6 +78,7 @@ interface ArchiveEntry {
           <input
             class="input"
             type="text"
+            aria-label="Search archives"
             placeholder="Search archives..."
             [value]="searchQuery()"
             (input)="onSearchInput($event)"
@@ -242,6 +243,7 @@ interface ArchiveEntry {
                   <input
                     class="input input-sm"
                     type="text"
+                    aria-label="Add tag"
                     placeholder="Add tag..."
                     [value]="newTagInput()"
                     (input)="onNewTagInput($event)"

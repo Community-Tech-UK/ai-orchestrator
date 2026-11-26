@@ -42,6 +42,7 @@ import type { KeybindingContext } from '../../../../shared/types/keybinding.type
             #searchInput
             class="overlay-input"
             type="text"
+            aria-label="Search"
             [placeholder]="controller().placeholder"
             [value]="controller().query()"
             (input)="onInput($event)"

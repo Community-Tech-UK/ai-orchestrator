@@ -1,4 +1,5 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
+import { presentError } from '../../../../shared/present-error';
 import { GovernedProposalIpcService } from '../../core/services/ipc/governed-proposal-ipc.service';
 import { LearningScanIpcService } from '../../core/services/ipc/learning-scan-ipc.service';
 import type {
@@ -17,6 +18,7 @@ import type {
 export class MemoryReviewStore {
   private readonly ipc = inject(GovernedProposalIpcService);
   private readonly scanIpc = inject(LearningScanIpcService);
+  private refreshRevision = 0;
 
   private readonly _proposals = signal<GovernedProposal[]>([]);
   private readonly _loading = signal(false);
@@ -52,18 +54,26 @@ export class MemoryReviewStore {
     return id ? this._proposals().find((p) => p.id === id) ?? null : null;
   });
 
+  constructor() {
+    inject(DestroyRef).onDestroy(this.ipc.onChanged(() => { void this.refresh(); }));
+  }
+
   async refresh(): Promise<void> {
+    const revision = ++this.refreshRevision;
     this._loading.set(true);
     this._error.set(null);
     try {
       const response = await this.ipc.list({ limit: 500 });
+      if (revision !== this.refreshRevision) return;
       if (!response.success) {
         this._error.set(response.error?.message ?? 'Failed to load memory review proposals.');
         return;
       }
       this._proposals.set(response.data ?? []);
+    } catch (error) {
+      if (revision === this.refreshRevision) this._error.set(presentError(error).headline);
     } finally {
-      this._loading.set(false);
+      if (revision === this.refreshRevision) this._loading.set(false);
     }
   }
 

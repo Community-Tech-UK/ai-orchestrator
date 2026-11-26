@@ -179,6 +179,21 @@ jobs:
       - name: Install dependencies
         run: bash scripts/ci-npm-ci.sh
 
+      # RTK binaries are untracked build output (follow-ups part 5e). Fetch ALL
+      # platforms before the suite so rtk-version-pins.spec.ts can verify the
+      # pinned bytes and licences it would otherwise only see provisioned on a
+      # dev machine. Default mode (not --strict): a flaky download degrades that
+      # run's byte coverage rather than failing the unit suite; the packaging
+      # smoke below owns its own --strict fetch.
+      - name: Restore RTK binaries cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/rtk
+          key: rtk-${{ hashFiles('scripts/rtk-binaries.sha256.json') }}
+
+      - name: Fetch bundled RTK (all platforms, for the pin/licence suite)
+        run: node scripts/fetch-rtk-binaries.js
+
       # Five specs start a real worker from dist/main, which `npm ci` doesn't create.
       - name: Build main
         run: npm run build:main
@@ -257,6 +272,9 @@ jobs:
 
       - name: Verify native ABI
         run: node scripts/verify-native-abi.js
+
+      - name: Fetch bundled RTK
+        run: node scripts/fetch-rtk-binaries.js --platform=host --strict
 
       - name: Electron packaging smoke (--dir, no signing)
         run: npx electron-builder --mac --dir --config electron-builder.json

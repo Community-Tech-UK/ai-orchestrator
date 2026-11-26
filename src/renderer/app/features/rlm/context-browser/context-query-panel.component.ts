@@ -53,6 +53,7 @@ export interface SavedQueryTemplate {
               <input
                 type="text"
                 class="query-input"
+                aria-label="Pattern (regex)"
                 placeholder="Search pattern..."
                 [value]="pattern()"
                 (input)="updateQueryParam('pattern', $event)"
@@ -96,6 +97,7 @@ export interface SavedQueryTemplate {
               <span class="form-label">Prompt</span>
               <textarea
                 class="query-textarea"
+                aria-label="Prompt"
                 placeholder="Enter your sub-query prompt..."
                 [value]="prompt()"
                 (input)="updateQueryParam('prompt', $event)"
@@ -105,6 +107,7 @@ export interface SavedQueryTemplate {
               <input
                 type="text"
                 class="query-input"
+                aria-label="Context Hints (comma-separated)"
                 placeholder="keyword1, keyword2..."
                 [value]="contextHintsStr()"
                 (input)="updateContextHints($event)"
@@ -136,6 +139,7 @@ export interface SavedQueryTemplate {
               <input
                 type="text"
                 class="query-input"
+                aria-label="Section ID"
                 placeholder="sec-..."
                 [value]="sectionId()"
                 (input)="updateQueryParam('sectionId', $event)"
@@ -149,6 +153,7 @@ export interface SavedQueryTemplate {
               <input
                 type="text"
                 class="query-input"
+                aria-label="Search Query"
                 placeholder="Natural language search..."
                 [value]="queryText()"
                 (input)="updateQueryParam('query', $event)"
@@ -241,6 +246,7 @@ export interface SavedQueryTemplate {
             <input
               type="text"
               class="query-input"
+              aria-label="Template Name"
               placeholder="Enter template name..."
               [value]="newTemplateName()"
               (input)="updateTemplateName($event)"

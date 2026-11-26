@@ -109,5 +109,8 @@ cross-model-review-service.js
 # files already tracked here stay tracked.
 docs/plans/*evidence/
 
+# Bundled RTK binaries are downloaded by the build (npm run fetch:rtk), not tracked
+resources/rtk/
+
 # Per-checkout worker install path (never shared with another worker).
 .aio-worker-home

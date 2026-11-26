@@ -440,7 +440,8 @@ export class UnifiedMemoryController extends EventEmitter {
     if (includeWakeContext) {
       try {
         results.wakeContext = getWakeContextBuilder().getWakeUpText(
-          options?.wakeContextWing
+          options?.wakeContextWing,
+          { recordUsage: false },
         );
       } catch (error) {
         this.emit('retrieve:sourceError', {

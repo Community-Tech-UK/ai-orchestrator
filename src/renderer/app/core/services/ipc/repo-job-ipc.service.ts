@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
+import type { InboxChangedEvent } from '@contracts/schemas/observability';
 import type {
   RepoJobListOptions,
   RepoJobRecord,
@@ -13,6 +14,10 @@ export class RepoJobIpcService {
 
   private get api() {
     return this.base.getApi();
+  }
+
+  onChanged(callback: (event: InboxChangedEvent) => void): () => void {
+    return this.api?.onRepoJobChanged(callback) ?? (() => { /* Browser mode. */ });
   }
 
   async submitJob(submission: RepoJobSubmission): Promise<IpcResponse<RepoJobRecord>> {

@@ -11,7 +11,9 @@ import {
   ChangeDetectionStrategy,
   DestroyRef,
   inject,
+  effect,
 } from '@angular/core';
+import { providerAcceptsAttachments } from '../../../../shared/provider-attachment-support';
 import { fingerprintFile } from '../../core/services/attachment-identity';
 
 @Component({
@@ -76,6 +78,7 @@ import { fingerprintFile } from '../../core/services/attachment-identity';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DropZoneComponent {
+  attachmentProvider = input('claude');
   // Counter for generating short pasted image names (static to persist across instances)
   private static pastedImageCounter = 1;
   filesDropped = output<File[]>();
@@ -103,6 +106,7 @@ export class DropZoneComponent {
         this.isDragOver.set(false);
       }
     };
+    effect(() => { if (!providerAcceptsAttachments(this.attachmentProvider())) reset(); });
 
     // Capture-phase Escape handler: when the drop overlay is visible, Escape
     // should dismiss it without propagating to parent listeners
@@ -137,6 +141,7 @@ export class DropZoneComponent {
   onDragEnter(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
+    if (!providerAcceptsAttachments(this.attachmentProvider())) return;
     this.dragCounter++;
     this.isDragOver.set(true);
   }
@@ -146,6 +151,7 @@ export class DropZoneComponent {
     // preventDefault is required for the drop event to fire at all.
     event.preventDefault();
     event.stopPropagation();
+    if (!providerAcceptsAttachments(this.attachmentProvider())) return;
     // If we somehow missed the dragenter (e.g. drag started inside a child that
     // swallowed it), make sure the overlay still appears.
     if (!this.isDragOver()) {
@@ -180,6 +186,7 @@ export class DropZoneComponent {
     const owner = readOwner?.();
 
     // Check for native file drop first
+    if (!providerAcceptsAttachments(this.attachmentProvider())) return;
     const items = Array.from(event.dataTransfer?.items || []);
     const files = Array.from(event.dataTransfer?.files || []);
 
@@ -341,6 +348,7 @@ export class DropZoneComponent {
   }
 
   async onPaste(event: ClipboardEvent): Promise<void> {
+    if (!providerAcceptsAttachments(this.attachmentProvider())) return;
     const items = event.clipboardData?.items;
     if (!items) return;
 

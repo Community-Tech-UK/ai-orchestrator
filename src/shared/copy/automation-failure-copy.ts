@@ -22,6 +22,7 @@ export function presentAutomationFailure(raw: string): UserMessage {
 
 const RUN_STATUS_COPY: Record<AutomationRunStatus, string> = {
   running: 'Running', pending: 'Waiting', failed: 'Failed', succeeded: 'Done', skipped: 'Skipped', cancelled: 'Cancelled',
+  'needs-attention': 'Paused, needs you',
 };
 
 export function automationRunStatusLabel(status: AutomationRunStatus): string {

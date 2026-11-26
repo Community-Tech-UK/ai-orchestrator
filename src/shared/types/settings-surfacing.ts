@@ -27,7 +27,7 @@
  *                 does not adjudicate that — it makes the set visible and
  *                 reviewable, which it was not before.
  *  - `hidden`   — reserved for a key deliberately withheld from every surface.
- *                 Nothing uses it yet; it exists so "withheld" and "has no UI"
+ *                 It keeps "withheld" and "has no UI"
  *                 stay distinguishable.
  */
 
@@ -52,7 +52,6 @@ export const SETTING_SURFACING = {
   defaultFastModeByProvider: 'internal',
   modelUsageByKey: 'internal',
   modelPickerFavorites: 'internal',
-  residentClaudeSession: 'internal',
   claudeLivePermissionPrompts: 'internal', // Opt-in for live validation; no settings UI until the channel is proven.
   contextEvidenceModeByProvider: 'internal',
   theme: 'tab',
@@ -76,7 +75,7 @@ export const SETTING_SURFACING = {
   leftoverProcessCleanup: 'tab',
   recordProviderEvents: 'tab',
   persistSessionContent: 'tab',
-  cumulativeTokenCompactionTrigger: 'tab',
+  cumulativeTokenCompactionTrigger: 'hidden',
   ownChatContextCeilingTokens: 'tab',
   machineContextCeilingTokens: 'tab',
   codexHelperAgentsChats: 'tab',
@@ -267,7 +266,7 @@ export const SETTING_SURFACING = {
   notificationQuietHoursEndHour: 'tab',
   channelToolHeartbeat: 'tab',
   cliUpdatePolicy: 'tab',
-  injectRepoMap: 'internal',
+  injectRepoMap: 'tab',
   repoMapTokenBudget: 'internal',
   detectDegradedAdapterOutput: 'internal',
   // Two real controls: the Overnight profile row (`OVERNIGHT_PROFILE.values`)
@@ -300,7 +299,7 @@ export const SETTING_SURFACING = {
   // Nested settings group with its own dedicated settings-panel section,
   // like `workerMode` — no per-field metadata entries.
   interSessionMessaging: 'bespoke',
-  transcriptVirtualization: 'internal',
+  transcriptVirtualization: 'tab',
   progressNoteDisplay: 'tab',
 
   // Inherited from `DesktopComputerUseSettings` rather than declared in the

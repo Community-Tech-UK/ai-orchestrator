@@ -24,6 +24,7 @@ import { DEFAULT_WAKE_CONTEXT_CONFIG, normalizeWakeHintContent } from '../../sha
 import type { WakeHintRow } from '../persistence/rlm-database.types';
 import { normalizeProjectMemoryKey } from './project-memory-key';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
+import { recordWakeHintShowing } from '../persistence/rlm/rlm-wake-hint-history';
 
 const logger = getLogger('WakeContextBuilder');
 
@@ -38,13 +39,15 @@ interface AddHintOptions {
 
 interface WakeContextBuildOptions {
   bypassCache?: boolean;
+  /** Only session-start builds record a showing; previews and recovery are read-only. */
+  recordUsage?: boolean;
 }
 
 export class WakeContextBuilder extends EventEmitter {
   private static instance: WakeContextBuilder | null = null;
   private config: WakeContextConfig;
   private identityText: string;
-  private contextCache = new Map<string, WakeContext>();
+  private contextCache = new Map<string, { context: WakeContext; hintIds: string[] }>();
 
   static getInstance(): WakeContextBuilder {
     if (!this.instance) {
@@ -167,7 +170,7 @@ export class WakeContextBuilder extends EventEmitter {
 
   // ============ Essential Story (L1) ============
 
-  private generateL1(wing?: string): ContextLayer {
+  private generateL1(wing?: string): { layer: ContextLayer; hintIds: string[] } {
     // Fetch top hints by importance, optionally filtered by wing (room match or 'general')
     const limit = this.config.l1MaxHints;
     const rooms = getWakeRoomsForWing(wing);
@@ -186,10 +189,13 @@ export class WakeContextBuilder extends EventEmitter {
 
     if (rows.length === 0) {
       return {
-        level: 'L1',
-        content: '## L1 — ESSENTIAL STORY\nNo knowledge stored yet.',
-        tokenEstimate: 10,
-        generatedAt: Date.now(),
+        layer: {
+          level: 'L1',
+          content: '## L1 — ESSENTIAL STORY\nNo knowledge stored yet.',
+          tokenEstimate: 10,
+          generatedAt: Date.now(),
+        },
+        hintIds: [],
       };
     }
 
@@ -214,10 +220,8 @@ export class WakeContextBuilder extends EventEmitter {
       '',
     ];
     let totalChars = lines.join('\n').length;
-    // Collect the rendered hint ids and apply usage tracking in ONE statement
-    // after the render. The old per-hint UPDATE ran N synchronous writes on the
-    // main-thread RLM connection per wake-context build — write amplification on
-    // the create/resume hot path.
+    // Keep the exact rendered ids with cached text so every new session can
+    // record its showing without treating previews or recovery as a start.
     const usedHintIds: string[] = [];
 
     for (const [room, hints] of byRoom.entries()) {
@@ -231,6 +235,7 @@ export class WakeContextBuilder extends EventEmitter {
 
       for (const hint of hints) {
         let snippet = hint.content.replace(/\n/g, ' ').trim();
+        if (!snippet) continue;
         if (snippet.length > snippetMax) {
           snippet = snippet.slice(0, snippetMax - 3) + '...';
         }
@@ -251,30 +256,32 @@ export class WakeContextBuilder extends EventEmitter {
       totalChars += 1;
     }
 
-    this.recordHintUsage(usedHintIds);
-
     const content = lines.join('\n').trim();
     return {
-      level: 'L1',
-      content,
-      tokenEstimate: estimateTokens(content),
-      generatedAt: Date.now(),
+      layer: {
+        level: 'L1',
+        content,
+        tokenEstimate: estimateTokens(content),
+        generatedAt: Date.now(),
+      },
+      hintIds: usedHintIds,
     };
   }
 
   /**
-   * Apply usage tracking for the hints rendered into a wake context in a single
-   * statement. Replaces the old one-UPDATE-per-hint loop, which amplified writes
-   * on the main-thread RLM connection during create/resume.
+   * Commit showing rows and counters for the rendered ids in one transaction,
+   * using batched inserts/updates and pruning expired rolling history.
    */
   private recordHintUsage(hintIds: string[]): void {
-    if (hintIds.length === 0) {
-      return;
-    }
+    recordWakeHintShowing(this.db, hintIds, crypto.randomUUID(), Date.now());
+  }
+
+  private cachedHintsStillExist(hintIds: string[]): boolean {
+    if (hintIds.length === 0) return true;
     const placeholders = hintIds.map(() => '?').join(', ');
-    this.db.prepare(
-      `UPDATE wake_hints SET last_used = ?, usage_count = usage_count + 1 WHERE id IN (${placeholders})`,
-    ).run(Date.now(), ...hintIds);
+    const row = this.db.prepare(`SELECT COUNT(*) AS total FROM wake_hints WHERE id IN (${placeholders})`)
+      .get<{ total: number }>(...hintIds);
+    return row?.total === hintIds.length;
   }
 
   // ============ Full Wake Context ============
@@ -285,12 +292,14 @@ export class WakeContextBuilder extends EventEmitter {
     const cacheKey = getWakeCacheKey(wing);
     const cached = this.contextCache.get(cacheKey);
     const bypassCache = options.bypassCache ?? false;
-    if (!bypassCache && cached && (now - cached.generatedAt) < this.config.regenerateIntervalMs) {
-      return cached;
+    if (!bypassCache && cached && (now - cached.context.generatedAt) < this.config.regenerateIntervalMs
+      && this.cachedHintsStillExist(cached.hintIds)) {
+      if (options.recordUsage ?? true) this.recordHintUsage(cached.hintIds);
+      return cached.context;
     }
 
     const identity = this.generateL0();
-    const essentialStory = this.generateL1(wing);
+    const { layer: essentialStory, hintIds } = this.generateL1(wing);
 
     const ctx: WakeContext = {
       identity,
@@ -301,8 +310,9 @@ export class WakeContextBuilder extends EventEmitter {
     };
 
     if (!bypassCache) {
-      this.contextCache.set(cacheKey, ctx);
+      this.contextCache.set(cacheKey, { context: ctx, hintIds });
     }
+    if (options.recordUsage ?? true) this.recordHintUsage(hintIds);
 
     this.emit('wake:context-generated', { totalTokens: ctx.totalTokens, wing });
     logger.debug('Wake context generated', { totalTokens: ctx.totalTokens });

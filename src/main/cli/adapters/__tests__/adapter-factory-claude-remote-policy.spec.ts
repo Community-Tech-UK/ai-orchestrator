@@ -48,6 +48,7 @@ const policies: { name: string; policy: Partial<UnifiedSpawnOptions> }[] = [
   { name: 'context ceiling', policy: { contextCeilingTokens: 100_000 } },
   { name: 'turn limit', policy: { maxTurns: 8 } },
   { name: 'budget cap', policy: { maxBudgetUsd: 1 } },
+  { name: 'one-shot transcript policy', policy: { noSessionPersistence: true } },
   // `node-run` takes the same branch as `review`; its own refusal and carry tests are below.
   { name: 'machine-session policy', policy: { machineSession: 'review' } },
   {
@@ -85,7 +86,7 @@ describe('adapter factory — remote Claude policy enforcement', () => {
 
     it.each<Partial<UnifiedSpawnOptions>>([
       {},
-      { readOnlyReview: false, contextCeilingTokens: 0, maxTurns: 0, maxBudgetUsd: 0 },
+      { readOnlyReview: false, contextCeilingTokens: 0, maxTurns: 0, maxBudgetUsd: 0, noSessionPersistence: false },
     ])('preserves ordinary remote sessions with no active policy (%j)', (options) => {
       const adapter = createCliAdapter('claude', { ...baseOptions, ...options }, remoteLocation);
 
@@ -173,6 +174,13 @@ describe('resolveRemoteClaudeSpawnPolicy', () => {
     expect(readCeiling).toHaveBeenLastCalledWith(true);
     expect(resolveRemoteClaudeSpawnPolicy(baseOptions, readCeiling)).toBeUndefined();
     expect(readCeiling).toHaveBeenLastCalledWith(false);
+  });
+
+  it('carries an explicit persistence request without inferring it from a budget or machine reason', () => {
+    expect(resolveRemoteClaudeSpawnPolicy({ noSessionPersistence: true }, () => undefined))
+      .toEqual({ noSessionPersistence: true });
+    expect(resolveRemoteClaudeSpawnPolicy({ maxBudgetUsd: 1, machineSession: 'review' }, () => undefined))
+      .toEqual({ maxBudgetUsd: 1, machineSession: 'review' });
   });
 
   it('prefers an explicit context ceiling over the setting', () => {

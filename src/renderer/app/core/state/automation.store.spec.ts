@@ -304,6 +304,45 @@ describe('AutomationStore thread wakeups', () => {
     expect(ipc.markSeen).not.toHaveBeenCalled();
   });
 
+  it('updates a running run and its unread badge when its loop needs attention', async () => {
+    ipc.list.mockResolvedValue({ success: true, data: [{ id: 'automation-1', unreadRunCount: 0 }] });
+    ipc.listRuns.mockResolvedValue({
+      success: true,
+      data: [{ id: 'run-1', automationId: 'automation-1', status: 'running', seenAt: null }],
+    });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    ipc.onRunChanged.mock.calls[0][0]({
+      automationId: 'automation-1',
+      run: {
+        id: 'run-1', automationId: 'automation-1', status: 'needs-attention', seenAt: null,
+        error: 'Loop paused: No progress after 3 checks: open the loop to Resume it',
+      },
+    });
+
+    expect(store.runs()).toEqual([expect.objectContaining({
+      id: 'run-1', status: 'needs-attention', error: expect.stringContaining('No progress after 3 checks'),
+    })]);
+    expect(store.unreadCount()).toBe(1);
+  });
+
+  it('markAllSeen marks a needs-attention run as seen', async () => {
+    ipc.list.mockResolvedValue({ success: true, data: [{ id: 'automation-1', unreadRunCount: 1 }] });
+    ipc.listRuns.mockResolvedValue({
+      success: true,
+      data: [{ id: 'run-1', automationId: 'automation-1', status: 'needs-attention', seenAt: null }],
+    });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    await store.markAllSeen();
+
+    expect(store.unreadCount()).toBe(0);
+    expect(store.runs()[0].seenAt).toEqual(expect.any(Number));
+  });
+
   it('runs automation preflight and stores the latest report', async () => {
     const report = { ...makePreflightReport(), warnings: ['permission warning'] };
     ipc.preflight.mockResolvedValue({ success: true, data: report });

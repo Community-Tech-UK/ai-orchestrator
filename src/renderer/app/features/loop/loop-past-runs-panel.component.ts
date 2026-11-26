@@ -501,8 +501,16 @@ export class LoopPastRunsPanelComponent implements OnDestroy {
   // bind cleanly without `import {…} from '…'` in the @Component decorator.
 
   protected endLine(run: LoopRunSummaryPayload): string {
+    const preserved = run.worktreeLifecycle?.phase === 'preserved';
+    const reason = run.endReason ?? '';
+    const saved = run.endEvidence;
+    const mergeHeld = typeof saved?.['mergeHold'] === 'boolean' ? saved['mergeHold']
+      : preserved && /check.*skipped|merge.*held|stalled|final check needs/i.test(reason);
+    const mergeHoldKind = typeof saved?.['mergeHoldKind'] === 'string' ? saved['mergeHoldKind']
+      : /stalled/i.test(reason) ? 'stalled'
+        : /final check needs|final audit requires/i.test(reason) ? 'final-audit-blocked' : undefined;
     const wording = describeLoopEnd({ status: run.status, endReason: run.endReason, roundsFinished: run.totalIterations, endedAt: run.endedAt,
-      mergeHeld: run.worktreeLifecycle?.phase === 'preserved' && /check.*skipped|merge.*held/i.test(run.endReason ?? ''), branch: run.worktreeLifecycle?.sessionBranch });
+      mergeHeld, mergeHoldKind, branch: run.worktreeLifecycle?.sessionBranch });
     return `${wording.headline}. ${wording.sentence}`;
   }
 

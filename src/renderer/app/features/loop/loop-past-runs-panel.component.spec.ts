@@ -267,3 +267,39 @@ describe('LoopPastRunsPanelComponent stored Close', () => {
     fixture.destroy();
   });
 });
+
+
+describe('LoopPastRunsPanelComponent held-run wording', () => {
+  it.each([
+    [{ mergeHold: true, mergeHoldKind: 'verified-no-change' }, 'loop stalled', 'no production changes'],
+    [{ mergeHold: true, mergeHoldKind: 'final-audit-blocked' }, 'loop stalled', 'final check needs your sign-off'],
+    [{ mergeHold: true, mergeHoldKind: 'stalled' }, 'final check needs review', 'the loop stalled'],
+    [undefined, 'loop stalled', 'the loop stalled'],
+    [undefined, 'checks skipped', 'work is held for review'],
+    [{ mergeHold: true, mergeHoldKind: 'historical-kind' }, 'loop stalled', 'work is held for review'],
+  ])('renders saved evidence before legacy reason guesses (%j)', (endEvidence, endReason, expected) => {
+    const run = {
+      id: 'held', chatId: 'chat-1', status: 'completed-needs-review', endedAt: 200,
+      startedAt: 100, initialPrompt: 'goal', iterationPrompt: null, totalIterations: 1,
+      totalTokens: 0, totalCostCents: 0, endReason, endEvidence,
+      worktreeLifecycle: { managedByAio: true, phase: 'preserved', baseBranch: 'main', sessionBranch: 'loop/kept', updatedAt: 200 },
+    } as LoopRunSummaryPayload;
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [
+      { provide: LoopStore, useValue: { ensureWired: vi.fn(), refreshHistory: vi.fn(), activeForChat: () => () => null, runsForChat: () => () => [run] } },
+      { provide: LoopIpcService, useValue: {} },
+      { provide: CLIPBOARD_SERVICE, useValue: { copyText: vi.fn() } },
+      { provide: LoopPanelOpenerService, useValue: { open: vi.fn() } },
+      { provide: RendererPollSchedulerService, useValue: { register: () => () => undefined } },
+    ] });
+    const fixture = TestBed.createComponent(LoopPastRunsPanelComponent);
+    Object.defineProperty(fixture.componentInstance, 'chatId', { value: () => 'chat-1' });
+    const panel = fixture.componentInstance as unknown as { panelExpanded: { set(value: boolean): void } };
+    panel.panelExpanded.set(true);
+    fixture.detectChanges();
+    const sentence = (fixture.nativeElement as HTMLElement).querySelector('.pr-end-line')?.textContent;
+    expect(sentence).toContain(expected);
+    expect(sentence).toContain('loop/kept');
+    fixture.destroy();
+  });
+});

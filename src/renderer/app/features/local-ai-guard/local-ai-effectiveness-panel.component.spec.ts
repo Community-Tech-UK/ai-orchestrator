@@ -120,6 +120,31 @@ describe('LocalAiEffectivenessPanelComponent', () => {
     expect(details.textContent).toContain('$0.025');
   });
 
+  it('shows cents with exact measured, estimated and avoided costs on hover and for screen readers', async () => {
+    store.effectiveness.mockReturnValue(summary({
+      knownCostUsd: 0.004,
+      estimatedCostUsd: 0.018,
+      avoidedEstimatedCostUsd: 0.025,
+    }));
+    await recreate();
+    expect(costMetricText()).toEqual([
+      'under 1 cent measured cloud cost',
+      '$0.02 estimated cloud cost',
+      '9,000 estimated avoided tokens',
+      '$0.03 estimated avoided cost',
+    ]);
+    const costs = fixture.nativeElement.querySelectorAll('.cost-metrics output') as NodeListOf<HTMLElement>;
+    expect(costs.length).toBe(3);
+    expect(fixture.nativeElement.querySelector('.cost-metrics [tabindex]')).toBeNull();
+    for (const [index, exact] of ['$0.004', '$0.018', '$0.025'].entries()) {
+      expect(costs[index].getAttribute('aria-label')).toBe(`Exact amount: ${exact}`);
+      expect(costs[index].getAttribute('aria-live')).toBe('off');
+      costs[index].dispatchEvent(new MouseEvent('mouseenter'));
+      await vi.waitFor(() => expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(`Exact amount: ${exact}`));
+      costs[index].dispatchEvent(new MouseEvent('mouseleave'));
+    }
+  });
+
   it('keeps normal cents readable, removes binary tails, and never displays a tiny nonzero cost as zero', async () => {
     store.effectiveness.mockReturnValue(summary({
       knownCostUsd: 1.25,

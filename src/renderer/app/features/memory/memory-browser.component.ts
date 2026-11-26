@@ -44,6 +44,7 @@ interface MemoryEntryWithType extends MemoryEntry {
           <input
             type="text"
             class="search-input"
+            aria-label="Search memories"
             placeholder="Search memories..."
             [value]="searchQuery()"
             (input)="onSearch($event)"

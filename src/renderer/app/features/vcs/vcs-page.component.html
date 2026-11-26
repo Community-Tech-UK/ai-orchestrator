@@ -20,7 +20,7 @@
 
   <!-- Directory Input Bar -->
   <div class="dir-bar">
-    <input
+    <input aria-label="Working directory path"
       class="dir-input"
       type="text"
       placeholder="Working directory path…"
@@ -59,7 +59,7 @@
     </div>
 
     <div class="job-launch-bar">
-      <input
+      <input aria-label="Issue or PR URL"
         class="dir-input"
         type="text"
         [value]="jobUrl()"
@@ -291,7 +291,7 @@
       @if (historyDrawerOpen()) {
         <div class="drawer-body">
           <div class="history-input-row">
-            <input
+            <input aria-label="File path relative to repository root"
               class="dir-input"
               type="text"
               placeholder="File path relative to repo root…"

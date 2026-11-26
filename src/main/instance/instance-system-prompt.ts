@@ -368,7 +368,8 @@ export async function assembleInstanceSystemPrompt(
   if (instance.depth === 0 && !memberSession) {
     try {
       const wakeText = await callWithDeadline(
-        () => deps.buildWakeContextText(instance.workingDirectory),
+        () => deps.buildWakeContextText(instance.workingDirectory,
+          !config.isRestoredSession && !isRestoreOrReplayContinuity(config)),
         {
           ms: CREATE_ENRICHER_DEADLINE_MS,
           fallback: null,

@@ -129,8 +129,9 @@ const BUDGET = {
   // 8 Nov (deferred checks): the report instruction now says each deferred check must also be written in the
   // _livetest.md (~110 chars on every worker prompt; measured: 4,623 / 5,123 / 5,014 / 5,590 / 6,576 / 7,076). The verifier gained
   // the finding-kind rules, the plan deferral rules and the PASS/FAIL example calls: 7,080 / 5,550.
-  queueVerifier: { chars: 9900, render: () => buildVerifierPrompt(verifier) },
-  queueLivetestVerifier: { chars: 8200, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
+  // 26 Nov (October follow-ups 4c): one rating rule tells the verifier when a finding is critical or high (about 195 characters). Measured: 9,996 / 8,327, rounded up to 100.
+  queueVerifier: { chars: 10000, render: () => buildVerifierPrompt(verifier) },
+  queueLivetestVerifier: { chars: 8400, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
   // 17 Nov (Linear step 4): the five ticket prompts, measured with the small fixture brief above (worker 5,956, fix 1,806, resume 6,317, step-up 7,849, checker 6,100) and rounded up to 100.
   // They share the plan prompts' rules by import; a ticket's own text adds up to 12,000 characters inside its block.
   queueTicketWorker: { chars: 6100, render: () => buildTicketWorkerPrompt(ticketPrompt) },

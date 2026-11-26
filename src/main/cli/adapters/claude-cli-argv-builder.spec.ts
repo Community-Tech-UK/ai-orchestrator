@@ -20,6 +20,12 @@ vi.mock('../cli-detection', () => ({ getCliDetectionService: () => detection }))
 beforeEach(() => { _setOutputCapSettingsReaderForTesting(() => undefined); detection.peekCachedResult.mockReset().mockReturnValue(null); });
 afterEach(() => { _setOutputCapSettingsReaderForTesting(null); });
 
+// One stable logger, so the module's logger and `getLogger('ClaudeCliAdapter')` in a test are the same object to spy on.
+const adapterLogger = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn() }));
+const persistenceWarnings = adapterLogger.warn;
+vi.mock('../../logging/logger', () => ({ getLogger: () => adapterLogger }));
+beforeEach(() => { adapterLogger.debug.mockClear(); adapterLogger.warn.mockClear(); });
+
 /**
  * Extracted from `claude-cli-adapter.spec.ts`'s `buildArgs` coverage — these
  * cases exercise the argv-construction logic directly, against explicit
@@ -648,5 +654,37 @@ describe('settings overlay record in the app log (capability repair df6fa124)', 
       numericSettings: { bashOutputMaxChars: 30000 },
       switches: { fastMode: true },
     });
+  });
+});
+
+describe('Claude one-shot transcript persistence', () => {
+  it('disables persistence only when explicitly requested for a fresh print call', () => {
+    const args = buildClaudeCliArgs(baseInput({ spawnOptions: { noSessionPersistence: true } }));
+    expect(args).toContain('--print');
+    expect(args.filter(arg => arg === '--no-session-persistence')).toHaveLength(1);
+  });
+
+  it.each([{}, { noSessionPersistence: false }, { maxBudgetUsd: 1 }, { machineSession: 'review' as const }])(
+    'retains transcripts without an explicit opt-in (%j)', spawnOptions => {
+      expect(buildClaudeCliArgs(baseInput({ spawnOptions }))).not.toContain('--no-session-persistence');
+    },
+  );
+
+  it.each([
+    { resume: true, native: true, fork: false },
+    { resume: true, native: false, fork: false },
+    { resume: false, native: true, fork: false },
+    { resume: true, native: true, fork: true },
+    { resume: false, native: false, fork: true },
+  ])('drops the request and warns for continuation intent (%j)', ({ resume, native, fork }) => {
+    persistenceWarnings.mockClear();
+    const args = buildClaudeCliArgs(baseInput({
+      spawnOptions: { noSessionPersistence: true, resume, forkSession: fork },
+      sessionId: 'fixture-session', shouldUseNativeResume: native,
+    }));
+    expect(args).not.toContain('--no-session-persistence');
+    expect(persistenceWarnings).toHaveBeenCalledExactlyOnceWith(
+      'Ignoring --no-session-persistence for a resumed or forked Claude session',
+    );
   });
 });

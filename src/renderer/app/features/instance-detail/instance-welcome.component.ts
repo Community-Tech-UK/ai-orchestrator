@@ -36,6 +36,7 @@ interface WelcomeProjectContext {
     <app-drop-zone
       [pasteOwner]="pasteOwner()"
       class="full-drop-zone"
+      [attachmentProvider]="selectedLocalModelTarget()?.kind === 'local-model' ? 'local-model' : selectedCli()"
       (filesDropped)="filesDropped.emit($event)"
       (imagesPasted)="imagesPasted.emit($event)"
       (folderDropped)="folderDropped.emit($event)"

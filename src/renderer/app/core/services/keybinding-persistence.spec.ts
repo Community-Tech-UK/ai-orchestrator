@@ -66,7 +66,7 @@ describe('KeybindingService settings persistence (WS-C9)', () => {
 
   it('loads a valid stored customization once settings initialize', async () => {
     const raw = serializeKeybindingCustomizations([
-      { id: 'focus-input', keys: { key: 'q', modifiers: ['meta', 'alt', 'shift'] } },
+      { id: 'focus-output', keys: { key: 'q', modifiers: ['meta', 'alt', 'shift'] } },
     ]);
     configureModule(raw);
     service = TestBed.inject(KeybindingService);
@@ -77,7 +77,7 @@ describe('KeybindingService settings persistence (WS-C9)', () => {
     flushEffects();
 
     expect(service.getCustomizations()).toEqual([
-      { id: 'focus-input', keys: { key: 'q', modifiers: ['meta', 'alt', 'shift'] } },
+      { id: 'focus-output', keys: { key: 'q', modifiers: ['meta', 'alt', 'shift'] } },
     ]);
   });
 
@@ -94,8 +94,8 @@ describe('KeybindingService settings persistence (WS-C9)', () => {
   });
 
   it('rejects a stored customization that would introduce a NEW conflict', async () => {
-    // focus-input ('i') and focus-output ('o') are both global; force a collision.
-    const raw = serializeKeybindingCustomizations([{ id: 'focus-input', keys: { key: 'o', modifiers: [] } }]);
+    // focus-output ('o') and new-instance are both global; force a collision.
+    const raw = serializeKeybindingCustomizations([{ id: 'new-instance', keys: { key: 'o', modifiers: [] } }]);
     configureModule(raw);
     service = TestBed.inject(KeybindingService);
     settingsStore = TestBed.inject(SettingsStore);
@@ -117,13 +117,13 @@ describe('KeybindingService settings persistence (WS-C9)', () => {
     flushEffects();
     setSetting.mockClear();
 
-    service.customizeBinding('focus-input', { key: 'q', modifiers: ['meta', 'shift'] });
+    service.customizeBinding('focus-output', { key: 'q', modifiers: ['meta', 'shift'] });
     flushEffects();
     await Promise.resolve();
 
     expect(setSetting).toHaveBeenCalledWith(
       'keybindingCustomizations',
-      serializeKeybindingCustomizations([{ id: 'focus-input', keys: { key: 'q', modifiers: ['meta', 'shift'] } }]),
+      serializeKeybindingCustomizations([{ id: 'focus-output', keys: { key: 'q', modifiers: ['meta', 'shift'] } }]),
     );
   });
 });

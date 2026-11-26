@@ -39,6 +39,7 @@ export class KnowledgeStore implements OnDestroy {
   private memoryIpc = inject(MemoryIpcService);
   private unsubscribes: (() => void)[] = [];
   private wakeWing: string | undefined;
+  private hintRevision = 0;
 
   private _stats = signal<KGStats | null>(null);
   private _entityFacts = signal<KGQueryResult[]>([]);
@@ -391,7 +392,9 @@ export class KnowledgeStore implements OnDestroy {
   // --- Wake Write Actions ---
 
   async listHints(room?: string): Promise<void> {
+    const revision = ++this.hintRevision;
     const response = await this.memoryIpc.wakeListHints({ room });
+    if (revision !== this.hintRevision) return;
     if (response.success) {
       this._wakeHints.set(response.data as WakeHint[]);
     } else {
@@ -412,6 +415,8 @@ export class KnowledgeStore implements OnDestroy {
   async removeHint(id: string): Promise<boolean> {
     const response = await this.memoryIpc.wakeRemoveHint({ id });
     if (response.success) {
+      this.hintRevision++;
+      this._wakeHints.update((hints) => hints.filter((hint) => hint.id !== id));
       await this.listHints();
       return true;
     }
@@ -498,6 +503,7 @@ export class KnowledgeStore implements OnDestroy {
         void this.loadWakeContext(this.wakeWing);
       }),
       this.memoryIpc.onWakeContextGenerated((data) => {
+        void this.listHints();
         const current = this._wakeContext();
         if (!current) {
           return;

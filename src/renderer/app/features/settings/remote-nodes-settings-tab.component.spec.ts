@@ -144,6 +144,17 @@ describe('RemoteNodesSettingsTabComponent', () => {
     return fixture.nativeElement.querySelector('[aria-label="Copy token"]') as HTMLButtonElement;
   }
 
+  it('names the server toggle with its visible setting name', () => {
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    // The toggle lives on the Overview tab (Computers opens first).
+    (root.querySelectorAll('[role="tab"]')[2] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    const field = root.querySelector<HTMLInputElement>('#remote-nodes-panel-overview input[type="checkbox"]')!;
+    const id = field.getAttribute('aria-labelledby');
+    expect(id ? root.querySelector(`[id="${id}"]`)?.textContent?.trim() : undefined).toBe('Let your other computers connect');
+  });
+
   it('explains a missing token on focus and Escape while refusing to copy', async () => {
     store.remoteNodesEnrollmentToken.mockReturnValue('');
     const button = renderCopyToken();

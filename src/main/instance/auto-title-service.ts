@@ -520,7 +520,7 @@ export class AutoTitleService {
           systemPromptMode: 'replace' as const,
           yoloMode: false,
           timeout: AI_TITLE_TIMEOUT,
-          ...(cliType === 'claude' ? { maxBudgetUsd: 0.10 } : {}),
+          ...(cliType === 'claude' ? { maxBudgetUsd: 0.10, noSessionPersistence: true } : {}),
         }, 'internal');
         adapter = getProviderRuntimeService().createAdapter({ cliType, options: titleSpawnOptions });
       } catch (error) {

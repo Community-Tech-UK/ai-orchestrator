@@ -134,7 +134,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultFastModeByProvider: {},
   modelUsageByKey: {},
   modelPickerFavorites: [],
-  residentClaudeSession: true,
   claudeLivePermissionPrompts: false,
   contextEvidenceModeByProvider: { ...DEFAULT_CONTEXT_EVIDENCE_MODE_BY_PROVIDER },
   theme: 'dark',

@@ -117,6 +117,23 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     promptMocks.indexedBuildContext.mockResolvedValue(null);
   });
 
+  it.each([
+    [{}, true],
+    [{ resume: true }, false],
+    [{ isRestoredSession: true }, false],
+    [{ initialContextBlock: 'Replay context' }, false],
+  ])('records wake showings only for a fresh session: %j', async (continuity, recordUsage) => {
+    const deps = makeDeps();
+    deps.buildWakeContextText.mockResolvedValue('Background memory for the project and its ongoing work.');
+    const result = await assembleInstanceSystemPrompt({
+      instance: makeInstance(),
+      config: { workingDirectory: '/tmp/project', provider: 'claude', ...continuity },
+      resolvedAgent: baseAgent, instructionPrompts: [], initialUserMessageContent: undefined, deps,
+    });
+    expect(result.systemPrompt).toContain('Background memory for the project');
+    expect(deps.buildWakeContextText).toHaveBeenCalledWith('/tmp/project', recordUsage);
+  });
+
   it.each(['codex', 'claude'] as const)('leaves resolved-provider background instructions to runtime binding (%s)', async (provider) => {
     const result = await assembleInstanceSystemPrompt({
       resolvedProvider: provider === 'claude' ? 'claude' : 'codex',

@@ -822,7 +822,7 @@ describe('PlanQueueCoordinator deferred checks and finding kinds (step 5.2)', { 
       if (round > 1) { pass(instance, message, f); return; }
       failWith([
         { severity: 'high', kind: 'code', confidence: 90, summary: 'The counter is never reset.' },
-        { severity: 'medium', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
+        { severity: 'high', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
       ])(instance, message, f);
     };
     const run = await startPlans();

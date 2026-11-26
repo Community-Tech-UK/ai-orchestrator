@@ -5,7 +5,61 @@ import type { OrchestrationHandler } from '../orchestration/orchestration-handle
 import type { LoopState } from '../../shared/types/loop.types';
 import type { LoopCheckpoint } from '../orchestration/loop-checkpoint';
 
+const mockHeldDecisionWarn = vi.hoisted(() => vi.fn());
+vi.mock('../logging/logger', () => ({
+  getLogger: () => ({ info: vi.fn(), warn: mockHeldDecisionWarn, debug: vi.fn(), error: vi.fn() }),
+}));
+
 describe('createThinClientCommandExecutor', () => {
+  it('refuses a held command with no decision and completes prompt cleanup', async () => {
+    mockHeldDecisionWarn.mockClear();
+    const instanceManager = makeBaseInstanceManager();
+    const clearPrompt = vi.fn();
+    const execute = createThinClientCommandExecutor({
+      instanceManager, pauseCoordinator: { isPaused: () => false },
+      remoteObserver: { clearPrompt },
+    });
+    const result = await execute('instance:respond-input', {
+      instanceId: 'example-instance', requestId: 'example-held-request', response: 'approved',
+      decisionScope: 'always', updatedInput: { command: 'echo EXAMPLE' },
+      metadata: { type: 'deferred_permission', enableYolo: true },
+    });
+
+    expect(result).toMatchObject({ success: true, data: { responded: true, resumed: true } });
+    expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledExactlyOnceWith(
+      'example-instance', false, undefined, { requestId: 'example-held-request' },
+    );
+    expect(instanceManager.recordInputRequiredPermissionDecision).not.toHaveBeenCalled();
+    expect(instanceManager.clearPendingInputRequiredPermission).toHaveBeenCalledWith(
+      'example-instance', 'example-held-request',
+    );
+    expect(clearPrompt).toHaveBeenCalledWith('example-held-request');
+    expect(mockHeldDecisionWarn).toHaveBeenCalledWith('Held command answered without a decision; refused');
+  });
+
+  it.each(['allow', 'deny', 'modify'] as const)('preserves the explicit %s held-command decision', async decisionAction => {
+    const instanceManager = makeBaseInstanceManager();
+    const execute = createThinClientCommandExecutor({
+      instanceManager, pauseCoordinator: { isPaused: () => false },
+      remoteObserver: { clearPrompt: vi.fn() },
+    });
+    const updatedInput = decisionAction === 'modify' ? { command: 'echo EXAMPLE' } : undefined;
+    const result = await execute('instance:respond-input', {
+      instanceId: 'example-instance', requestId: 'example-held-request', response: decisionAction,
+      decisionAction, decisionScope: 'once', updatedInput,
+      metadata: { type: 'deferred_permission' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(instanceManager.resumeAfterDeferredPermission).toHaveBeenCalledExactlyOnceWith(
+      'example-instance', decisionAction !== 'deny', updatedInput, { requestId: 'example-held-request' },
+    );
+    expect(instanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
+      instanceId: 'example-instance', requestId: 'example-held-request',
+      action: decisionAction === 'deny' ? 'deny' : 'allow', scope: 'once',
+    });
+  });
+
   it.each(['instance:send-input', 'instance:wake'] as const)(
     '%s reveals a hidden automation session to the desktop rail',
     async (command) => {

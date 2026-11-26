@@ -549,3 +549,23 @@ export function emitNonGitReviewWorkspaceWarning(
     detail: { workspaceCwd },
   });
 }
+
+interface LoopPausePayload {
+  loopRunId?: string;
+  reason?: string;
+  signal?: { message?: string };
+  nonConvergence?: { message: string };
+}
+
+/** Record the supplied pause explanation before listeners snapshot the state. */
+export function recordLoopPause(
+  payload: unknown,
+  findState: (loopRunId: string) => Pick<LoopState, 'endReason'> | undefined,
+): { loopRunId: string; reason: string | undefined } | undefined {
+  const pause = payload as LoopPausePayload | undefined;
+  if (!pause?.loopRunId) return undefined;
+  const reason = pause.signal?.message ?? pause.reason ?? pause.nonConvergence?.message;
+  const state = findState(pause.loopRunId);
+  if (state) state.endReason = reason;
+  return { loopRunId: pause.loopRunId, reason };
+}

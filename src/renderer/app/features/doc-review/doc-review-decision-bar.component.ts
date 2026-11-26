@@ -67,6 +67,7 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
         <input
           class="general"
           type="text"
+          aria-label="General feedback"
           placeholder="General feedback (optional)"
           [value]="general()"
           (input)="generalChange.emit($any($event.target).value)"

@@ -126,22 +126,8 @@ export interface PlanModeConfig {
 
 import type { InstanceWaitReason } from './instance-wait-reason.types';
 export type { InstanceWaitReason };
-import type { InstanceBackgroundWork } from './instance-background-work.types';
-export type { InstanceBackgroundWork };
-
-/**
- * An idle instance offered to memory-pressure reclamation.
- *
- * `hasConversation` is the hibernate/terminate switch: instances holding user
- * work are hibernated (recoverable — the session stays in the list and can be
- * woken), and only empty ones are terminated.
- */
-export interface IdleInstanceInfo {
-  id: string;
-  lastActivity: number;
-  displayName: string;
-  hasConversation: boolean;
-}
+import type { InstanceBackgroundWork, NativeHelperSummary } from './instance-activity.types';
+export type { IdleInstanceInfo, InstanceBackgroundWork, NativeHelperSummary } from './instance-activity.types';
 
 /**
  * `ContextUsage.source` for a reading rebuilt from persisted session state on
@@ -499,6 +485,8 @@ export interface Instance extends AutomationAuthorityScope {
   waitReason?: InstanceWaitReason;
   /** Live provider-owned background work; see {@link InstanceBackgroundWork}. */
   backgroundWork?: InstanceBackgroundWork;
+  /** Transient native helper activity for the currently attached adapter. */
+  nativeHelpers?: NativeHelperSummary;
   /** Replacement instance id when this instance has been superseded by edit/fork. */
   supersededBy?: string;
   /** True when this instance was cancelled specifically for prompt edit retry. */

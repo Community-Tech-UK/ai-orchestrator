@@ -452,6 +452,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       // Initialize provider (an early-consensus drop can terminate it mid-initialize; that is the drop)
       await agent.provider.initialize({
         maxBudgetUsd: agent.providerId === 'claude' ? 0.25 : undefined,
+        noSessionPersistence: agent.providerId === 'claude' ? true : undefined,
         workingDirectory: process.cwd(),
         systemPrompt,
         yoloMode: false,

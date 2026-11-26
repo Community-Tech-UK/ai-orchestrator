@@ -1,6 +1,6 @@
 import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { ElectronIpcService } from '../services/ipc/electron-ipc.service';
-import type { StorageCleanupPreview, StorageCleanupTarget, StorageUsage } from '../../../../shared/types/storage.types';
+import type { StorageCleanupPreview, StorageCleanupResult, StorageCleanupTarget, StorageUsage } from '../../../../shared/types/storage.types';
 
 @Injectable({ providedIn: 'root' })
 export class StorageUsageStore implements OnDestroy {
@@ -10,11 +10,13 @@ export class StorageUsageStore implements OnDestroy {
   private readonly _busy = signal(false);
   private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
+  private readonly _result = signal<StorageCleanupResult | null>(null);
   readonly usage = this._usage.asReadonly();
   readonly preview = this._preview.asReadonly();
   readonly busy = computed(() => this._busy() || this._usage()?.progress?.running === true);
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
+  readonly result = this._result.asReadonly();
   private poll: ReturnType<typeof setInterval> | null = null;
   private refreshing = false;
   private previewEpoch = 0;
@@ -39,7 +41,7 @@ export class StorageUsageStore implements OnDestroy {
     const api = this.ipc.getApi();
     if (!api?.storagePreviewCleanup || this.busy()) return;
     const epoch = ++this.previewEpoch;
-    this._busy.set(true); this._error.set(null); this._preview.set(null);
+    this._busy.set(true); this._error.set(null); this._result.set(null); this._preview.set(null);
     try {
       const response = await api.storagePreviewCleanup(target);
       if (!response.success || !response.data) throw new Error(response.error?.message ?? 'Unable to preview this clean-up.');
@@ -55,11 +57,18 @@ export class StorageUsageStore implements OnDestroy {
     const api = this.ipc.getApi();
     const preview = this.preview();
     if (!api?.storageRunCleanup || !preview || this.busy()) return;
-    this.running = true; this._busy.set(true); this._error.set(null);
+    this.running = true; this._busy.set(true); this._error.set(null); this._result.set(null);
     this.startPolling();
     try {
       const response = await api.storageRunCleanup(preview.target, preview.previewId);
       if (!response.success) throw new Error(response.error?.message ?? 'The clean-up failed.');
+      if (preview.target === 'rtk-history') {
+        const result = response.data as StorageCleanupResult | undefined;
+        if (result?.target !== 'rtk-history' || typeof result.removed !== 'number' || typeof result.stoppedEarly !== 'boolean') {
+          throw new Error('Unable to confirm the RTK trim result. Review the history before trying again.');
+        }
+        this._result.set(result);
+      }
       this._preview.set(null);
     } catch (error) { this._error.set(error instanceof Error ? error.message : String(error)); this._preview.set(null); }
     finally { this.running = false; this.stopPolling(); this._busy.set(false); await this.refresh(true); }

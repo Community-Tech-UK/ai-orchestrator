@@ -20,7 +20,14 @@ import type {
 } from '../../shared/types/child-announce.types';
 import { DEFAULT_ANNOUNCE_CONFIG } from '../../shared/types/child-announce.types';
 
+export { childSpendTokens } from '../instance/child-result-usage';
+
 const logger = getLogger('ChildAnnouncer');
+
+/** Part 6a: occupancy is never announced as spend; say "not measured". */
+function tokensLabel(announcement: Pick<ChildAnnouncement, 'tokensUsed'>): string {
+  return announcement.tokensUsed === undefined ? 'not measured' : `${announcement.tokensUsed} tokens`;
+}
 
 /** Internal per-parent batch state */
 interface PendingBatch {
@@ -226,7 +233,7 @@ export class ChildAnnouncer extends EventEmitter {
     }
 
     const parts: string[] = [
-      `[Child "${announcement.childName}" (${announcement.childId}) ${status} in ${durationSec}s, ${announcement.tokensUsed} tokens]`,
+      `[Child "${announcement.childName}" (${announcement.childId}) ${status} in ${durationSec}s, ${tokensLabel(announcement)}]`,
       '',
       summary,
     ];
@@ -273,7 +280,7 @@ export class ChildAnnouncer extends EventEmitter {
         summary = summary.slice(0, perChildLimit) + '...';
       }
 
-      parts.push(`${status} "${announcement.childName}" (${announcement.childId}) — ${durationSec}s, ${announcement.tokensUsed} tokens`);
+      parts.push(`${status} "${announcement.childName}" (${announcement.childId}) — ${durationSec}s, ${tokensLabel(announcement)}`);
       parts.push(`  ${summary}`);
 
       if (this.config.includeConclusions && announcement.conclusions.length > 0) {

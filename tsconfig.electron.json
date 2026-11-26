@@ -61,6 +61,7 @@
       "@contracts/schemas/loop":             ["./packages/contracts/src/schemas/loop.schemas"],
       "@contracts/schemas/loop-spend": ["./packages/contracts/src/schemas/loop-spend.schemas"],
       "@contracts/schemas/loop-events":      ["./packages/contracts/src/schemas/loop-events.schemas"],
+      "@contracts/schemas/loop-view-focus":  ["./packages/contracts/src/schemas/loop-view-focus.schemas"],
       "@contracts/schemas/campaign":         ["./packages/contracts/src/schemas/campaign.schemas"],
       "@contracts/schemas/plan-queue":       ["./packages/contracts/src/schemas/plan-queue.schemas"],
       "@contracts/schemas/doc-review":       ["./packages/contracts/src/schemas/doc-review.schemas"],

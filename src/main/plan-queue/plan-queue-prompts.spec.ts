@@ -217,10 +217,10 @@ describe('plan queue prompts', () => {
   it('marks a non-code finding for the worker, and leaves a code finding as before', () => {
     const fix = buildFixPrompt(1, 3, [
       { severity: 'high', kind: 'code', confidence: 90, summary: 'Reset the counter.' },
-      { severity: 'medium', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
+      { severity: 'high', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
     ]);
     expect(fix).toContain('1. [high, confidence 90] Reset the counter.');
-    expect(fix).toContain('2. [medium, confidence 90, environment: needs The signing certificate] The signing gate cannot run.');
+    expect(fix).toContain('2. [high, confidence 90, environment: needs The signing certificate] The signing gate cannot run.');
     expect(fix).toContain('do not work around it');
     expect(buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'Reset the counter.' }])).not.toContain('do not work around it');
   });
@@ -376,6 +376,38 @@ it('carries the last verifier findings into a replacement only when no instructi
   expect(prompt).toContain('Reason: restart');
   expect(prompt.match(/unique pending turn/g)).toHaveLength(1);
   expect(prompt).not.toContain('You are a Plan Queue worker');
+});
+
+describe('worker replacement finding selection', () => {
+  const high = { severity: 'high' as const, confidence: 90, summary: 'Repair the broken retry.' };
+  const low = { severity: 'low' as const, confidence: 80, summary: 'Optional variable rename.' };
+  const verdict = { verdict: 'FAIL' as const, findings: [low, high], gatesRun: [], documentComplete: false, needJames: [] };
+  const ctx = { item: { ...item, verdict }, kind: 'plans' as const, repoRoot: '/repo', worktreePath: '/w' };
+
+  it.each([buildResumePrompt, buildContinuePrompt])('keeps optional suggestions out of replacement worker tasks', (build) => {
+    const prompt = build(ctx, 'restart');
+    expect(prompt).toContain(high.summary);
+    expect(prompt).not.toContain(low.summary);
+    expect(prompt).toContain('1 lower-severity suggestions');
+    expect(ctx.item.verdict.findings).toEqual([low, high]);
+  });
+
+  it('filters both the stronger worker prompt and its saved instruction', () => {
+    for (const prompt of [buildStepUpPrompt(ctx, 3, verdict.findings), buildStepUpInstruction(3, verdict.findings)]) {
+      expect(prompt).toContain(high.summary);
+      expect(prompt).not.toContain(low.summary);
+      expect(prompt).toContain('1 lower-severity suggestions');
+    }
+    expect(verdict.findings).toEqual([low, high]);
+  });
+
+  it('preserves all findings when a failed verdict has no blocking severity', () => {
+    const lowCtx = { ...ctx, item: { ...ctx.item, verdict: { ...verdict, findings: [low] } } };
+    for (const prompt of [buildResumePrompt(lowCtx, 'restart'), buildContinuePrompt(lowCtx, 'restart'), buildStepUpPrompt(lowCtx, 3, [low]), buildStepUpInstruction(3, [low])]) {
+      expect(prompt).toContain(low.summary);
+      expect(prompt).not.toContain('lower-severity suggestions');
+    }
+  });
 });
 
 describe('plan status and brief in queue prompts', () => {

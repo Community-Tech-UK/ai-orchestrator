@@ -113,7 +113,6 @@ import { TrainingLoop } from '../memory/training-loop';
 
 // Learning
 import { ABTestingEngine } from '../learning/ab-testing';
-import { GRPOTrainer } from '../learning/grpo-trainer';
 import { HabitTracker } from '../learning/habit-tracker';
 import { MetricsCollector } from '../learning/metrics-collector';
 import { OutcomeTracker } from '../learning/outcome-tracker';
@@ -227,7 +226,6 @@ export async function resetAllSingletonsForTesting(): Promise<void> {
 
   // Learning
   ABTestingEngine._resetForTesting();
-  GRPOTrainer._resetForTesting();
   HabitTracker._resetForTesting();
   MetricsCollector._resetForTesting();
   OutcomeTracker._resetForTesting();

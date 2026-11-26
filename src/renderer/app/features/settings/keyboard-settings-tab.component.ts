@@ -65,6 +65,7 @@ function matchesQuery(binding: KeyBinding, contextLabel: string, query: string):
       <div class="keybinding-io">
         <button type="button" (click)="onExport()">Export shortcuts</button>
         <textarea
+          aria-label="Shortcuts JSON to import"
           [value]="importText()"
           (input)="onImportTextInput($any($event.target).value)"
           placeholder="Paste exported shortcuts JSON to import"

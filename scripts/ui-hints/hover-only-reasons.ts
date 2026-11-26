@@ -16,6 +16,7 @@ export const HOVER_ONLY_REASONS: Record<string, string> = {
   [prefix + 'loop/loop-control.component.ts#span.ls-text']: 'visible text is the metric numbers being explained',
   [prefix + 'loop/loop-control.component.ts#span.lp-badge']: 'visible text is the chip/badge wording being explained',
   [prefix + 'loop/loop-control.component.ts#div.loop-gate']: 'visible text is the gate step labels',
+  [prefix + 'instance-detail/session-status-dock.component.ts#span.inspector-toggle']: 'visible text is the running-helper count being explained',
   [prefix + 'models/model-row-facts.component.ts#span.']: 'visible text is the price line the note explains',
   [prefix + 'settings/rtk-savings-tab.component.ts#h4.section-subhead']: 'visible text is the section heading being defined',
   [prefix + 'settings/rtk-savings-tab.component.ts#div.summary-label']: 'visible text is the card label being defined',

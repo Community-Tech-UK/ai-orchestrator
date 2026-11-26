@@ -85,6 +85,7 @@ interface PersonalityPreset {
               type="range"
               min="1"
               max="6"
+              aria-label="Default Agent Count"
               [value]="defaultAgentCount()"
               (input)="onNumberInput($event, defaultAgentCount.set)"
             />
@@ -127,6 +128,7 @@ interface PersonalityPreset {
               min="0.3"
               max="0.95"
               step="0.05"
+              aria-label="Minimum Agreement"
               [value]="minAgreement()"
               (input)="onNumberInput($event, minAgreement.set)"
             />
@@ -145,6 +147,7 @@ interface PersonalityPreset {
               min="0.3"
               max="0.95"
               step="0.05"
+              aria-label="Confidence Threshold"
               [value]="confidenceThreshold()"
               (input)="onNumberInput($event, confidenceThreshold.set)"
             />
@@ -163,6 +166,7 @@ interface PersonalityPreset {
               min="0.5"
               max="0.99"
               step="0.01"
+              aria-label="Convergence Threshold"
               [value]="convergenceThreshold()"
               (input)="onNumberInput($event, convergenceThreshold.set)"
             />
@@ -185,6 +189,7 @@ interface PersonalityPreset {
               type="number"
               min="1"
               max="10"
+              aria-label="Maximum Debate Rounds"
               [value]="maxDebateRounds()"
               (change)="onNumberInput($event, maxDebateRounds.set)"
             />
@@ -193,13 +198,14 @@ interface PersonalityPreset {
 
         <div class="setting-row">
           <div class="setting-label">
-            <span>Auto-continue Debate</span>
+            <span id="verification-auto-continue-debate-label">Auto-continue Debate</span>
             <span class="setting-hint">Continue until convergence</span>
           </div>
           <div class="setting-control">
             <label class="toggle">
               <input
                 type="checkbox"
+                aria-labelledby="verification-auto-continue-debate-label"
                 [checked]="autoContinueDebate()"
                 (change)="onBooleanInput($event, autoContinueDebate.set)"
               />
@@ -223,6 +229,7 @@ interface PersonalityPreset {
               type="number"
               min="30"
               max="600"
+              aria-label="Response Timeout"
               [value]="responseTimeout()"
               (change)="onNumberInput($event, responseTimeout.set)"
             />
@@ -240,6 +247,7 @@ interface PersonalityPreset {
               type="number"
               min="60"
               max="3600"
+              aria-label="Session Timeout"
               [value]="sessionTimeout()"
               (change)="onNumberInput($event, sessionTimeout.set)"
             />
@@ -283,6 +291,7 @@ interface PersonalityPreset {
             <div class="personality-item">
               <span class="personality-index">Agent {{ i + 1 }}:</span>
               <select
+                [attr.aria-label]="'Default personality for Agent ' + (i + 1)"
                 [value]="p"
                 (change)="onPersonalityChange(i, $event)"
               >

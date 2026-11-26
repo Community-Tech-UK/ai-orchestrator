@@ -116,6 +116,7 @@ export async function invokeProviderOneShot(
           readOnlyReview: true,
           timeout: PROVIDER_INVOKE_TIMEOUT,
           maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
+          noSessionPersistence: cliType === 'claude' ? true : undefined,
         },
         'consensus',
       ),

@@ -7,6 +7,7 @@ import type {
   ProjectKnowledgeWakeLinkRow,
 } from '../rlm-database.types';
 import { projectCodeSymbolEvidenceId } from './rlm-project-code-index';
+import { captureWakeHintSource } from './rlm-wake-hint-history';
 import type {
   ProjectKnowledgeEvidence,
   ProjectKnowledgeSource,
@@ -231,6 +232,10 @@ export function linkProjectKnowledgeWakeHint(
   params: LinkWakeHintParams,
 ): ProjectKnowledgeSourceLinkResult {
   assertSourceBelongsToProject(db, params.sourceId, params.projectKey);
+  const source = mustGetSource(db, params.sourceId);
+  // Keep the derivation snapshot independently of current mining links, which
+  // are pruned on source changes. Never backfill an old note with today's hash.
+  captureWakeHintSource(db, params.hintId, source.source_uri, source.content_fingerprint);
   const id = stableId('pkwl', params.projectKey, params.sourceId, params.hintId);
   const sourceSpan = params.sourceSpan ?? DEFAULT_SOURCE_SPAN;
   const createdAt = Date.now();

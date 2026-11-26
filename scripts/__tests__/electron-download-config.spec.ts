@@ -138,12 +138,22 @@ describe('Electron download npm config', () => {
 
     for (const [jobName, job] of jobsWithInstalls) {
       const cacheSteps = (job.steps ?? []).filter((step) => step.uses?.startsWith('actions/cache@'));
-      expect(cacheSteps, `${jobName} should restore the Electron cache`).toHaveLength(1);
+      // Additional cache steps are legitimate (e.g. the RTK binaries cache that
+      // feeds the pin/licence suite); the Electron contract is exactly one
+      // cache step restoring `.electron-cache` per job that installs.
+      const electronCacheSteps = cacheSteps.filter((step) =>
+        (step.with?.['path'] ?? '').includes('.electron-cache'),
+      );
+      expect(electronCacheSteps, `${jobName} should restore the Electron cache`).toHaveLength(1);
 
-      const cacheStep = cacheSteps[0]!;
+      const cacheStep = electronCacheSteps[0]!;
       expect(cacheStep.uses, 'actions/cache should be SHA-pinned').toMatch(/^actions\/cache@[0-9a-f]{40}(?:\s|$)/);
       expect(cacheStep.with?.['path']).toContain('.electron-cache');
       expect(cacheStep.with?.['key']).toContain("hashFiles('package-lock.json')");
+
+      for (const other of cacheSteps) {
+        expect(other.uses, 'actions/cache should be SHA-pinned').toMatch(/^actions\/cache@[0-9a-f]{40}(?:\s|$)/);
+      }
     }
   });
 

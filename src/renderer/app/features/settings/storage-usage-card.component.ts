@@ -70,10 +70,18 @@ export class StorageUsageCardComponent implements OnInit, OnDestroy {
   heading(target: StorageCleanupTarget): string {
     return { 'event-record': 'Clear the debug record?', 'event-record-shrink': 'Shrink the conversation file?',
       'rlm-backups': 'Delete older learning database backups?', 'session-records': 'Remove old saved session records?',
-      'activity-logs': 'Remove old session activity logs?' }[target];
+      'activity-logs': 'Remove old session activity logs?', 'legacy-app-data': 'Move the older Harness data folder to the Bin?',
+      'claude-attachments': 'Clear old pasted attachments?', 'codex-state-backups': 'Delete older Codex safety copies?',
+      'rtk-history': "Trim RTK's command history?" }[target];
   }
   confirmLabel(target: StorageCleanupTarget): string {
     return { 'event-record': 'Clear the debug record', 'event-record-shrink': 'Shrink the file', 'rlm-backups': 'Delete the older backups',
-      'session-records': 'Remove old session records', 'activity-logs': 'Remove old logs' }[target];
+      'session-records': 'Remove old session records', 'activity-logs': 'Remove old logs',
+      'legacy-app-data': 'Move to the Bin', 'claude-attachments': 'Clear the old copies',
+      'codex-state-backups': 'Delete the older copies', 'rtk-history': 'Trim the history' }[target];
+  }
+  cancelLabel(target: StorageCleanupTarget): string {
+    if (target === 'event-record-shrink') return 'Not now';
+    return target === 'legacy-app-data' || target === 'rtk-history' ? 'Keep it' : 'Keep them';
   }
 }

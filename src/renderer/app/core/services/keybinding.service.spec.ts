@@ -24,16 +24,16 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
   });
 
   it('surfaces a conflict when a customization collides with another binding', () => {
-    // focus-input ('i') and focus-output ('o') both exist in the global scope.
-    // Rebind focus-input onto focus-output's key to force a same-key conflict.
-    service.customizeBinding('focus-input', { key: 'o', modifiers: [] });
+    // new-instance ('n'/meta) and focus-output ('o') both exist in the global scope.
+    // Rebind new-instance onto focus-output's key to force a same-key conflict.
+    service.customizeBinding('new-instance', { key: 'o', modifiers: [] });
     const conflicts = service.conflicts();
     expect(conflicts.length).toBeGreaterThan(0);
-    expect(conflicts.some((c) => c.actionIds.includes('focus-input') && c.actionIds.includes('focus-output'))).toBe(true);
+    expect(conflicts.some((c) => c.actionIds.includes('new-instance') && c.actionIds.includes('focus-output'))).toBe(true);
   });
 
   it('round-trips customizations through export → import', () => {
-    service.customizeBinding('focus-input', { key: 'q', modifiers: ['meta', 'shift', 'alt'] });
+    service.customizeBinding('new-instance', { key: 'q', modifiers: ['meta', 'shift', 'alt'] });
     const json = service.exportKeybindings();
 
     service.resetAllBindings();
@@ -42,7 +42,7 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
     const result = service.importKeybindings(json);
     expect(result.applied).toBe(1);
     expect(result.conflicts).toEqual([]);
-    expect(service.getCustomizations()).toEqual([{ id: 'focus-input', keys: { key: 'q', modifiers: ['meta', 'shift', 'alt'] } }]);
+    expect(service.getCustomizations()).toEqual([{ id: 'new-instance', keys: { key: 'q', modifiers: ['meta', 'shift', 'alt'] } }]);
   });
 
   it('throws on invalid JSON and applies nothing', () => {
@@ -52,7 +52,7 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
 
   it('blocks an import that would introduce a NEW conflict (no partial apply)', () => {
     const before = service.getCustomizations();
-    const conflicting = JSON.stringify([{ id: 'focus-input', keys: { key: 'o', modifiers: [] } }]);
+    const conflicting = JSON.stringify([{ id: 'new-instance', keys: { key: 'o', modifiers: [] } }]);
 
     const result = service.importKeybindings(conflicting);
 
@@ -64,7 +64,7 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
 
   it('customizeBindingSafe (WS-C9) rejects a change that would introduce a NEW conflict', () => {
     const before = service.getCustomizations();
-    const result = service.customizeBindingSafe('focus-input', { key: 'o', modifiers: [] });
+    const result = service.customizeBindingSafe('new-instance', { key: 'o', modifiers: [] });
     expect(result.ok).toBe(false);
     expect((result as { ok: false; reason: string }).reason).toContain('focus-output');
     expect(service.getCustomizations()).toEqual(before);
@@ -74,7 +74,7 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
     // jsdom reports an empty navigator.platform -> 'other' reserved list.
     expect(service.isMac).toBe(false);
     const before = service.getCustomizations();
-    const result = service.customizeBindingSafe('focus-input', { key: 'F4', modifiers: ['alt'] });
+    const result = service.customizeBindingSafe('new-instance', { key: 'F4', modifiers: ['alt'] });
     expect(result.ok).toBe(false);
     expect(service.getCustomizations()).toEqual(before);
   });
@@ -85,9 +85,9 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
   });
 
   it('customizeBindingSafe (WS-C9) applies a safe change and reports ok', () => {
-    const result = service.customizeBindingSafe('focus-input', { key: 'q', modifiers: ['meta', 'alt', 'shift'] });
+    const result = service.customizeBindingSafe('new-instance', { key: 'q', modifiers: ['meta', 'alt', 'shift'] });
     expect(result).toEqual({ ok: true });
-    expect(service.getBinding('focus-input')?.keys).toEqual({ key: 'q', modifiers: ['meta', 'alt', 'shift'] });
+    expect(service.getBinding('new-instance')?.keys).toEqual({ key: 'q', modifiers: ['meta', 'alt', 'shift'] });
     expect(service.conflicts()).toEqual([]);
   });
 

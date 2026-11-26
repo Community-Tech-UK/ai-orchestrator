@@ -9,6 +9,7 @@ import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directi
  * - Export options
  */
 
+import { formatMoneyPlain } from '../../../shared/utils/format-money';
 import {
   Component,
   inject,
@@ -21,7 +22,6 @@ import { ConsensusHeatmapComponent } from './consensus-heatmap.component';
 import { StreamingTextComponent } from '../../../shared/components/streaming-text/streaming-text.component';
 import { CLIPBOARD_SERVICE } from '../../../core/services/clipboard.service';
 import type { VerdictStatus, VerificationCost } from '../../../../../shared/types/verification.types';
-import { formatMoneyPlain } from '../../../shared/utils/format-money';
 
 type ResultTab = 'summary' | 'comparison' | 'debate' | 'raw' | 'export';
 

@@ -438,7 +438,6 @@ export const LoopToolCallRecordSchema = z.object({
   declaredTimeoutMs: z.number().positive().optional(),
 });
 
-
 export const LoopErrorRecordSchema = z.object({
   bucket: z.string(),
   exactHash: z.string(),
@@ -726,6 +725,7 @@ export const LoopRunSummarySchema = z.object({
   startedAt: z.number().int(),
   endedAt: z.number().int().nullable(),
   endReason: z.string().nullable(),
+  endEvidence: LoopStateSchema.shape.endEvidence,
   /** Canonical workspace the loop ran in, recovered from the persisted loop
    *  config rather than a dedicated column. Empty string when the config blob
    *  is missing/unparseable. Powers the Workboard's workspace grouping/filter. */

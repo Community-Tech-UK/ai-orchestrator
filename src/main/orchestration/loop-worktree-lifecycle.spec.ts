@@ -254,6 +254,63 @@ describe('finalizeLoopWorktree', () => {
   });
 });
 
+describe('finalizeLoopWorktree merge hold (part 3g)', () => {
+  it('keeps a stalled run on its branch and never integrates', async () => {
+    const state = makeState('completed-needs-review');
+    state.endEvidence = { mergeHold: true, mergeHoldKind: 'stalled' };
+    const manager = makeManager();
+    const store = makeStore();
+    const phases: string[] = [];
+
+    await finalizeLoopWorktree({
+      state,
+      status: 'completed-needs-review',
+      worktreeSessionId: 'wt-1',
+      manager,
+      store,
+      onTransition: (lifecycle) => phases.push(lifecycle.phase),
+    });
+
+    expect(phases).toEqual(['harvesting', 'harvested', 'preserved', 'cleaned']);
+    expect(manager.integrateWorktree).not.toHaveBeenCalled();
+    expect(manager.listActivePlanDocuments).not.toHaveBeenCalled();
+    expect(manager.cleanupWorktree).toHaveBeenCalledWith('wt-1', { retainBranch: true });
+  });
+
+  it('keeps a final-audit-blocked run on its branch and never integrates', async () => {
+    const state = makeState('completed-needs-review');
+    state.endEvidence = { mergeHold: true, mergeHoldKind: 'final-audit-blocked' };
+    const manager = makeManager();
+
+    await finalizeLoopWorktree({
+      state,
+      status: 'completed-needs-review',
+      worktreeSessionId: 'wt-1',
+      manager,
+      store: makeStore(),
+    });
+
+    expect(manager.integrateWorktree).not.toHaveBeenCalled();
+    expect(manager.cleanupWorktree).toHaveBeenCalledWith('wt-1', { retainBranch: true });
+  });
+
+  it('integrates an operator-accepted needs-review run without a hold', async () => {
+    const state = makeState('completed-needs-review');
+    state.endEvidence = { mergeHold: false };
+    const manager = makeManager();
+
+    await finalizeLoopWorktree({
+      state,
+      status: 'completed-needs-review',
+      worktreeSessionId: 'wt-1',
+      manager,
+      store: makeStore(),
+    });
+
+    expect(manager.integrateWorktree).toHaveBeenCalled();
+  });
+});
+
 describe('finish evidence merge hold', () => {
   it.each([true, false])('holds skipped checks only when mergeHold is %s', async (hold) => {
     const state = { id: 'finish', config: {}, endEvidence: { mergeHold: hold }, worktreeLifecycle: { managedByAio: true, phase: 'acquired', baseBranch: 'main', sessionBranch: 'loop', sessionTip: 'start', updatedAt: 0 } } as unknown as LoopState;

@@ -268,11 +268,11 @@ describe('ControlSurfaceShellComponent', () => {
 
   it('adds the open page as a tab when its hub does not list it', () => {
     const route = TestBed.inject(ActivatedRoute);
-    route.snapshot.firstChild!.data['controlSurfaceId'] = 'training';
+    route.snapshot.firstChild!.data['controlSurfaceId'] = 'chat-search';
     const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
     const root = other.nativeElement as HTMLElement;
-    expect(root.querySelector('nav.hub-tabs a[href="/training"]')?.getAttribute('aria-current')).toBe('page');
-    expect(root.querySelector('nav.hub-tabs a[href="/memory-review"]')).toBeTruthy();
+    expect(root.querySelector('nav.hub-tabs a[href="/chat-search"]')?.getAttribute('aria-current')).toBe('page');
+    expect(root.querySelector('nav.hub-tabs a[href="/semantic-search"]')).toBeTruthy();
   });
 
   it('shows no tab strip for a hub with a single page', () => {

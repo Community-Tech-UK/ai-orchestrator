@@ -1,23 +1,19 @@
 /** Application settings shared by the main and renderer processes. */
 
-import type {
-  PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueLinearConnection, PlanQueueLinearFolderLink, PlanQueueLinearTeam, PlanQueueRouting,
-} from '@contracts/schemas/plan-queue';
-import type { PlanQueueMessageSettings } from './plan-queue-settings.types';
-import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
-import type { CopilotAccountProfile, CopilotAccountRoutingRule } from './copilot-account.types';
+import type { AuxiliarySettings } from './settings-auxiliary.types';
+import type { ReviewSettings } from './settings-review.types';
+export type { AuxiliarySettings } from './settings-auxiliary.types';
+export type { ReviewSettings } from './settings-review.types';
+import type { PlanQueueSettings } from './plan-queue-settings.types';
 import type { CodexTurnCeilingSettings } from './codex-turn-ceiling-settings.types';
 import type { TokenTrialSettings } from './token-trial-settings.types';
 import type { DesktopComputerUseSettings } from './desktop-gateway-settings.types';
 import type { DisplaySettings } from './display-settings.types';
 import type { MobileGatewaySettings } from './mobile-gateway-settings.types';
-import type { ProviderAccountPools, ProviderAccountProfile } from './provider-account.types';
-import type { LocalAiFallbackPolicy } from './local-ai-guard.types';
 import type { ModelUsageEntry } from './model-usage.types';
 import type { WorkerModeSettings } from './pair-both.types';
 import type { ObservationSettings } from './observation-settings.types';
 import type { WorkloadSettings } from './workload-settings.types';
-import type { RemoteReviewerProvider } from './reviewer-provider.types';
 import type { TokenLeverSettings } from './token-lever-settings.types';
 import type { StorageSettings } from './storage-settings.types';
 
@@ -37,7 +33,6 @@ export {
 
 // Primitive/enum type aliases used as AppSettings field types (LOC ratchet split).
 import type {
-  CanonicalCliType,
   CliType,
   CliUpdatePolicy,
   ContextEvidenceMode,
@@ -62,8 +57,8 @@ export interface ComputerChoice {
 
 /** Application settings that are persisted to disk. */
 export interface AppSettings
-  extends DesktopComputerUseSettings, PlanQueueMessageSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings, StorageSettings, TokenLeverSettings, TokenTrialSettings,
-    CodexTurnCeilingSettings, WorkloadSettings {
+  extends DesktopComputerUseSettings, AuxiliarySettings, ReviewSettings, PlanQueueSettings, DisplaySettings, MobileGatewaySettings, ObservationSettings,
+    StorageSettings, TokenLeverSettings, TokenTrialSettings, CodexTurnCeilingSettings, WorkloadSettings {
   // General
   /** Keep the system awake; the display may still sleep. */
   keepAwakeMode: 'off' | 'while-working' | 'always';
@@ -114,11 +109,6 @@ export interface AppSettings
    * uncustomised install keeps exactly today's fallback semantics.
    */
   modelPickerFavorites: string[];
-  /**
-   * Resident Claude interrupt via stdin `control_request` instead of SIGINT.
-   * Default true so steering aborts the turn without respawning.
-   */
-  residentClaudeSession: boolean;
   /** Internal rollout gate for in-turn Claude permissions. Off until live validation. */
   claudeLivePermissionPrompts: boolean;
   /** Per-concrete-provider rollout mode for durable context evidence. */
@@ -500,111 +490,6 @@ export interface AppSettings
    */
   projectKnowledgeAutoMirrorStartupHint: boolean;
 
-  // Cross-Model Review
-  crossModelReviewEnabled: boolean;
-  crossModelReviewDailyLimit: number;
-  crossModelReviewDepth: 'structured' | 'tiered';
-  crossModelReviewMaxReviewers: number;
-  crossModelReviewProviders: RemoteReviewerProvider[];
-  crossModelReviewTimeout: number;
-  crossModelReviewTypes: string[];
-  /**
-   * Optional per-reviewer-CLI model override for cross-model review.
-   * Keys are reviewer CLI names (e.g. 'copilot', 'antigravity', 'codex', 'cursor').
-   * A missing entry, an empty string, or 'auto' means "let that provider's CLI
-   * decide" — we pass no model and the CLI uses its own default/auto routing
-   * (e.g. Copilot auto-routes to a GPT model). A concrete model id is forwarded
-   * to the reviewer adapter as its model. This does NOT fall back to
-   * getPrimaryModelForProvider, so the default behaviour is true CLI routing.
-   */
-  crossModelReviewModelByProvider: Record<string, string>;
-  /**
-   * Per-provider model for NON-INTERACTIVE automation (loop iterations and the
-   * orchestration invokers). Keys are CLI names ('claude', 'codex', …).
-   *
-   * This exists because loops do NOT go through the interactive new-session
-   * path: they resolve their model from `getDefaultModelForCli()`, so they
-   * silently inherit whatever the interactive default happens to be. On
-   * 2026-07-10 the codex interactive default moved to `gpt-5.6-sol` and every
-   * loop iteration moved with it — flagship rates on the highest-volume path,
-   * with no user-facing control and no way to see it had happened.
-   *
-   * A missing entry or an empty string means "fall back to the provider's
-   * interactive default", which is the pre-existing behaviour. Interactive
-   * sessions are unaffected by this setting.
-   */
-  loopModelByProvider: Record<string, string>;
-  crossModelReviewLocalEnabled: boolean;
-  crossModelReviewLocalSelectorId: string;
-  crossModelReviewLocalTimeout: number;
-  crossModelReviewLocalMaxToolRounds: number;
-  /**
-   * Providers barred from AUTOMATIC selection, by CLI id ('copilot', 'codex', …).
-   *
-   * A provider listed here is skipped by every path that picks a provider on the
-   * user's behalf — cross-model and ping-pong review, consensus fan-out,
-   * verification panels, scaffolding/workflow routing, magic prompts, and the
-   * generic `auto` spawn fallback. It stays fully available when the user
-   * explicitly chooses it for a session, or sets it as `defaultCli`.
-   *
-   * Exists for seats whose licence is scoped to a specific context — e.g. a
-   * work Copilot subscription usable only on that employer's repositories,
-   * where an automatic cross-review call would be a licence breach. Empty
-   * (the default) means no restriction.
-   */
-  providersExcludedFromAutomation: string[];
-
-  // GitHub Copilot account routing (2026-08-25-copilot-account-routing spec)
-  /**
-   * Copilot account profiles. Each one is an isolated Copilot CLI state
-   * directory bound to exactly one GitHub identity, so a personal and an
-   * enterprise seat can serve different repositories without a global switch.
-   *
-   * Contains no token, keychain reference, or filesystem path — the home
-   * directory is derived on the execution node from the validated profile ID.
-   * Operator-only: an agent that could add a profile or move the default could
-   * route enterprise code through a personal seat.
-   */
-  copilotAccountProfiles: CopilotAccountProfile[];
-  /**
-   * Rules mapping a GitHub repository, owner, or canonical path prefix to a
-   * Copilot account profile. Exact repository beats owner, owner beats the
-   * longest matching path prefix, and a protected scope that cannot be resolved
-   * blocks Copilot rather than falling back to the default account.
-   */
-  copilotAccountRoutingRules: CopilotAccountRoutingRule[];
-
-  // Provider account pools (2026-09-13 spec). Operator-only; no tokens or paths.
-  providerAccountProfiles: ProviderAccountProfile[];
-  providerAccountPools: ProviderAccountPools;
-  /** Providers and accounts Plan Queue sessions may use. Operator-only, edited on the Plan Queue page. */
-  planQueueRouting: PlanQueueRouting;
-  /** Accounts Plan Queue sessions and new automation sessions must never use, or should use last. Operator-only, edited on the Plan Queue page; queue sessions read it live, automation runs when they start. */
-  planQueueAccountRules: PlanQueueAccountRules;
-  /** Saved checklist per project folder; beats the gates a session passes to `plan_queue_start`. Operator-only, edited on the Plan Queue page. */
-  planQueueFolderChecklists: PlanQueueFolderChecklist[];
-  /** The project folders a session may start a Plan Queue run in from another folder (`plan_queue_start`'s `workspace`). Edited on the Plan Queue page, or by a session James asks through `$AIO_MCP settings set`; closed to `set_setting`. */
-  planQueueFolders: string[];
-  /** The Harness connector Linear is reached through and the Linear user James confirmed. `null` until he confirms. Operator-only. */
-  planQueueLinearConnection: PlanQueueLinearConnection;
-  /** Which Linear projects belong to which project folder. Operator-only, edited on the Plan Queue page. */
-  planQueueLinearFolderLinks: PlanQueueLinearFolderLink[];
-  /** Per Linear team: status mapping and the providers allowed to see its ticket text. Operator-only, edited on the Plan Queue page. */
-  planQueueLinearTeams: PlanQueueLinearTeam[];
-
-  // Conversational ping-pong review (bigchange_pingpong_review)
-  /**
-   * Default reviewer provider for ping-pong mode. `'auto'` pairs Claude ⇄ Codex:
-   * the reviewer is always the *other* member of that pair from the builder
-   * (Claude builds → Codex reviews, and vice versa) before widening to another
-   * installed non-builder provider if the pair is unavailable. To prefer
-   * Antigravity/Copilot/etc., set an explicit provider here. A per-run override
-   * exists in the loop control.
-   */
-  pingPongReviewerProvider: CanonicalCliType;
-  /** Default hard cap on ping-pong rounds (clamped 1..20). */
-  pingPongMaxRounds: number;
-
   // Voice STT
   voiceSttRoutingMode: VoiceSttRoutingMode;
   voiceLocalSttEnabled: boolean;
@@ -794,64 +679,6 @@ export interface AppSettings
    * passes, on every invocation.
    */
   allowPrCreation: Record<string, boolean>;
-
-  // Auxiliary LLM (local/cheap model routing for helper calls)
-  auxiliaryLlmEnabled: boolean;
-  auxiliaryLlmRoutingMode: AuxiliaryLlmRoutingMode;
-  auxiliaryLlmAllowRemoteWorkerModels: boolean;
-  /**
-   * Whether to use this (coordinator) machine's own localhost Ollama for
-   * auxiliary routing. Turn off to keep offload on remote worker nodes (e.g. a
-   * dedicated GPU box) without stopping the local Ollama, which other features
-   * such as embeddings still use.
-   */
-  auxiliaryLlmUseLocalhostOllama: boolean;
-  /** Optional hard daily USD ceiling for metered auxiliary cloud calls. */
-  auxiliaryLlmDailySpendCapUsd: number | null;
-  auxiliaryLlmEndpointsJson: string;
-  auxiliaryLlmSlotsJson: string;
-  /**
-   * Model ids used by the per-slot quality tiers. Slots tagged `tier: 'quick'`
-   * resolve to `auxiliaryLlmQuickModel` (small/fast — scoring, routing, titles)
-   * and `tier: 'quality'` to `auxiliaryLlmQualityModel` (larger — compression,
-   * distillation), unless a slot pins an explicit model. Empty = auto-pick.
-   */
-  auxiliaryLlmQuickModel: string;
-  auxiliaryLlmQualityModel: string;
-  /**
-   * Let the auxiliary `routingClassification` slot influence Loop Mode
-   * model selection. When on, each routed loop spawn asks the aux model whether
-   * the task is cheap-model eligible and, if so, prefers the fast tier — at the
-   * cost of one extra aux call per spawn. Default on so simple loop work can
-   * downshift away from the balanced tier without a Claude call.
-   */
-  auxiliaryLlmRoutingClassificationEnabled: boolean;
-
-  // Local AI Guard paid-fallback controls. These are operator-owned because
-  // changing them alters consent and hard spend boundaries.
-  localAiGuardDefaultFallbackPolicy: LocalAiFallbackPolicy;
-  localAiGuardDailyFallbackBudgetUsd: number | null;
-  localAiGuardConfirmAboveInputTokens: number | null;
-
-  /**
-   * Operator-controlled model tier per orchestration gate, as JSON.
-   *
-   * Before this existed, the tier for each gate was hardcoded in
-   * `resolveModelForInvocation`: loop/verify/review/debate/debateSynthesis were
-   * pinned to `balanced` and workflow used keyword-complexity routing. That is
-   * still the default here, so behaviour is unchanged until you override a key.
-   *
-   * `auto` means "fall back to the router's keyword-complexity heuristic".
-   * Any other value pins that gate to a fixed tier.
-   *
-   * This is the cheapest lever on orchestration spend: reviews and verifies are
-   * bounded, read-only, diff-shaped tasks, so `{"review":"fast","verify":"fast"}`
-   * moves them off the expensive tier without touching any code. Conversely a
-   * gate that is producing weak output can be raised in isolation.
-   *
-   * @see DEFAULT_ORCHESTRATION_ROUTING_POLICY
-   */
-  orchestrationRoutingPolicyJson: string;
 
   // Reactions (event-driven re-prompting)
   /**

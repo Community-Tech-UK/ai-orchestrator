@@ -260,6 +260,28 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 25_000);
 
+  it('ends a plan-file loop as needs-review when convergence never marked the plan complete', async () => {
+    writeFileSync(join(workspace, 'example_plan.md'), '# Example\n\n- [x] Work\n');
+    const needsReview = waitForEvent<{ reason: string }>('loop:completed-needs-review');
+    const driver = driveLoop([childResult(CLEAN_OUTPUT)]);
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-plan-rename', {
+        initialPrompt: 'Finish the example plan', workspaceCwd: workspace, planFile: 'example_plan.md',
+        completion: reviewDrivenCompletion({ requiredCleanReviewPasses: 1, requireCompletedFileRename: true }),
+        audit: { finalAuditMode: 'off', preflightMode: 'off', planPacketMode: 'off', cleanlinessScan: false },
+      });
+      const event = await needsReview;
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'completed-needs-review');
+      expect(event.reason).toContain('The plan file was not marked complete');
+      expect(coordinator.getLoop(state.id)?.lastCompletionOutcome).toBe('rename-gate');
+      expect(driver.invocations()).toBe(1);
+      expect(existsSync(join(workspace, 'example_plan.md'))).toBe(true);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 25_000);
+
   it('runs the final audit gate before accepting review-driven convergence', async () => {
     const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
     driveLoop(

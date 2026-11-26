@@ -32,3 +32,34 @@ it.each(['paused', 'cancelled'] as const)('preserves %s while a failed final aud
   expect(action).toBe(status === 'paused' ? 'continue' : 'terminal');
   expect(state.status).toBe(status);
 });
+
+it('stages a final-audit merge hold when the final audit needs operator review', async () => {
+  const state = { id: 'run', status: 'running', config: defaultLoopConfig('/repo', 'goal') } as LoopState;
+  state.config.audit.finalAuditMode = 'gate';
+  const readOutstanding = vi.fn(async () => ({ raw: '', needsHuman: false }));
+  const terminate = vi.fn(); const emit = vi.fn();
+  const action = await applyReviewDrivenTerminal({ state, iteration: { verifyStatus: 'passed' } as NonNullable<LoopState['lastIteration']>,
+    stageMachine: { readOutstanding } as unknown as LoopStageMachine, terminal: { status: 'completed', reason: 'Checks passed.' },
+    capWrapUpActive: false, emit, terminate, pause: vi.fn(), handleAuditBlocked: async () => 'continue',
+    audit: async () => ({ status: 'needs-review', findings: [], ranAt: Date.now(), changedFiles: [],
+      coverage: { criteriaTotal: 0, criteriaVerified: 0, criteriaUnverified: 0, verifyCommandRan: true, repoComparisonRan: true, cleanlinessScanRan: true } }) });
+  expect(action).toBe('terminal');
+  expect(state.endEvidence).toMatchObject({ mergeHold: true, mergeHoldKind: 'final-audit-blocked' });
+  expect(terminate).toHaveBeenCalledWith('completed-needs-review', expect.stringContaining('Final audit requires operator review'));
+});
+
+it('stages a final-audit merge hold when the incoming terminal is already completed-needs-review', async () => {
+  const state = { id: 'run', status: 'running', config: defaultLoopConfig('/repo', 'goal') } as LoopState;
+  state.config.audit.finalAuditMode = 'gate';
+  const readOutstanding = vi.fn(async () => ({ raw: '', needsHuman: false }));
+  const terminate = vi.fn(); const emit = vi.fn();
+  const action = await applyReviewDrivenTerminal({ state, iteration: { verifyStatus: 'passed' } as NonNullable<LoopState['lastIteration']>,
+    stageMachine: { readOutstanding } as unknown as LoopStageMachine,
+    terminal: { status: 'completed-needs-review', reason: 'A check was skipped.' },
+    capWrapUpActive: false, emit, terminate, pause: vi.fn(), handleAuditBlocked: async () => 'continue',
+    audit: async () => ({ status: 'needs-review', findings: [], ranAt: Date.now(), changedFiles: [],
+      coverage: { criteriaTotal: 0, criteriaVerified: 0, criteriaUnverified: 0, verifyCommandRan: true, repoComparisonRan: true, cleanlinessScanRan: true } }) });
+  expect(action).toBe('terminal');
+  expect(state.endEvidence).toMatchObject({ mergeHold: true, mergeHoldKind: 'final-audit-blocked' });
+  expect(terminate).toHaveBeenCalledWith('completed-needs-review', expect.any(String));
+});

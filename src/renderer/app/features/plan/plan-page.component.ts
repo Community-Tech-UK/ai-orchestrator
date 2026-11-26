@@ -89,6 +89,7 @@ interface PlanState {
                 <div class="plan-edit-area">
                   <textarea
                     class="plan-textarea"
+                    aria-label="Plan content"
                     [value]="editablePlanContent()"
                     placeholder="Plan content will appear here. Edit and update as needed."
                     (input)="onPlanContentInput($event)"

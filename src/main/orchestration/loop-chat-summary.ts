@@ -133,7 +133,16 @@ export function buildLoopIterationChatEvent(
 
 export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventInput {
   const last = state.lastIteration;
-  const end = describeLoopEnd({ status: state.status, endReason: state.endReason, roundsFinished: state.totalIterations, endedAt: state.endedAt, mergeHeld: state.endEvidence?.['mergeHold'] === true, branch: state.worktreeLifecycle?.sessionBranch ?? state.config.worktreeBranch });
+  const end = describeLoopEnd({
+    status: state.status,
+    endReason: state.endReason,
+    roundsFinished: state.totalIterations,
+    endedAt: state.endedAt,
+    mergeHeld: state.endEvidence?.['mergeHold'] === true,
+    mergeHoldKind: typeof state.endEvidence?.['mergeHoldKind'] === 'string'
+      ? state.endEvidence['mergeHoldKind'] : undefined,
+    branch: state.worktreeLifecycle?.sessionBranch ?? state.config.worktreeBranch,
+  });
   const content = [
     end.headline,
     end.sentence,

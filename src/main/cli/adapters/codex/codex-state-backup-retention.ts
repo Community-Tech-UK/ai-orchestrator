@@ -87,6 +87,17 @@ export function pruneAutoBackups(
   return { selected: selected.length, removed, failed };
 }
 
+/** Older reconcile copies for the disk-space card: all but the newest `keepNewest`, oldest first. */
+export function selectOldCopiesForCard(names: readonly string[], keepNewest = CODEX_AUTO_BACKUPS_KEEP): string[] {
+  const old = names.filter((name) => CODEX_RECONCILE_NAME.test(name)).sort(byAgeAscending);
+  return old.slice(0, Math.max(0, old.length - Math.max(0, keepNewest)));
+}
+
+/** Smaller clean-up and archive copies for the disk-space card. */
+export function selectOtherCopiesForCard(names: readonly string[]): string[] {
+  return names.filter((name) => CODEX_CLEANUP_NAME.test(name) || CODEX_ARCHIVE_NAME.test(name)).sort(byAgeAscending);
+}
+
 /**
  * `VACUUM INTO` copies of ~/.codex/state_5.sqlite written before the leaked-
  * thread cleanup and rollout-path reconcile change it. Each is ~160 MB and

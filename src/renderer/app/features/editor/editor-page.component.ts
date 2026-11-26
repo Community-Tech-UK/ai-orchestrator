@@ -165,6 +165,7 @@ function editorIcon(id: string): string {
               <input
                 class="input"
                 type="text"
+                aria-label="File path"
                 placeholder="File path…"
                 [value]="openFilePath()"
                 (input)="onFilePathInput($event)"
@@ -174,6 +175,7 @@ function editorIcon(id: string): string {
               <input
                 class="input input-sm"
                 type="number"
+                aria-label="Line number"
                 placeholder="Line (optional)"
                 [value]="openFileLine() ?? ''"
                 (input)="onLineInput($event)"

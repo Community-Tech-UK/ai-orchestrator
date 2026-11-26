@@ -7,6 +7,15 @@
   <p>At the next start, Harness removes older automatic Codex backups. Clean-up and archive backups stay.</p>
   @if (settings.error()) { <p role="alert">Harness could not save that setting. Try again.</p> }
   @if (store.error(); as error) { <p role="alert">{{ error }}</p> }
+  @if (store.result(); as result) {
+    @if (result.target === 'rtk-history') {
+      @if (result.stoppedEarly) {
+        <p role="alert">RTK history trim stopped early. Removed {{ result.removed.toLocaleString() }} {{ result.removed === 1 ? 'entry' : 'entries' }}. The database may be busy, and some older entries may remain. The file on disk keeps its size; RTK reuses freed pages. Review again to retry.</p>
+      } @else {
+        <p role="status">RTK history trim finished. Removed {{ result.removed.toLocaleString() }} {{ result.removed === 1 ? 'entry' : 'entries' }}. The file on disk keeps its size; RTK reuses freed pages.</p>
+      }
+    }
+  }
   @if (store.loading() && !store.usage()) { <p role="status">Measuring Harness's files…</p> }
   @if (store.usage(); as usage) {
     <p>Total: {{ bytes(usage.totalBytes ?? 0) }}.
@@ -23,7 +32,7 @@
         @if (row.diskReclaimableBytes) { <p>{{ bytes(row.diskReclaimableBytes) }} can then be handed back to the disk.</p> }
       </div>
       @if (row.target) {
-        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="row.reclaimableBytes === 0 ? tooltipCopy.noOldFiles : null" (click)="rememberReviewControl($event); store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
+        <div class="row-actions"><button type="button" [appTooltip]="reviewHint" [disabled]="store.busy()" [appTooltipDisabledReason]="row.target !== 'rtk-history' && row.reclaimableBytes === 0 ? tooltipCopy.noOldFiles : null" (click)="rememberReviewControl($event); store.review(row.target)">{{ row.target === 'event-record' ? 'Review and clear' : 'Review and clean up' }}</button>
           @if (row.shrinkAvailable) { <button type="button" [disabled]="store.busy()" (click)="rememberReviewControl($event); store.review('event-record-shrink')">Shrink now (frees about {{ bytes(row.diskReclaimableBytes ?? 0) }})</button> }
         </div>
       }
@@ -50,11 +59,11 @@
         <p>Data in use: {{ bytes(preview.liveBytes ?? 0) }}. Free disk space needed for a moment: {{ bytes(preview.requiredDiskBytes ?? 0) }}. Free now: {{ bytes(preview.availableDiskBytes ?? 0) }}.</p>
       }
       @if (preview.target !== 'event-record' && preview.items.length) {
-        <details><summary>{{ preview.target === 'rlm-backups' ? 'Backup copies to remove' : 'Exact files to remove' }} ({{ preview.items.length }})</summary><ul>
-          @for (item of preview.items; track $index) { <li>{{ item.name }} · {{ date(item.createdAt) }} · {{ bytes(item.bytes) }}</li> }
+        <details><summary>{{ preview.target === 'claude-attachments' ? 'Folders containing old copies' : preview.target === 'rlm-backups' ? 'Backup copies to remove' : 'Exact files to remove' }} ({{ preview.items.length }})</summary><ul>
+          @for (item of preview.items; track $index) { <li>{{ item.name }}@if (item.group) { · {{ item.group }} }@if (item.sessions !== undefined) { · {{ item.sessions }} sessions } · {{ date(item.createdAt) }} · {{ bytes(item.bytes) }}</li> }
         </ul></details>
       }
-      <footer><button #cancelButton data-cancel type="button" [disabled]="store.busy()" (click)="store.cancel()">{{ preview.target === 'event-record-shrink' ? 'Not now' : 'Keep them' }}</button>
+      <footer><button #cancelButton data-cancel type="button" [disabled]="store.busy()" (click)="store.cancel()">{{ cancelLabel(preview.target) }}</button>
         <button data-confirm type="button" class="danger" [disabled]="store.busy()" (click)="store.run()">{{ store.busy() ? 'Working…' : confirmLabel(preview.target) }}</button>
       </footer>
     </section>

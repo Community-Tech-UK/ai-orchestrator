@@ -78,7 +78,7 @@ interface ProviderInfo {
 
           <div class="form-row">
             <span class="form-label">Provider:</span>
-            <select [(ngModel)]="newKeyProvider" (ngModelChange)="onProviderChange($event)">
+            <select aria-label="Provider" [(ngModel)]="newKeyProvider" (ngModelChange)="onProviderChange($event)">
               <option value="">Select provider...</option>
               @for (provider of providers; track provider.id) {
                 <option [value]="provider.id">{{ provider.name }}</option>
@@ -90,6 +90,7 @@ interface ProviderInfo {
             <span class="form-label">Display Name:</span>
             <input
               type="text"
+              aria-label="Display Name"
               [(ngModel)]="newKeyName"
               [placeholder]="$safeNavigationMigration(getSelectedProvider()?.name) + ' API Key'"
             />
@@ -100,6 +101,7 @@ interface ProviderInfo {
             <div class="key-input-wrapper">
               <input
                 [type]="showNewKey() ? 'text' : 'password'"
+                aria-label="API Key"
                 [(ngModel)]="newKeyValue"
                 [placeholder]="getSelectedProvider()?.placeholder || 'Enter API key...'"
               />

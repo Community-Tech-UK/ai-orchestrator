@@ -160,8 +160,8 @@ describe('actual remote instance telemetry transport', () => {
     await remote.spawn();
   }
 
-  it.each([[false, 'foreground'], [true, 'foreground'], [false, 'background'], [true, 'background']] as const)
-  ('records one final subagent, offline=%s, kind=%s, with parent identity and no descriptions', async (offline, kind) => {
+  it.each([[false, 'foreground'], [true, 'foreground'], [false, 'background'], [true, 'background']] as const)(
+  'records one final subagent, offline=%s, kind=%s, with parent identity and no descriptions', async (offline, kind) => {
     await startClaude(kind);
     socketOpen = !offline;
     await remote.sendInput('Work');
@@ -236,6 +236,31 @@ describe('actual remote instance telemetry transport', () => {
     auth.allowed = true;
     connection.emit('rpc:notification', 'windows-pc', frame(sample));
     expect(records).toHaveLength(1);
+  });
+
+  it('relays native foreground/background helper summaries without shell jobs or model text', async () => {
+    await startClaude();
+    const running: number[] = [];
+    remote.on('native_helpers', summary => running.push(summary.running));
+    workerAdapter.sendInput = async () => {
+      observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_started', task_type: 'local_agent',
+        task_id: 'foreground', tool_use_id: 'foreground-tool', description: 'excluded model text' });
+      observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_started', task_type: 'local_agent',
+        task_id: 'background', tool_use_id: 'background-tool', is_backgrounded: true });
+      observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_started', task_type: 'local_bash', task_id: 'shell' });
+      flushClaudeSubagentUsage(workerAdapter);
+      observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_notification', task_id: 'background', status: 'stopped' });
+      workerAdapter.emit('complete', { content: 'OK' });
+    };
+    await remote.sendInput('Work');
+    notifier.flushCriticalQueue();
+    expect(running).toEqual([1, 2, 1, 0]);
+    const beforeReplay = [...running];
+    notifier.replayDurableEvents([{ instanceId: 'worker-instance', afterSeq: 0 }]);
+    expect(running).toEqual(beforeReplay);
+    expect(JSON.stringify(frames.filter(frame => frame.method === 'instance.telemetry'))).not.toContain('excluded model text');
+    await remote.terminate();
+    expect(workerAdapter.listenerCount('native_helpers')).toBe(0);
   });
 
   it.each(['terminate', 'exit', 'failed-spawn'] as const)('removes worker and controller telemetry listeners on %s', async ending => {

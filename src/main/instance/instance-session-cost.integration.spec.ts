@@ -13,6 +13,7 @@ vi.mock('../cli/adapters/claude-transcript-registry', () => ({ nativeTranscriptE
 vi.mock('../cli/adapters/base-cli-process-utils', () => ({ killProcessGroup: vi.fn() }));
 import { ClaudeCliAdapter } from '../cli/adapters/claude-cli-adapter';
 import { getCostTracker } from '../core/system/cost-tracker';
+import { childSpendTokens } from './child-result-usage';
 import { subscribeCostAttribution, type CostAttributionRecord } from '../core/system/cost-attribution';
 import { InstanceCommunicationManager } from './instance-communication';
 import { resolveIterationCost } from '../orchestration/loop-iteration-cost';
@@ -95,6 +96,17 @@ describe('Claude adapter → communication → real CostTracker', () => {
     expect(attributionRows).toHaveLength(3);
     expect(attributionRows.map(row => row.usage?.cost)).toEqual([0.5, 0.25, 0.25]);
     expect(attributionRows.every(row => row.costSource === 'provider')).toBe(true);
+  });
+
+  it('reports helper spend from the recorded ledger, never context occupancy (part 6a)', async () => {
+    const { adapter, emit, instance } = harness();
+    await adapter.spawn();
+    await adapter.sendInput('Helper work');
+    instance.contextUsage = { used: 180_000, total: 200_000, percentage: 90 };
+    emit({ type: 'result', subtype: 'success', total_cost_usd: 0.5, usage: { input_tokens: 30_000, output_tokens: 10_000 } });
+    await vi.waitFor(() => expect(getCostTracker().getEntries()).toHaveLength(1));
+    expect(childSpendTokens(instance)).toBe(40_000);
+    expect(childSpendTokens(instance)).not.toBe(180_000);
   });
 
   it('keeps the failed-turn settlement across later input and never completes that input from the old result', async () => {

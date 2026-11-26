@@ -228,6 +228,7 @@ export class ConsensusCoordinator extends EventEmitter {
         // Codex desktop surfaces persisted threads; consensus fan-out should stay hidden.
         ephemeral: cliType === 'codex',
         maxBudgetUsd: cliType === 'claude' ? 1 : undefined,
+        noSessionPersistence: cliType === 'claude' ? true : undefined,
         readOnlyReview: cliType === 'claude',
         yoloMode: false,
       };

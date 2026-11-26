@@ -8,7 +8,7 @@ import { OutcomeTracker } from '../learning/outcome-tracker';
 import { StrategyLearner } from '../learning/strategy-learner';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
-import { getChildAnnouncer } from '../orchestration/child-announcer';
+import { getChildAnnouncer, childSpendTokens } from '../orchestration/child-announcer';
 import { getModelRouter, applyProviderResolution, type RoutingDecision, type ModelRouter } from '../routing';
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
@@ -756,7 +756,7 @@ export class InstanceOrchestrationManager {
       conclusions: storedResult?.conclusions ?? [],
       errorClassification,
       duration: Date.now() - child.createdAt,
-      tokensUsed: child.totalTokensUsed,
+      tokensUsed: childSpendTokens(child),
       completedAt: Date.now(),
     };
   }
@@ -1072,7 +1072,7 @@ export class InstanceOrchestrationManager {
         modelUsed: 'unknown',
         workflowUsed: task?.name,
         toolsUsed: this.buildToolUsage(child),
-        tokensUsed: child?.totalTokensUsed || 0,
+        tokensUsed: childSpendTokens(child ?? childId) ?? 0,
         duration,
         success,
         completionScore: success ? 1 : 0,

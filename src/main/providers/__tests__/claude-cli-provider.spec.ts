@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { ClaudeCliProvider } from '../claude-cli-provider';
+import { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 class FakeAdapter extends EventEmitter {
@@ -77,5 +78,16 @@ describe('ClaudeCliProvider inline translation', () => {
     expect('on' in (provider as unknown as Record<string, unknown>)).toBe(false);
     adapter.emit('output', { id: 'm', type: 'assistant', content: 'x', timestamp: Date.now() });
     expect(envelopes.at(-1)!.event).toMatchObject({ kind: 'output', content: 'x' });
+  });
+});
+
+describe('ClaudeCliProvider one-shot policy forwarding', () => {
+  it.each([true, false, undefined])('preserves explicit persistence choice %s at adapter construction', async noSessionPersistence => {
+    vi.mocked(ClaudeCliAdapter).mockClear();
+    const provider = new ClaudeCliProvider({ type: 'claude-cli', name: 'fixture', enabled: true });
+    try {
+      await provider.initialize({ workingDirectory: '/tmp', noSessionPersistence, maxBudgetUsd: 0.25 });
+      expect(ClaudeCliAdapter).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ noSessionPersistence, maxBudgetUsd: 0.25 }));
+    } finally { await provider.terminate(); }
   });
 });

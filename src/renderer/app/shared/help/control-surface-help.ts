@@ -31,7 +31,6 @@ import {
   MEMORY_STATS_HELP,
   OBSERVATIONS_HELP,
   RLM_HELP,
-  TRAINING_HELP,
 } from './content/knowledge.help';
 import {
   EDITOR_HELP,
@@ -59,7 +58,6 @@ import {
 import {
   BROWSER_GATEWAY_HELP,
   CHANNELS_HELP,
-  COMMUNICATION_HELP,
   FILES_HELP,
   MCP_HELP,
   PLUGINS_HELP,
@@ -91,7 +89,6 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'worktrees': WORKTREES_HELP,
   'supervision': SUPERVISION_HELP,
   'rlm': RLM_HELP,
-  'training': TRAINING_HELP,
   'memory': MEMORY_BROWSER_HELP,
   'memory-stats': MEMORY_STATS_HELP,
   'debate': DEBATE_HELP,
@@ -119,7 +116,6 @@ export const CONTROL_SURFACE_HELP: Record<ControlSurfaceId, HelpEntry> = {
   'plugins': PLUGINS_HELP,
   'models': MODELS_HELP,
   'remote-config': REMOTE_CONFIG_HELP,
-  'communication': COMMUNICATION_HELP,
   'multi-edit': MULTI_EDIT_HELP,
   'editor': EDITOR_HELP,
   'archive': ARCHIVE_HELP,

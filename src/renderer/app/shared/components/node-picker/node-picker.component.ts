@@ -16,11 +16,12 @@ import { isRemoteNodeOnline } from '../../../core/state/remote-node-connectivity
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { RemoteNodeRosterEntry } from '../../../../../shared/types/worker-node.types';
 import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
+import { BackdropEscapeDirective } from '../../backdrop-escape.directive';
 
 @Component({
   standalone: true,
   selector: 'app-node-picker',
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, BackdropEscapeDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     '[class.picker-open]': 'isOpen()',
@@ -85,7 +86,10 @@ import { formatRemoteNodePlatformLabel } from '../../remote-node-display';
           <button
             type="button"
             class="node-picker-backdrop"
-            data-ui-hints-exempt="backdrop"
+            tabindex="-1"
+            aria-hidden="true"
+            appBackdropEscape
+            (appBackdropEscape)="isOpen.set(false)"
             aria-label="Close computer picker"
             (click)="isOpen.set(false)"
           ></button>

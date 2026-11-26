@@ -87,7 +87,7 @@ export interface LifecycleDependencies {
   endRlmSession: (instanceId: string) => void;
   ingestInitialOutputToRlm: (instance: Instance, messages: OutputMessage[]) => Promise<void>;
   buildObservationContext: (taskContext: string, instanceId?: string, taskType?: string) => Promise<string | null>;
-  buildWakeContextText: (wing?: string) => Promise<string | null>;
+  buildWakeContextText: (wing?: string, recordUsage?: boolean) => Promise<string | null>;
   buildMcpRuntimeToolContextSelection: (
     snapshot: MCPToolSearchSnapshot,
     query?: string,

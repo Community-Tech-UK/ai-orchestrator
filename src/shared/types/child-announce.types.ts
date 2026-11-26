@@ -22,8 +22,12 @@ export interface ChildAnnouncement {
   errorClassification?: ChildErrorClassification;
   /** Duration in ms */
   duration: number;
-  /** Tokens consumed */
-  tokensUsed: number;
+  /**
+   * Recorded token spend, when the adapter measured one. `undefined` means
+   * "not measured" (Claude reports occupancy, not spend) — the announcement
+   * prints that phrase instead of a misleading number (part 6a).
+   */
+  tokensUsed?: number;
   /** Timestamp of completion */
   completedAt: number;
 }

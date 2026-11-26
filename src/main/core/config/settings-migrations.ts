@@ -10,7 +10,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_REVIEWER_MODEL_BY_PROVIDER } from '../../../shared/types/settings.types';
 import {
@@ -39,10 +38,6 @@ import { migrateCodexBackupRetention } from '../../cli/adapters/codex/codex-back
 
 const logger = getLogger('SettingsMigrations');
 
-/**
- * Legacy app name for migration purposes
- */
-const LEGACY_APP_NAME = 'claude-orchestrator';
 const CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY =
   '__migration_codebase_auto_index_disabled_20260527';
 const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
@@ -187,18 +182,6 @@ function migrateReviewerModelDefaults(store: SettingsMigrationStore): void {
   }
 
   store.persistRawSetting(REVIEWER_MODEL_DEFAULTS_MIGRATION_KEY, true);
-}
-
-/**
- * Claude steering should abort the turn through the resident stream protocol,
- * not SIGINT + respawn. The setting is read-only, so old persisted `false`
- * values are stale rollout state rather than user intent.
- */
-function migrateResidentClaudeDefault(store: SettingsMigrationStore): void {
-  if (store.get('residentClaudeSession') !== true) {
-    logger.info('Enabling resident Claude sessions for no-respawn steering');
-    store.persistSetting('residentClaudeSession', true);
-  }
 }
 
 /**
@@ -579,8 +562,6 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // other reviewers had explicit models, so they'd stay on CLI-default "auto"
   // and keep inheriting whatever model the upstream CLI promotes.
   migrateReviewerModelDefaults(store);
-  // Existing installs may have persisted the pre-redesign Claude steer path.
-  migrateResidentClaudeDefault(store);
   // Existing installs may have persisted the old 15s auxiliary slot timeouts,
   // which are too short for a cold local-model load.
   migrateAuxiliarySlotTimeouts(store);
@@ -635,64 +616,4 @@ export function runSettingsMigrations(store: SettingsMigrationStore): void {
   // Sets the own-chat context ceiling only where a passing recall check is compiled into the app. None is today,
   // so this is a strict no-op: it reads one marker and writes nothing (rule and reasons in the module).
   migrateOwnChatContextCeiling(store);
-}
-
-/**
- * Migrate settings from legacy "claude-orchestrator" to "ai-orchestrator"
- * This runs once on first launch after the rename. Runs BEFORE the
- * electron-store is created so the copied settings file is picked up.
- */
-export function migrateFromLegacyApp(): void {
-  try {
-    const currentUserData = app.getPath('userData');
-    const legacyUserData = currentUserData.replace(/ai-orchestrator$/i, LEGACY_APP_NAME);
-
-    // Skip if already migrated or no legacy data exists
-    if (currentUserData === legacyUserData) return;
-    if (!fs.existsSync(legacyUserData)) return;
-
-    // Check if migration already done (current settings exist)
-    const currentSettingsPath = path.join(currentUserData, 'settings.json');
-    if (fs.existsSync(currentSettingsPath)) return;
-
-    // Ensure current user data directory exists
-    if (!fs.existsSync(currentUserData)) {
-      fs.mkdirSync(currentUserData, { recursive: true });
-    }
-
-    // Migrate settings file
-    const legacySettingsPath = path.join(legacyUserData, 'settings.json');
-    if (fs.existsSync(legacySettingsPath)) {
-      fs.copyFileSync(legacySettingsPath, currentSettingsPath);
-      logger.info('Migrated settings from legacy app');
-    }
-
-    // Migrate recent directories
-    const legacyRecentDirs = path.join(legacyUserData, 'recent-directories.json');
-    const currentRecentDirs = path.join(currentUserData, 'recent-directories.json');
-    if (fs.existsSync(legacyRecentDirs) && !fs.existsSync(currentRecentDirs)) {
-      fs.copyFileSync(legacyRecentDirs, currentRecentDirs);
-      logger.info('Migrated recent directories from legacy app');
-    }
-
-    // Migrate history database
-    const legacyHistory = path.join(legacyUserData, 'history.db');
-    const currentHistory = path.join(currentUserData, 'history.db');
-    if (fs.existsSync(legacyHistory) && !fs.existsSync(currentHistory)) {
-      fs.copyFileSync(legacyHistory, currentHistory);
-      logger.info('Migrated history database from legacy app');
-    }
-
-    // Migrate RLM database
-    const legacyRlm = path.join(legacyUserData, 'rlm.db');
-    const currentRlm = path.join(currentUserData, 'rlm.db');
-    if (fs.existsSync(legacyRlm) && !fs.existsSync(currentRlm)) {
-      fs.copyFileSync(legacyRlm, currentRlm);
-      logger.info('Migrated RLM database from legacy app');
-    }
-
-    logger.info('Migration from claude-orchestrator complete');
-  } catch (error) {
-    logger.warn('Migration failed (non-critical)', { error: String(error) });
-  }
 }

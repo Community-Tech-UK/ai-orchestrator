@@ -54,7 +54,7 @@ import { initializeInstanceCrashTurnContinuation } from '../instance/instance-cr
 import { initializeInstanceReasoningCollapseContinuation } from '../instance/instance-reasoning-collapse-continuation';
 import { getCrossSessionMessagingService } from '../instance/cross-session-messaging';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
-import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
+import { sessionHostsActiveLoop } from '../orchestration/session-hosts-active-loop';
 import { createLateRuntimeInitializationSteps } from './late-runtime-initialization-steps';
 import type { StatelessExecProviderPredicate } from './stateless-exec-provider';
 import { startLeftoverProcessSweeper } from '../process/leftover-process-sweeper-wiring';
@@ -134,9 +134,7 @@ export function createAnnounceThenHaltContinuationInitializationStep(
     fn: () => {
       initialize(
         instanceManager,
-        (instanceId) => getActiveLoops().some(
-          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
-        ),
+        (instanceId) => sessionHostsActiveLoop(instanceId, getActiveLoops),
       );
     },
   };
@@ -155,9 +153,7 @@ export function createReasoningCollapseContinuationInitializationStep(
     fn: () => {
       initialize(
         instanceManager,
-        (instanceId) => getActiveLoops().some(
-          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
-        ),
+        (instanceId) => sessionHostsActiveLoop(instanceId, getActiveLoops),
       );
     },
   };
@@ -176,9 +172,7 @@ export function createCrashTurnContinuationInitializationStep(
     fn: () => {
       initialize(
         instanceManager,
-        (instanceId) => getActiveLoops().some(
-          (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
-        ),
+        (instanceId) => sessionHostsActiveLoop(instanceId, getActiveLoops),
       );
     },
   };
@@ -193,9 +187,7 @@ export function createContinuationRuntimeInitializationStep(
   return {
     name: 'Provider turn-ending continuation',
     fn: () => {
-      initialize(instanceManager, (instanceId) => getActiveLoops().some(
-        (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
-      ), undefined, createSessionWatcherExternals(
+      initialize(instanceManager, (instanceId) => sessionHostsActiveLoop(instanceId, getActiveLoops), undefined, createSessionWatcherExternals(
         (instanceId) => instanceManager.getOrchestrationHandler().getPendingUserActionsForInstance(instanceId),
       ));
     },

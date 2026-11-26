@@ -183,6 +183,10 @@ function getRtkDataDir(): string {
  * savings panel always read empty against a modern rtk that writes `history.db`.)
  */
 export function getRtkTrackingDbPath(): string {
+  // RTK itself honours RTK_DB_PATH over its data-dir default; follow the same
+  // precedence so Harness reads the file RTK is actually writing.
+  const override = process.env['RTK_DB_PATH'];
+  if (override !== undefined && override.length > 0) return override;
   const dir = getRtkDataDir();
   const current = path.join(dir, 'history.db');
   const legacy = path.join(dir, 'tracking.db');

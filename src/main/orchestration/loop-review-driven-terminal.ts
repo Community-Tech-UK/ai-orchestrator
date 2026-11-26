@@ -2,8 +2,10 @@ import { createLoopPendingInput, type LoopFinalAuditResult, type LoopIteration, 
 import type { LoopStageMachine } from './loop-stage-machine';
 import { buildFinalAuditIntervention, runLoopFinalAudit } from './loop-audit-runtime';
 import { decideFinishOutcome, stageFinishEvidence, type ReviewDrivenTerminal, type FinishCheck } from './loop-finish-phase';
+import { stageMergeHold } from './loop-merge-hold';
 import { isParkedLoopRuntimeState, isTerminalLoopRuntimeState } from './loop-runtime-status';
 import { applyOutstandingCompletionGate } from './loop-outstanding-completion';
+import { applyReviewDrivenCompletionNotes } from './loop-plan-rename-check';
 
 export async function applyReviewDrivenTerminal(ctx: {
   state: LoopState; iteration: LoopIteration; stageMachine: LoopStageMachine;
@@ -38,11 +40,12 @@ export async function applyReviewDrivenTerminal(ctx: {
     terminal = { status: outcome.kind === 'completed-with-notes' ? 'completed-needs-review' : outcome.kind, reason: outcome.reason, checks };
   } else {
     if (state.config.audit.finalAuditMode === 'gate' && audit.status === 'failed') return ctx.handleAuditBlocked(audit);
-    if (terminal.status === 'completed' && state.config.audit.finalAuditMode === 'gate' && audit.status === 'needs-review') {
-      terminal = { status: 'completed-needs-review', reason: 'Final audit requires operator review before this loop can be considered cleanly complete.' };
+    if ((terminal.status === 'completed' || terminal.status === 'completed-needs-review') && state.config.audit.finalAuditMode === 'gate' && audit.status === 'needs-review') {
+      if (terminal.status === 'completed') terminal = { status: 'completed-needs-review', reason: 'Final audit requires operator review before this loop can be considered cleanly complete.' };
+      stageMergeHold(state, 'final-audit-blocked');
     }
   }
-  terminal = await applyOutstandingCompletionGate(terminal, ctx.stageMachine);
+  terminal = await applyOutstandingCompletionGate(applyReviewDrivenCompletionNotes(state, terminal), ctx.stageMachine);
   if (isTerminalLoopRuntimeState(state)) return 'terminal';
   if (isParkedLoopRuntimeState(state)) return 'continue';
   if (terminal.status === 'needs-sign-off') {
@@ -58,9 +61,8 @@ export async function applyReviewDrivenTerminal(ctx: {
       reason += `\nNothing was merged because a check was skipped. Merge it when you have looked (branch ${state.worktreeLifecycle?.sessionBranch ?? state.config.worktreeBranch ?? 'kept by Harness'}).`;
     }
   }
-  if (state.followUps?.length) reason += `\nFollow-ups:\n${state.followUps.join('\n')}`;
   ctx.emit(terminal.status === 'completed' ? 'loop:completed' : 'loop:completed-needs-review', {
-    loopRunId: state.id, signal: 'self-declared', verifyOutput: '', reason, acceptedByOperator: false,
+    loopRunId: state.id, signal: 'self-declared', verifyOutput: iteration.verifyOutputExcerpt ?? '', reason, acceptedByOperator: false,
   });
   ctx.terminate(terminal.status, reason);
   return 'terminal';

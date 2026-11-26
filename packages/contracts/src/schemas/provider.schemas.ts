@@ -231,67 +231,6 @@ export const CliVerificationCancelPayloadSchema = z.object({
   id: z.string().min(1).max(200),
 });
 
-// ============ Training Payloads ============
-
-export const TrainingGetStrategiesPayloadSchema = z.object({
-  limit: z.number().int().min(1).max(1000).optional(),
-}).strict().optional();
-
-export const TrainingEmptyPayloadSchema = z.undefined().optional();
-
-export const TrainingConfigPayloadSchema = z.object({
-  groupSize: z.number().int().min(1).max(1_000).optional(),
-  learningRate: z.number().positive().max(1).optional(),
-  clipEpsilon: z.number().min(0).max(1).optional(),
-  entropyCoef: z.number().min(0).max(1).optional(),
-  valueCoef: z.number().min(0).max(10).optional(),
-  minSamplesForTraining: z.number().int().min(1).max(1_000_000).optional(),
-  maxBatchHistory: z.number().int().min(1).max(1_000_000).optional(),
-}).strict();
-
-export const TrainingUpdateConfigPayloadSchema = z.object({
-  config: TrainingConfigPayloadSchema,
-}).strict();
-
-const TrainingOutcomeInputSchema = z.object({
-  taskId: z.string().min(1).max(500),
-  prompt: z.string().max(500_000),
-  response: z.string().max(5_000_000),
-  reward: z.number().min(0).max(1),
-  strategy: z.string().max(500).optional(),
-  context: z.string().max(1_000_000).optional(),
-}).strict();
-
-export const TrainingRecordOutcomePayloadSchema = TrainingOutcomeInputSchema;
-
-const StoredTrainingOutcomeSchema = TrainingOutcomeInputSchema.extend({
-  timestamp: z.number().int().nonnegative(),
-}).strict();
-
-const TrainingBatchSchema = z.object({
-  prompts: z.array(z.string().max(500_000)).max(100_000),
-  responses: z.array(z.string().max(5_000_000)).max(100_000),
-  rewards: z.array(z.number().finite()).max(100_000),
-  advantages: z.array(z.number().finite()).max(100_000),
-  taskIds: z.array(z.string().min(1).max(500)).max(100_000),
-  timestamp: z.number().int().nonnegative(),
-}).strict();
-
-export const TrainingImportDataPayloadSchema = z.object({
-  outcomes: z.array(StoredTrainingOutcomeSchema).max(1_000_000),
-  batches: z.array(TrainingBatchSchema).max(1_000_000),
-}).strict();
-
-export const TrainingTopStrategiesPayloadSchema = z.number().int().min(1).max(1_000).optional();
-
-export const TrainingDashboardListPayloadSchema = z.object({
-  limit: z.number().int().min(1).max(1_000).optional(),
-}).strict().optional();
-
-export const TrainingInsightIdPayloadSchema = z.object({
-  insightId: z.string().min(1).max(500),
-}).strict();
-
 // ============ Skill Payloads ============
 
 export const SkillsDiscoverPayloadSchema = z.object({

@@ -332,43 +332,6 @@ export function createCommunicationDomain(
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.REMOTE_FS_SYNC_DIFF, payload),
 
-    // =====================================    // Cross-Instance Communication
-    // =====================================
-    commCreateBridge: (payload: {
-      name: string;
-      sourceInstanceId: string;
-      targetInstanceId: string;
-    }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_CREATE_BRIDGE, payload),
-
-    commDeleteBridge: (payload: { bridgeId: string }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_DELETE_BRIDGE, payload),
-
-    commGetBridges: (): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_GET_BRIDGES),
-
-    commSendMessage: (payload: {
-      bridgeId: string;
-      fromInstanceId: string;
-      content: string;
-      metadata?: Record<string, unknown>;
-    }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_SEND_MESSAGE, payload),
-
-    commGetMessages: (payload: {
-      bridgeId: string;
-      limit?: number;
-    }): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_GET_MESSAGES, payload),
-
-    commSubscribe: (payload: {
-      instanceId: string;
-      bridgeId: string;
-    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.COMM_SUBSCRIBE, payload),
-
-    commRequestToken: (): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.COMM_REQUEST_TOKEN),
-
     // =====================================    // Channels (Discord/WhatsApp)
     // =====================================
     channelConnect: (payload: {

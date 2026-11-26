@@ -24,6 +24,8 @@ export function workboardSpecialistTarget(kind: WorkboardSourceKind): WorkboardS
     case 'loop-run':
     case 'instance':
       return { label: 'Open full session', route: '/' };
+    case 'memory-review':
+      return { label: 'Open in Memory review', route: '/memory-review' };
   }
 }
 

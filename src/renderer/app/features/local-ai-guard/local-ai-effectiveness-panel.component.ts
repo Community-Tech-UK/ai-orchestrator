@@ -10,6 +10,8 @@ import type {
   LocalAiEffectivenessSummary,
 } from '../../../../shared/types/local-ai-guard.types';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { formatMoneyExact, formatMoneyPlain } from '../../shared/utils/format-money';
 
@@ -23,13 +25,10 @@ interface EffectivenessBreakdownEntry {
   unknownEndpoint: boolean;
 }
 
-function formatLocalAiUsd(value: number): string {
-  return formatMoneyPlain(value);
-}
-
 @Component({
   selector: 'app-local-ai-effectiveness-panel',
   standalone: true,
+  imports: [AioTooltipDirective],
   templateUrl: './local-ai-effectiveness-panel.component.html',
   styleUrl: './local-ai-effectiveness-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,6 +38,18 @@ export class LocalAiEffectivenessPanelComponent implements OnInit {
   protected readonly clipboard = inject(CLIPBOARD_SERVICE);
   protected readonly formatExactUsd = formatMoneyExact;
   protected readonly breakdown = signal<EffectivenessBreakdown>('target');
+
+  protected readonly summaryWithCosts = computed(() => {
+    const summary = this.store.effectiveness();
+    if (!summary) return null;
+    const exact = copyFor('cost.exactAmount');
+    return {
+      ...summary,
+      knownCostHint: exact + formatMoneyExact(summary.knownCostUsd),
+      estimatedCostHint: exact + formatMoneyExact(summary.estimatedCostUsd),
+      avoidedCostHint: exact + formatMoneyExact(summary.avoidedEstimatedCostUsd),
+    };
+  });
 
   protected readonly eligibleTasks = computed(() => {
     const summary = this.store.effectiveness();
@@ -106,7 +117,7 @@ export class LocalAiEffectivenessPanelComponent implements OnInit {
   }
 
   protected formatUsd(value: number): string {
-    return formatLocalAiUsd(value);
+    return formatMoneyPlain(value);
   }
 
   private breakdownSource(

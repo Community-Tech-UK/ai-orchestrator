@@ -130,7 +130,10 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // 2026-11-14: 163 after logging/prompt-injection-log.ts joined the graph through rlm/llm-service.ts. It is
 // the sole addition to the 162-module walk above, imports only the logger (already in the closure), and the
 // Electron check below still finds no Electron value-importer. Same one-module margin.
-const CLOSURE_SIZE_CEILING = 164;
+// 2026-11-26: 164 after October follow-ups part 7b's wake-hint showing history
+// (rlm-wake-hint-history, through rlm-schema) joined the graph on merging main.
+// No Electron value-importers. Same one-module margin.
+const CLOSURE_SIZE_CEILING = 165;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

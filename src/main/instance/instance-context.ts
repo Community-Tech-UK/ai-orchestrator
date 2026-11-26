@@ -574,8 +574,8 @@ export class InstanceContextManager implements InstanceContextPort {
     }
   }
 
-  async buildWakeContextText(wing?: string): Promise<string | null> {
-    return getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true }) || null;
+  async buildWakeContextText(wing?: string, recordUsage = true): Promise<string | null> {
+    return getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true, recordUsage }) || null;
   }
 
   async buildObservationContext(
@@ -658,11 +658,12 @@ export class InstanceContextManager implements InstanceContextPort {
           sectionType = 'conversation';
           sectionName = `Assistant response at ${new Date(message.timestamp).toISOString()}`;
           break;
-        case 'tool_use':
+        case 'tool_use': {
           sectionType = 'tool_output';
           const toolName = message.metadata?.['name'] || 'unknown';
           sectionName = `Tool use: ${toolName}`;
           break;
+        }
         case 'tool_result':
           sectionType = 'tool_output';
           sectionName = `Tool result at ${new Date(message.timestamp).toISOString()}`;

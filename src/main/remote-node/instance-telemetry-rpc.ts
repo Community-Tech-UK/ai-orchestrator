@@ -60,6 +60,10 @@ export const InstanceTelemetrySchema = z.discriminatedUnion('event', [
       final: z.boolean(),
     }).strict(),
   }).strict(),
+  z.object({
+    event: z.literal('native_helpers'),
+    payload: z.object({ running: z.number().int().nonnegative().max(10_000) }).strict(),
+  }).strict(),
 ]);
 
 export const InstanceTelemetryParamsSchema = z.object({

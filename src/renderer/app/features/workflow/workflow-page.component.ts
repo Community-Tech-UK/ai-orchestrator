@@ -139,6 +139,7 @@ interface GateAction {
             @if (execution(); as exec) {
               <textarea
                 class="textarea"
+                aria-label="Phase data JSON"
                 placeholder='Optional phaseData JSON, e.g. {"answer":"done"}'
                 [value]="phaseDataJson()"
                 (input)="onPhaseDataInput($event)"

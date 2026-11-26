@@ -1358,13 +1358,15 @@
     "id": "94f232c765218c9a",
     "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
     "text": "Build a fresh starting-notes preview for the chosen project.",
-    "why": "long"
+    "why": "long",
+    "retired": "Part 7b reworded the Rebuild tooltip: it previews the current starting notes without counting another session"
   },
   {
     "id": "ae33cd3188192c68",
     "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
     "text": "Included in a session's starting notes. Notes shown often and never useful are good ones to remove.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Part 7b reworded the Shown tooltip: it counts real session starts, and unused notes are suggested for removal separately"
   },
   {
     "id": "aeeae52562688b0e",
@@ -1490,13 +1492,15 @@
     "id": "612f5adde9fe8ece",
     "owner": "src/renderer/app/features/training/grpo-dashboard.component.ts",
     "text": "Close insight detail",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Training Data and its unused insight detail were removed under follow-ups part 5h; no insight dialog remains to dismiss."
   },
   {
     "id": "9d3a59bec33d2f3f",
     "owner": "src/renderer/app/features/training/grpo-dashboard.component.ts",
     "text": "Close outcome detail",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Training Data and its unused outcome detail were removed under follow-ups part 5h; no outcome dialog remains to dismiss."
   },
   {
     "id": "9b7a8529531f161e",
@@ -1987,7 +1991,8 @@
     "id": "6bf8c462886b6b1a",
     "owner": "src/renderer/app/features/communication/communication-page.component.ts",
     "text": "Enter the sending session ID first",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Instance Messaging and its page were removed under follow-ups part 5h; no session ID field remains to fill."
   },
   {
     "id": "b07aad8063f17715",
@@ -3084,6 +3089,49 @@
     "id": "675b3b862e0abfac",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-parked-list.component.ts",
     "text": "Answer the question about this ticket first.",
+    "why": "long"
+  },
+  {
+    "id": "08e17231931b12e4",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Gemini chats in Harness cannot take attachments yet",
+    "why": "consequence"
+  },
+  {
+    "id": "3e44903eb5e058ff",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Antigravity chats in Harness cannot take attachments yet",
+    "why": "consequence"
+  },
+  {
+    "id": "ae7a950b53e915e1",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Local-model chats in Harness cannot take attachments yet",
+    "why": "consequence"
+  },
+  {
+    "id": "c01551d837beabf0",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Helper agents the AI started inside this session. They are not separate sessions.",
+    "why": "long",
+    "retired": "Copy moved to the session status strip in October follow-ups part 7c; wording kept in TOOLTIP_COPY strip.helperAgents and pinned verbatim by the helper-agents descriptor spec"
+  },
+  {
+    "id": "780d29dc566c6713",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "How many session starts included this note. Rebuilds and compaction recovery do not add to the count.",
+    "why": "long"
+  },
+  {
+    "id": "3f1da65c3c768608",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Review notes with no showing in 60 fully tracked days, or a changed source after at least 10 showings in 30 days. Suggestions never remove notes.",
+    "why": "consequence"
+  },
+  {
+    "id": "cabbcddb27113f89",
+    "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
+    "text": "Preview the current starting notes without counting another session.",
     "why": "long"
   }
 ]

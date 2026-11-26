@@ -209,6 +209,18 @@ describe('InstanceHeaderComponent', () => {
     expect(remote.querySelector('.node-badge')).not.toBeNull();
   });
 
+  it('skips the invisible Open-menu backdrop and closes with Escape from a menu item', () => {
+    render(instance('claude'));
+    fixture.componentInstance.isLoadingEditors.set(true);
+    fixture.componentInstance.showOpenMenu.set(true);
+    fixture.detectChanges();
+    const backdrop = fixture.nativeElement.querySelector('.open-menu-backdrop') as HTMLButtonElement;
+    expect(backdrop.tabIndex).toBe(-1);
+    expect(backdrop.getAttribute('aria-hidden')).toBe('true');
+    fixture.nativeElement.querySelector('.open-menu-item:not(:disabled)').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(fixture.componentInstance.showOpenMenu()).toBe(false);
+  });
+
   it('opens session help from the header action cluster', () => {
     render(instance('codex'));
     const button = fixture.nativeElement.querySelector('.header-actions app-help-link button') as HTMLButtonElement;

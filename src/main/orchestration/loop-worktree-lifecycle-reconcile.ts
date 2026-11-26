@@ -13,11 +13,13 @@ import { listActivePlanDocuments } from '../workspace/git/active-plan-documents'
 import { LOOP_DIRTY_ROOT_POLICY } from '../workspace/git/loop-landing-policy';
 import { ACTIVE_PLAN_DOCUMENTS_BLOCK_REASON, holdsMergeForReview } from './loop-worktree-lifecycle';
 import { removeOrphanWorktree } from './loop-worktree-reconcile';
+import { isWorktreeClean } from './loop-worktree-clean-check';
 
 const logger = getLogger('LoopWorktreeLifecycleReconcile');
 
 const SESSION_BRANCH_CHANGED_BLOCK_REASON =
   'Session branch changed outside Harness; review it before landing';
+const UNSAVED_WORK_BLOCK_REASON = 'Work folder has unsaved changes; left in place';
 
 export interface PendingManagedWorktreeLifecycle {
   id: string;
@@ -134,6 +136,9 @@ export async function reconcileManagedWorktreeLifecycles(
     };
 
     try {
+      const preserveBranch = !isSuccessfulStatus(row.status)
+        || !row.autoIntegrateWorktree
+        || holdsMergeForReview(row.status, row.endEvidence);
       if (lifecycle.managedByAio !== true) {
         transition('blocked', {
           lastError: 'Managed worktree ownership could not be verified',
@@ -176,6 +181,11 @@ export async function reconcileManagedWorktreeLifecycles(
           continue;
         }
         if (dirty) {
+          if (preserveBranch) {
+            transition('blocked', { lastError: UNSAVED_WORK_BLOCK_REASON });
+            blocked++;
+            continue;
+          }
           transition('harvesting', { lastError: undefined });
           await getGitWriteQueue().enqueue('boot-harvest', async () => {
             await gitExec(['add', '-A'], row.worktreePath!);
@@ -255,7 +265,12 @@ export async function reconcileManagedWorktreeLifecycles(
         }
       }
 
-      if (!isSuccessfulStatus(row.status) || !row.autoIntegrateWorktree || holdsMergeForReview(row.status, row.endEvidence)) {
+      if (preserveBranch) {
+        if (worktreeExists && row.worktreePath && !(await isWorktreeClean(row.worktreePath))) {
+          transition('blocked', { lastError: UNSAVED_WORK_BLOCK_REASON });
+          blocked++;
+          continue;
+        }
         transition('preserved', { lastError: undefined });
         if (worktreeExists && row.worktreePath) {
           if (!(await removeOrphanWorktree(

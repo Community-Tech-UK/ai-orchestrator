@@ -61,6 +61,11 @@ describe('SETTING_SURFACING', () => {
   );
   const entries = Object.entries(SETTING_SURFACING) as [string, SettingSurfacing][];
 
+  it('withholds the inert token-spend trigger without deleting its saved-value contract', () => {
+    expect(SETTING_SURFACING.cumulativeTokenCompactionTrigger).toBe('hidden');
+    expect(SETTINGS_METADATA.find((m) => m.key === 'cumulativeTokenCompactionTrigger')?.hidden).toBe(true);
+  });
+
   it('classifies every key with one of the four values', () => {
     const allowed = new Set(['tab', 'bespoke', 'hidden', 'internal']);
     const bad = entries.filter(([, v]) => !allowed.has(v));

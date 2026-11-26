@@ -102,6 +102,19 @@ describe('buildLoopInterveneChatEvent', () => {
 });
 
 describe('buildLoopTerminalChatSummary', () => {
+  it.each([
+    ['stalled', 'the loop stalled'],
+    ['final-audit-blocked', 'final check needs your sign-off'],
+    ['verified-no-change', 'no production changes'],
+  ])('preserves the %s reason in the chat recap', (mergeHoldKind, expected) => {
+    const summary = buildLoopTerminalChatSummary(makeState({
+      status: 'completed-needs-review',
+      endEvidence: { mergeHold: true, mergeHoldKind },
+    }));
+    expect(summary.content).toContain(expected);
+    expect(summary.content).not.toContain('because a check was skipped');
+  });
+
   it('identifies unrecorded usage on a failed attempt without a completed iteration', () => {
     const state = makeState({
       status: 'completed-needs-review',

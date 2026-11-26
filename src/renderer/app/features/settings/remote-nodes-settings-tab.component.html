@@ -71,12 +71,13 @@
         <div class="connection-card">
           <div class="card-row">
             <div class="card-info">
-              <span class="card-name">Let your other computers connect</span>
+              <span class="card-name" id="remote-node-server-enabled-label">Let your other computers connect</span>
             </div>
             <label class="toggle-label">
               <input
                 type="checkbox"
                 class="toggle-input"
+                aria-labelledby="remote-node-server-enabled-label"
                 [checked]="store.remoteNodesEnabled()"
                 (change)="toggleEnabled()"
               />
@@ -533,7 +534,7 @@
     >
       @if (!customTokenMode()) {
         <div class="token-row">
-          <input
+          <input aria-label="Custom token"
             [type]="tokenRevealed() ? 'text' : 'password'"
             class="field-input token-input mono"
             [value]="store.remoteNodesEnrollmentToken() || '(not set)'"

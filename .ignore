@@ -1,0 +1,2 @@
+# Retired documents remain readable by path; skip them in default text searches.
+docs/_archive/

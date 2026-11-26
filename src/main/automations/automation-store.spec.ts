@@ -17,7 +17,7 @@ import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
  * reading `run`/`reason`, so this is a type-only shape used to access those
  * fields without re-exporting the private union type from the source module.
  */
-type FireDecisionLike = { kind: string; reason?: string; run?: AutomationRun };
+interface FireDecisionLike { kind: string; reason?: string; run?: AutomationRun }
 
 function asDecision(decision: { kind: string }): FireDecisionLike {
   return decision as FireDecisionLike;
@@ -558,6 +558,35 @@ describe('AutomationStore', () => {
       expect(attached?.loopRunId).toBe('loop-run-42');
       expect(attached?.configSnapshot?.action.loop?.verifyCommand).toBe('npm test');
       expect(store.getRun(runId)?.loopRunId).toBe('loop-run-42');
+    });
+
+    it.each(['get', 'list'] as const)('%s counts a paused loop run as unread', async (read) => {
+      const { automationId, runId } = await startRunningRun();
+      store.attachLoopRun(runId, 'loop-run-42', 3_000);
+      store.terminalizeRun(runId, 'needs-attention', 'Loop paused for sign-off', undefined, 4_000);
+
+      const automation = read === 'get'
+        ? await store.get(automationId)
+        : (await store.list()).find(item => item.id === automationId);
+
+      expect(automation?.unreadRunCount).toBe(1);
+      expect(store.getRun(runId)).toMatchObject({ status: 'needs-attention', seenAt: null });
+    });
+
+    it('markSeen all durably clears a paused loop run while leaving a later run unseen', async () => {
+      const { automationId, runId } = await startRunningRun();
+      store.attachLoopRun(runId, 'loop-run-42', 3_000);
+      store.terminalizeRun(runId, 'needs-attention', 'Loop paused for sign-off', undefined, 4_000);
+      const next = store.decideAndInsertRun(await store.get(automationId), 'manual', 5_000, 5_000);
+      expect(next.kind).toBe('started');
+      if (next.kind !== 'started') throw new Error(`expected started, got ${next.kind}`);
+
+      store.markSeen({ all: true }, 6_000);
+
+      expect(store.getRun(runId)?.seenAt).toBe(6_000);
+      expect((await store.get(automationId))?.unreadRunCount).toBe(0);
+      expect((await store.list()).find(item => item.id === automationId)?.unreadRunCount).toBe(0);
+      expect(store.getRun(next.run.id)?.seenAt).toBeNull();
     });
 
     it('failRunningRuns skips loop-linked runs (loops recover across restarts) and lists them for re-tracking', async () => {

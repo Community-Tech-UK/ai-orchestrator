@@ -8,6 +8,7 @@ import { avoidWordReports } from './glossary-report';
 import { AVOID_WORD_PATTERNS } from '../../src/shared/glossary/glossary';
 import { EXEMPT_REASONS, normalizePath } from './types';
 import { RULE_CATALOGUE } from './rules';
+import { initialOpaqueInventory } from './git-opaque-inventory';
 
 export interface CliResult { exitCode: number; output: string }
 export function parseArgs(args: string[]): Record<string, string[]> {
@@ -61,6 +62,8 @@ export function runCheck(args: string[]): CliResult {
     const analysis = analyze(root);
     const integrity = analysis.violations.filter(violation => violation.code === 'H12');
     if (integrity.length) throw new Error(integrity.map(violation => `H12 ${violation.file}:${violation.line} ${violation.message}`).join('\n'));
+    const fields = analysis.violations.filter(violation => violation.code === 'H13');
+    if (fields.length) throw new Error(fields.map(violation => `H13 ${violation.file}:${violation.line} ${violation.message}. ${RULE_CATALOGUE.H13.fix}`).join('\n'));
     if (!existsSync(ledgerPath) && !flags['--init'] && !flags['--record-wording']) throw new Error('Missing wording ledger; run --record-wording after --init');
     const measured = measure(analysis);
     let baseline: Baseline; let ledger: Ledger = existsSync(ledgerPath) ? readLedger(ledgerPath) : [];
@@ -144,11 +147,19 @@ export function runCheck(args: string[]): CliResult {
         }
       }
       const beforeLedger = readAtRef(normalizePath(relative(root, ledgerPath)));
+      const initialOpaque = initialOpaqueInventory(root, flags['--against']![0]!);
+      const against = (finding: { code: string; kind: string; owner: string; recorded: number; measured: number }): string => `against: ${finding.code} ${finding.kind} ${finding.owner} ${finding.recorded} -> ${finding.measured}`;
       if (found) {
-        errors.push(...compareBaselines(previous, baseline).map(finding => `against: ${finding.code} ${finding.kind} ${finding.owner} ${finding.recorded} -> ${finding.measured}`));
+        // Preserve every original integrity check; bootstrap replaces only H14 growth findings.
+        errors.push(...compareBaselines(previous, baseline)
+          .filter(finding => !(initialOpaque !== undefined && finding.code === 'H14' && finding.kind === 'new')).map(against));
         const review = markerReview(previous, baseline);
         errors.push(...review.errors);
         reviewNotices.push(...review.notices);
+      }
+      if (initialOpaque !== undefined || !found) {
+        const opaqueRecord = (owners: Record<string, number>): Baseline => ({ rules: { H14: owners }, markers: {}, unreadable: {} });
+        errors.push(...compareBaselines(opaqueRecord(initialOpaque ?? {}), opaqueRecord(baseline.rules['H14'] ?? {})).map(against));
       }
       if (beforeLedger) { const comparison = compareLedgers(JSON.parse(beforeLedger) as Ledger, ledger); errors.push(...comparison.errors); retirements.push(...comparison.retirements); }
     }

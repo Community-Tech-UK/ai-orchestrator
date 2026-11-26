@@ -28,10 +28,9 @@
  * To tighten a ceiling after refactoring: lower the number.
  */
 
-import { execFileSync } from 'child_process';
+import { listTrackedTypeScriptAndWarn } from './lib/ts-max-loc-files';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-
 const MAX_LINES = 700;
 /**
  * Tolerance (in lines) added on top of each allowlisted file's recorded ceiling
@@ -205,7 +204,7 @@ const ALLOWLIST: Record<string, number> = {
   // main's own growth.
   'src/main/cli/adapters/claude-cli-adapter.ts': 2204, // raised 2128 -> 2204 (2026-11-13): stopped-helper stop reporter glue (usage-burn item 3.1)
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
+  'src/main/cli/adapters/codex-cli-adapter.ts': 160,
   // Was already at 699 (1 line under the old hard 700 cap) before LT-045's
   // `nativeCompactionKnownUnsupported()` passthrough — a coordinator-level
   // fix for manual Codex compaction re-paying its 30s confirmation timeout
@@ -234,6 +233,7 @@ const ALLOWLIST: Record<string, number> = {
   // policy entry (cross-session messaging, 2026-09-16).
   'src/main/core/config/settings-control-policy.ts': 926, // +1: preferOtherComputers (agent sessions on other computers); +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions; +4: keepSessionsGoing replaces it (two comment lines, policy entry, operator-only key and its comment); 863 -> 925: the file already sat at 913 (the ceiling plus slack), and the three Plan Queue Linear settings add 12 (three operator-only keys with their comment, three policy entries, a wider import)
   'src/main/core/error-recovery.ts': 990,
+  'src/main/core/system/cost-tracker.ts': 714, // 683 -> 714: recorded spend tokens for helper-agent results (oct-followups 6a)
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
   // failure: atomic saveConversation write, the conversationWrites per-entry
@@ -378,7 +378,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/memory/unified-controller.ts': 1312,
   // Main process — orchestration
   'src/main/orchestration/child-result-storage.ts': 836,
-  'src/main/orchestration/cli-verification-extension.ts': 936,
+  'src/main/orchestration/cli-verification-extension.ts': 937, // +1: one-shot Claude calls skip session files (oct-followups 5f)
   // Re-tightened off the allowlist (859 -> 570): synthesis/agreement scoring
   // extracted to consensus-synthesis.ts.
   'src/main/orchestration/consensus.ts': 759,
@@ -427,7 +427,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 3948 -> 3954 for LT-350 (cancelLoop now force-kills an in-flight
   // preflight/quick-verify subprocess via completionDetector.abortVerify,
   // since it has no CLI adapter for the existing cleanup hook to reach).
-  'src/main/orchestration/loop-coordinator.ts': 3962, // raised 3954 -> 3962: a Harness token-limit stop ends the loop instead of retrying
+  'src/main/orchestration/loop-coordinator.ts': 3974, // +12 on top of main (oct-followups 3g and 4a: merge hold for a stalled loop or blocked final audit, paused-loop notice, pause reason recorded once); earlier: raised 3954 -> 3962: a Harness token-limit stop ends the loop instead of retrying
   // Re-tightened after extracting loop-completed-plan-helpers.ts.
   'src/main/orchestration/loop-completion-detector.ts': 806,
   'src/main/orchestration/loop-store.ts': 790,
@@ -523,7 +523,7 @@ const ALLOWLIST: Record<string, number> = {
   // Recorded at the actual size, 829: the file had already grown to 825
   // within slack before LT-651 added 4 lines (contextEvidence follow-up emit,
   // sibling of the reasoningEffort handling). Re-tighten after a store split.
-  'src/renderer/app/core/state/instance/instance.store.ts': 830, // +1: close-dialog helper choice passes a child policy
+  'src/renderer/app/core/state/instance/instance.store.ts': 834, // +4: native helper data and a flush before terminal clears (oct-followups 7c); +1: close-dialog helper choice passes a child policy
   // Added 2026-07-16 at 710 (Fable WS6 recipe picker options + WS6 maxTurns/
   // allowUnbounded loop-config plumbing). Re-tighten after a store split.
   'src/renderer/app/core/state/loop.store.ts': 751,
@@ -531,7 +531,6 @@ const ALLOWLIST: Record<string, number> = {
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
   'src/renderer/app/features/chats/session-artifacts-strip.component.ts': 729,
-  'src/renderer/app/features/communication/communication-page.component.ts': 729,
   'src/renderer/app/features/debate/debate-visualization.component.ts': 993,
   'src/renderer/app/features/editor/editor-page.component.ts': 951,
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
@@ -588,7 +587,7 @@ const ALLOWLIST: Record<string, number> = {
   // Raised 957 -> 964: default favorites now mirror each provider tab's usage-ordered top row.
   // Raised 964 -> 1029: curated DEFAULT_FAVORITE_MODEL_KEYS default with per-provider fallback.
   // Raised 1029 -> 1038: outlined (unfilled) star for non-favourited rows, gold fill when favourited.
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 1093, // raised 1038 -> 1093 (2026-11-06): Phase 1 token levers merged on top of main's own growth
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 1094, // +1: field name for the model search box (oct-followups 7f); raised 1038 -> 1093 (2026-11-06): Phase 1 token levers merged on top of main's own growth
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 808,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,
@@ -607,7 +606,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/skills/skill-browser.component.ts': 766,
   'src/renderer/app/features/stats/stats-page.component.ts': 868,
   'src/renderer/app/features/tasks/tasks-page.component.ts': 994,
-  'src/renderer/app/features/training/training-page.component.ts': 818,
   'src/renderer/app/features/verification/config/api-key-manager.component.ts': 890,
   'src/renderer/app/features/verification/config/verification-preferences.component.ts': 857,
   'src/renderer/app/features/workflow/workflow-page.component.ts': 799,
@@ -657,7 +655,7 @@ const ALLOWLIST: Record<string, number> = {
   // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
   // other uncommitted Plan Queue work in the same working tree (retirements, active-work
   // checks, landing chain). Re-tighten once that work is committed and the file is split.
-  'src/main/plan-queue/plan-queue-item-flow.ts': 890, // 706 -> 768: landing-wait wiring (step 4.2); +8: park a Harness stop without retrying it (Oct-2 Phase D Step 1); 776 -> 890: jobs on other computers wire in at start, spawn, turn end, hold, park, landing and discard (Plan Queue jobs on other computers, stage 3)
+  'src/main/plan-queue/plan-queue-item-flow.ts': 893, // +3 on top of main: critical and high findings only go back to the worker (oct-followups 4c); 706 -> 768: landing-wait wiring (step 4.2); +8: park a Harness stop without retrying it (Oct-2 Phase D Step 1); 776 -> 890: jobs on other computers wire in at start, spawn, turn end, hold, park, landing and discard (Plan Queue jobs on other computers, stage 3)
 };
 
 function countLines(filePath: string): number {
@@ -683,11 +681,7 @@ function isTestSourceFile(relPath: string): boolean {
 function main(): void {
   const repoRoot = process.cwd();
 
-  const trackedFiles = execFileSync('git', ['ls-files', '*.ts'], { cwd: repoRoot })
-    .toString()
-    .trim()
-    .split('\n')
-    .filter(Boolean);
+  const trackedFiles = listTrackedTypeScriptAndWarn(repoRoot, isTestSourceFile, MAX_LINES);
   const checkedFiles = trackedFiles.filter((relPath) => !isTestSourceFile(relPath));
   const skippedTestFiles = trackedFiles.length - checkedFiles.length;
 
