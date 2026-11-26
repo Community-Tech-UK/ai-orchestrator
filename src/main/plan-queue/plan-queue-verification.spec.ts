@@ -10,7 +10,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import { NOT_RUN_RETRY_MS, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { newPlanQueueItem } from './plan-queue-state';
-import { documentContentSha256 } from './plan-queue-progress';
+import { documentContentSha256, recordRepeatedFindingObservation } from './plan-queue-progress';
 import { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueVerification } from './plan-queue-verification';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -204,6 +204,48 @@ describe('queue verification policy', () => {
     await policy.prepare(host.getItem('item'));
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix', prompt: expect.stringContaining('Nothing changed') });
     expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'park', reason: 'no-progress' });
+  });
+
+  it('gives a round-2 checker the earlier findings, the worker claim and the diff since the last check', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    store.history.recordVerdict({ itemId: 'item', runId: 'run', round: 1, verdict: 'FAIL', worktreeHead: 'old', documentSha256: 'doc',
+      findings: [{ severity: 'high', kind: 'code', confidence: 90, summary: 'Missing guard on empty input', file: 'src/work.ts:4' }],
+      gatesRun: [], notChecked: [] });
+    policy.rememberWorkerClaim({ ...host.getItem('item'), round: 1 }, 'Added the guard');
+    await policy.prepare(host.getItem('item'));
+    const prompt = await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
+    expect(prompt).toContain('<earlier_rounds>');
+    expect(prompt).toContain('Missing guard on empty input');
+    expect(prompt).toContain('Added the guard');
+    expect(prompt).toContain('unconfirmed, re-check');
+    expect(prompt).toContain('diffSinceLastCheck');
+    const block = prompt.slice(prompt.indexOf('<earlier_rounds>'), prompt.indexOf('</earlier_rounds>'));
+    expect(block.length).toBeLessThanOrEqual(12_000 + '<earlier_rounds>\n'.length);
+  });
+
+  it('adds no earlier-rounds block in round 1', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    await policy.prepare(host.getItem('item'));
+    expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).not.toContain('<earlier_rounds>');
+  });
+
+  it('adds the step-back note only once the same finding has failed twice, and only logs a third failure', async () => {
+    const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
+    const failure = (round: number) => store.history.recordVerdict({ itemId: 'item', runId: 'run', round, verdict: 'FAIL', worktreeHead: `h${round}`,
+      documentSha256: 'doc', gatesRun: [], notChecked: [],
+      findings: [{ severity: 'high', kind: 'code', confidence: 90, summary: 'Same defect', file: 'src/work.ts:4' }] });
+    failure(1);
+    expect(policy.stepBack(host.getItem('item'))).toBe('');
+    failure(2);
+    expect(policy.stepBack(host.getItem('item')).trim().split('\n')).toEqual([
+      'The same finding failed twice.',
+      'Reproduce it and find the cause before another fix.',
+      'If the finding is wrong, explain why with file:line evidence.']);
+    expect(store.history.listEvents('item').some(event => event.reason === 'stuck-on-same-finding')).toBe(false);
+    failure(3);
+    recordRepeatedFindingObservation(store.history, host.getItem('item'), 3);
+    expect(store.history.listEvents('item').filter(event => event.reason === 'stuck-on-same-finding')).toHaveLength(1);
+    expect(host.getItem('item').state).toBe('verifying');
   });
 
   it('tells the checker an item with no capability repair link needs no runtime probe', async () => {

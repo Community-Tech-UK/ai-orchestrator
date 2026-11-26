@@ -48,6 +48,40 @@ describe('a job whose plan is gone when its checks start', () => {
   });
 });
 
+describe('a job that changed nothing since its last failed check', () => {
+  let repo: string;
+  beforeEach(() => { repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-start-no-progress-'))); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  const start = async (prepared: object) => {
+    const document = join(repo, 'work_plan.md');
+    writeFileSync(document, '# Work');
+    mkdirSync(join(repo, 'wt', '.git'), { recursive: true });
+    const item = newPlanQueueItem('job', 'run', document, 1, { state: 'verifying', branchName: 'queue/work', worktreePath: join(repo, 'wt') });
+    const ctx = { hold: vi.fn(), park: vi.fn(), fix: vi.fn(), stepUp: vi.fn(), spawn: vi.fn(), checksFinished: vi.fn(), checksFailed: vi.fn(), holdOff: vi.fn() };
+    await startQueueVerification({
+      host: { getItem: () => item, getRun: () => ({ id: 'run', status: 'running', workspaceCwd: repo, config: { baseBranch: 'main' } }) } as never,
+      verification: { prepareGrouped: vi.fn(async () => prepared) } as never, ...ctx,
+    }, item.id);
+    return { item, ctx };
+  };
+
+  it('re-prompts the worker with no checker', async () => {
+    const prompt = 'Nothing changed since the last check failed. Fix each finding or explain with file:line evidence why it is wrong.';
+    const { item, ctx } = await start({ kind: 'fix', prompt, detail: 'Nothing changed since the last failed check.' });
+    expect(ctx.fix).toHaveBeenCalledWith(item, prompt, 'Nothing changed since the last failed check.');
+    expect(ctx.spawn).not.toHaveBeenCalled();
+    expect(ctx.park).not.toHaveBeenCalled();
+  });
+
+  it('is set aside as no-progress, with no checker, once the warning has been given', async () => {
+    const { item, ctx } = await start({ kind: 'park', reason: 'no-progress', detail: 'Nothing changed since the last check failed.' });
+    expect(ctx.park).toHaveBeenCalledWith(item, 'no-progress', 'Nothing changed since the last check failed.');
+    expect(ctx.spawn).not.toHaveBeenCalled();
+    expect(ctx.fix).not.toHaveBeenCalled();
+  });
+});
+
 describe('a job whose checks no test machine could take', () => {
   let repo: string;
   beforeEach(() => { repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-start-not-run-'))); });

@@ -7,6 +7,7 @@ import { CHECK_HUNG_DETAIL, recordCheckTimeout } from './plan-queue-check-timeou
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildGateFailurePrompt } from './plan-queue-prompts';
 import { decideNoProgress, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
+import { buildEarlierRoundsBlock } from './plan-queue-earlier-rounds';
 import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
@@ -72,7 +73,7 @@ export class PlanQueueVerification {
     this.checkedDocuments.delete(item.id);
     const run = this.host.getRun(item.runId);
     const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await workSourceFor(item.sourceKind).contentHash(item), item.round));
-    const warned = this.host.history.listEvents(item.id).some(event => event.reason === 'no-progress-warning' && event.detailHead === fingerprint);
+    const warned = this.host.history.listEvents(item.id, 1000).some(event => event.reason === 'no-progress-warning' && event.detailHead === fingerprint);
     const progress = await decideNoProgress(this.host.history.listVerdicts(item.id), item, warned);
     if (progress.kind === 'park') return { ...progress, reason: 'no-progress' };
     if (progress.kind === 'reprompt') {
@@ -176,10 +177,9 @@ export class PlanQueueVerification {
     const rows = this.host.history.listVerdicts(item.id);
     const last = rows.at(-1)?.worktreeHead;
     const diff = last ? await gitExec(['diff', `${last}..HEAD`, '--stat'], item.worktreePath!) : '';
-    const events = this.host.history.listEvents(item.id);
+    const events = this.host.history.listEvents(item.id, 1000);
     const earlier = rows.filter(row => row.verdict === 'FAIL').map(row => ({ round: row.round, findings: row.findings,
-      status: 'unconfirmed, re-check', workerClaim: events
-        .find(event => event.reason === 'worker-claim' && event.round === row.round)?.detailHead ?? 'No claimed fix was recorded.' }));
+      workerClaim: events.find(event => event.reason === 'worker-claim' && event.round === row.round)?.detailHead ?? null }));
     const source = workSourceFor(item.sourceKind);
     const receipts = this.receipts.get(item.id) ?? [];
     if (this.checkedDocuments.has(item.id) && receipts[0]?.checkGroup) {
@@ -191,7 +191,7 @@ export class PlanQueueVerification {
     } else this.checkedDocuments.set(item.id, await source.reviewFingerprint(item));
     return source.checkerPrompt({ run, item, baseBranch, receipts,
       diffStat: await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!),
-      earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined, pin: this.host.history.getPin(item.id) ?? undefined,
+      earlierRounds: rows.length ? buildEarlierRoundsBlock(earlier, diff) : undefined, pin: this.host.history.getPin(item.id) ?? undefined,
       directChanges: await directChangesForItem(run, item), ownsRepair: !!this.host.store.capabilities.forRepairItem(item.id) });
   }
 }
