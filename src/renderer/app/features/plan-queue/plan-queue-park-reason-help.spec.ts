@@ -61,3 +61,16 @@ describe('set-aside finding text', () => {
     expect(display?.actions).toEqual(['merge-without-checks', 'discard']);
   });
 });
+
+describe('Plan Queue wording outside the page', () => {
+  it('uses the page words in the Plan Queue help and the merge button tooltip', async () => {
+    const { PLAN_QUEUE_HELP } = await import('../../shared/help/content/automation.help');
+    const { TOOLTIP_COPY } = await import('../../shared/tooltip/tooltip-copy');
+    const help = JSON.stringify(PLAN_QUEUE_HELP);
+    expect(help).not.toMatch(/Land anyway|Reconciler alerts|livetest|parked item|\bglob\b/i);
+    expect(help).toContain('Merge without checks');
+    expect(TOOLTIP_COPY['planQueue.landAnyway'].label).toBe('Merge without checks');
+    const { RESUME_PLAN_QUEUE_COPY } = await import('../../shared/tooltip/tooltip-copy-resume-plan-queue');
+    expect(JSON.stringify(RESUME_PLAN_QUEUE_COPY)).not.toMatch(/\bparked\b/i);
+  });
+});

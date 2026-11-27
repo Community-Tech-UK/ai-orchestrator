@@ -19,6 +19,12 @@ describe('searchControlNav', () => {
     expect(results('checkpoints')[0].results.map(result => result.label)).toContain('Snapshots');
   });
 
+  it('describes the Plan Queue in the words its page uses, not the internal document name', () => {
+    const planQueue = groups.flatMap(group => group.items).find(item => item.id === 'plan-queue')!;
+    expect(planQueue.subtitle).not.toMatch(/livetest/i);
+    expect(results('live checks')[0].results.map(result => result.label)).toContain('Plan Queue');
+  });
+
   it('links a Settings section by its fragment and names where a setting lives', () => {
     const settings = results('keyboard').find(group => group.id === 'settings')!.results;
     expect(settings[0]).toMatchObject({ path: '/settings', fragment: 'keyboard', queryParams: null });

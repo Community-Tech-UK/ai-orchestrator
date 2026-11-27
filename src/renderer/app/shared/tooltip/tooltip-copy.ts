@@ -225,7 +225,7 @@ export const TOOLTIP_COPY = {
     meaning: 'Puts this document back in the queue to start work on it again.',
   },
   'planQueue.landAnyway': {
-    label: 'Land anyway',
+    label: 'Merge without checks',
     meaning: 'Opens the confirmation to merge this branch without the final checks.',
   },
   'planQueue.discardItem': {

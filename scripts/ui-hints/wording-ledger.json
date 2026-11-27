@@ -1737,7 +1737,8 @@
     "id": "76f131d15a99c61d",
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
     "text": "Asks first, then stops this run. Unstarted documents are skipped; work in progress is parked with its branch kept.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Plan Queue Step 8 plain-wording pass: the Cancel tooltip now says work in progress is set aside, matching the rest of the screen, instead of the retired word parked."
   },
   {
     "id": "bbd0aface7f19a54",
@@ -3133,5 +3134,11 @@
     "owner": "src/renderer/app/features/knowledge/wake-management.component.ts",
     "text": "Preview the current starting notes without counting another session.",
     "why": "long"
+  },
+  {
+    "id": "e84621a0ccdbd083",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-run-controls.component.ts",
+    "text": "Asks first, then stops this run. Unstarted documents are skipped; work in progress is set aside with its branch kept.",
+    "why": "consequence"
   }
 ]
