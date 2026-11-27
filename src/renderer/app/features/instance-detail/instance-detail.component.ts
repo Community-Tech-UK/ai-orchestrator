@@ -37,6 +37,7 @@ import {
 } from './runtime-change-preview.controller';
 import { CompactionPreviewDialogComponent } from './compaction-preview-dialog.component';
 import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
+import type { Instance } from '../../core/state/instance/instance.types';
 import { typedOrigin } from '../../core/state/instance/instance-messaging-queue-utils';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -1045,41 +1046,40 @@ export class InstanceDetailComponent {
   async onToggleYolo(): Promise<void> {
     const inst = this.instance();
     if (!inst) return;
+    // Held from the first click until the change is applied or declined, so a second click while the cost
+    // sentence is still loading or the question is open cannot queue another confirmation that flips it back.
+    if (this.isTogglingYolo()) return;
+    this.isTogglingYolo.set(true);
+    try {
+      await this.toggleYoloConfirmed(inst);
+    } finally {
+      this.isTogglingYolo.set(false);
+    }
+  }
 
+  private async toggleYoloConfirmed(inst: Instance): Promise<void> {
     // Queue-aware: the state a click flips is the parked value if one is
     // pending, otherwise the live mode. A click while busy is no longer
     // swallowed — it queues and auto-applies when the turn finishes.
     const effectiveTarget = inst.pendingYoloMode ?? inst.yoloMode;
     const willEnable = !effectiveTarget;
     if (willEnable) {
-      const confirmed = await this.confirmService.confirm({ message: 'Enable Auto-approve? Runs tools and edits without asking you.' +
-          (this.yoloCostNote() ? `\n\n${this.yoloCostNote()}` : '') +
+      // The sentence is asked for now, not read from the background lookup: that one may still be in flight, and
+      // a restarting change must never be applied before its cost has been put in front of the user. The question
+      // is bound to this session: replacing it or closing this screen withdraws the question and drops the yes.
+      await this.runtimeChange.ask(inst.id, yoloChangeRequestOf(inst, true),
+        (costNote, withdrawn) => this.confirmService.confirm({ message: 'Enable Auto-approve? Runs tools and edits without asking you.' +
+          (costNote ? `\n\n${costNote}` : '') +
           (inst.status === 'busy'
             ? '\n\nThe session is busy — Auto-approve will turn on automatically once the current turn finishes.'
-            : ''), confirmLabel: 'Enable Auto-approve', danger: true });
-      if (!confirmed) return;
-    }
-
-    if (this.isTogglingYolo()) return;
-
-    if (willEnable) {
-      await this.flipYolo(inst.id);
+            : ''), confirmLabel: 'Enable Auto-approve', danger: true }, withdrawn),
+        () => this.store.toggleYoloMode(inst.id));
       return;
     }
     // Turning it off asks too when the restart would re-read a large conversation at full price; turning it on was
     // just confirmed above, with the same sentence in the question.
-    await this.runtimeChange.gate(inst.id, yoloChangeRequestOf(inst, false), () => this.flipYolo(inst.id),
+    await this.runtimeChange.gate(inst.id, yoloChangeRequestOf(inst, false), () => this.store.toggleYoloMode(inst.id),
       { confirm: 'Turn auto-approve off anyway', cancel: 'Keep auto-approve on' });
-  }
-
-  private async flipYolo(instanceId: string): Promise<void> {
-    if (this.isTogglingYolo()) return;
-    this.isTogglingYolo.set(true);
-    try {
-      await this.store.toggleYoloMode(instanceId);
-    } finally {
-      this.isTogglingYolo.set(false);
-    }
   }
 
   async onToggleFastMode(): Promise<void> {

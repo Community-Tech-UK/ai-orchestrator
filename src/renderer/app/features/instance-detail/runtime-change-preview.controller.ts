@@ -124,6 +124,8 @@ export class RuntimeChangePreviewController {
   private pointRequest = 0;
   /** Bumped whenever the screen no longer describes the session the question was asked about. */
   private generation = 0;
+  /** Aborted whenever the generation moves on; withdraws a question asked through {@link ask}. */
+  private withdrawn = new AbortController();
   private boundSessionKey: string | null = null;
 
   /** The sentence for the option being pointed at, for the open picker. */
@@ -153,6 +155,8 @@ export class RuntimeChangePreviewController {
    */
   invalidate(): void {
     ++this.generation;
+    this.withdrawn.abort();
+    this.withdrawn = new AbortController();
     ++this.pointRequest;
     clearTimeout(this.pointTimer);
     this.optionNote.set(null);
@@ -201,6 +205,27 @@ export class RuntimeChangePreviewController {
       this.pendingConfirmation.set({ text: note.text, confirmLabel: labels.confirm, cancelLabel: labels.cancel, instanceId, apply });
       return;
     }
+    await apply();
+  }
+
+  /**
+   * For a change that is always asked about (turning auto-approve on): wait for the cost sentence, put it in
+   * the owner's question, and apply only on a yes. The question is bound to the session like {@link gate}: if
+   * the session is replaced, a newer choice is made or the owner goes away while the sentence loads or the
+   * question is open, the question is withdrawn and nothing is applied.
+   */
+  async ask(
+    instanceId: string,
+    request: RuntimeChangePreviewRequest,
+    question: (costNote: string | null, withdrawn: AbortSignal) => Promise<boolean>,
+    apply: () => void | Promise<void>,
+  ): Promise<void> {
+    this.invalidate();
+    const withdrawn = this.withdrawn.signal;
+    const note = await this.ipc.preview(instanceId, request);
+    if (withdrawn.aborted) return;
+    const yes = await question(note?.text ?? null, withdrawn);
+    if (!yes || withdrawn.aborted) return;
     await apply();
   }
 

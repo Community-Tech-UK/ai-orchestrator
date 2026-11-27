@@ -27,6 +27,26 @@ describe('ConfirmService', () => {
     await expect(second).resolves.toBe(true);
   });
 
+  it('takes down a withdrawn question, active or queued, answers it no and keeps the others', async () => {
+    const service = TestBed.inject(ConfirmService);
+    const firstWithdrawal = new AbortController();
+    const thirdWithdrawal = new AbortController();
+    const first = service.confirm({ message: 'First', confirmLabel: 'First' }, firstWithdrawal.signal);
+    const second = service.confirm({ message: 'Second', confirmLabel: 'Second' });
+    const third = service.confirm({ message: 'Third', confirmLabel: 'Third' }, thirdWithdrawal.signal);
+    thirdWithdrawal.abort();
+    await expect(third).resolves.toBe(false);
+    expect(service.pending()?.message).toBe('First');
+    firstWithdrawal.abort();
+    await expect(first).resolves.toBe(false);
+    expect(service.pending()?.message).toBe('Second');
+    service.resolve(true);
+    await expect(second).resolves.toBe(true);
+    expect(service.pending()).toBeNull();
+    await expect(service.confirm({ message: 'Late', confirmLabel: 'Late' }, firstWithdrawal.signal)).resolves.toBe(false);
+    expect(service.pending()).toBeNull();
+  });
+
   it('cancels active and queued callers when the root dialog is destroyed', async () => {
     const service = TestBed.inject(ConfirmService);
     const first = service.confirm({ message: 'First', confirmLabel: 'First' });
