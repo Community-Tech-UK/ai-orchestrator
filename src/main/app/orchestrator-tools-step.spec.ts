@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { clearDeferredPermissionResume, markDeferredPermissionResume } from '../instance/lifecycle/deferred-permission-resume-registry';
 
 const captured = vi.hoisted(() => ({
   initializeOptions: null as null | {
@@ -64,6 +65,7 @@ const captured = vi.hoisted(() => ({
   flushChatTranscriptSource: vi.fn(),
 }));
 
+vi.mock('./account-trial-wiring', () => ({ startAccountTrial: async () => ({}) }));
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     get: vi.fn((key: string) => captured.settings[key] ?? 3),
@@ -218,6 +220,21 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
       expect(captured.initializeOptions?.isKnownLocalInstance?.('session')).toBe(false);
     },
   );
+
+  it('accepts a call replayed by a restart for an approved held tool, only while that resume is marked', async () => {
+    const instance = { status: 'respawning', executionLocation: { type: 'local' }, restartEpoch: 0 };
+    await startStep({ getInstance: () => instance });
+    markDeferredPermissionResume('session');
+    try {
+      expect(captured.initializeOptions?.isKnownLocalInstance?.('session')).toBe(true);
+      instance.status = 'terminated';
+      expect(captured.initializeOptions?.isKnownLocalInstance?.('session')).toBe(false);
+    } finally {
+      clearDeferredPermissionResume('session');
+    }
+    instance.status = 'respawning';
+    expect(captured.initializeOptions?.isKnownLocalInstance?.('session')).toBe(false);
+  });
 
   it.each(['terminating', 'aborted', 'remote'] as const)(
     'refuses RPC access during %s teardown or placement', async (condition) => {

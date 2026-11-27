@@ -45,7 +45,9 @@ const BUDGET = {
   // agents can say which plan sentence a change made directly on main overtook: 85,415 bytes.
   // Nov-21 (merge): those plus the optional `effort` on the plan_queue route choice (+1,008 bytes): 88,404 bytes;
   // next 1 KiB ceiling is 89,088.
-  orchestratorFull: { bytes: 89088, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // Nov-27: `account_trial` (reserve accounts, start a chat on a chosen account, release; one tool with an action
+  // field, descriptions already trimmed) adds about 2 KB: 90,390 bytes; next 1 KiB ceiling is 90,624.
+  orchestratorFull: { bytes: 90624, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },

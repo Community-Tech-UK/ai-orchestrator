@@ -6,6 +6,7 @@ import type { Instance } from '../../shared/types/instance.types';
 const captured = vi.hoisted(() => ({
   init: vi.fn(), implementations: vi.fn(), recordResult: vi.fn(() => ({ recorded: true })), markDelivery: vi.fn(),
 }));
+vi.mock('./account-trial-wiring', () => ({ startAccountTrial: async () => ({}) }));
 vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({ initializeOrchestratorToolsRpcServer: captured.init }));
 vi.mock('../automations/automation-tool-impl', () => ({ createAutomationToolImplementations: captured.implementations }));
 vi.mock('../automations', () => ({

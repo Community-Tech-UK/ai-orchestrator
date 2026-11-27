@@ -1461,6 +1461,31 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
     expect(result).toMatchObject({ name: 'read_node_output' });
   });
 
+  it('dispatches account_trial with the configured lease service and withholds it from an instance at the spawn-depth limit', async () => {
+    const accountTrial = { reserve: vi.fn(), startSession: vi.fn(), release: vi.fn(), status: vi.fn() };
+    const seen: Record<string, unknown>[] = [];
+    const make = (eligible: boolean) => new OrchestratorToolsRpcServer({
+      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-trial-')),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      accountTrial: accountTrial as never,
+      toolFactory: (deps) => {
+        seen.push(deps as unknown as Record<string, unknown>);
+        return ['account_trial', 'run_on_node'].map((name) => ({
+          name, description: `test ${name}`, inputSchema: { type: 'object' }, handler: vi.fn(async (args: unknown) => ({ name, args })),
+        }));
+      },
+      registerCleanup: () => undefined,
+      resolveSpawnEligibility: () => eligible,
+    });
+    const call = (server: OrchestratorToolsRpcServer, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0', id: 41, method: 'orchestrator_tools.account_trial', params: { instanceId: KNOWN_INSTANCE, payload },
+    });
+
+    await expect(call(make(true), { action: 'status' })).resolves.toEqual({ name: 'account_trial', args: { action: 'status' } });
+    expect(seen[0]).toMatchObject({ instanceId: KNOWN_INSTANCE, accountTrial });
+    await expect(call(make(false), { action: 'status' })).rejects.toThrow(/account_trial tool unavailable/);
+  });
+
   it('keeps the host process tools for an ineligible (leaf) instance', async () => {
     const server = new OrchestratorToolsRpcServer({
       userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-scope-')),

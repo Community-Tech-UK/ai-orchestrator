@@ -34,6 +34,7 @@ export interface CreateWithMessageInput {
   copilotAccountProfileId?: string;
   copilotConfirmProtectedOverride?: boolean;
   accountProfileId?: string;
+  displayName?: string;
   origin?: PersonInputOrigin;
 }
 
@@ -89,6 +90,7 @@ export async function createInstanceWithMessage(
     copilotAccountProfileId: validated.copilotAccountProfileId,
     copilotConfirmProtectedOverride: validated.copilotConfirmProtectedOverride,
     accountProfileId: validated.accountProfileId,
+    ...(validated.displayName ? { displayName: validated.displayName } : {}),
   });
 
   return { success: true, data: serializeInstance(instance) };

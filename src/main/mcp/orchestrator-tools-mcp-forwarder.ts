@@ -23,6 +23,7 @@ import { PLAN_QUEUE_TOOL_SPECS } from './plan-queue-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
 import { createNodeConnectionForwarderTools } from './orchestrator-node-connection-tools';
 import { createHostProcessForwarderTools } from './orchestrator-host-process-tools';
+import { createAccountTrialForwarderTools } from './orchestrator-account-trial-tools';
 import {
   createSessionMessagingForwarderTools,
   resolveSessionMessagingEnabledFromEnv,
@@ -177,6 +178,7 @@ export function createOrchestratorToolsForwarderTools(
     createNodeExecForwarderTool(client),
     ...createNodeConnectionForwarderTools(client),
     ...createHostProcessForwarderTools(client),
+    ...createAccountTrialForwarderTools(client),
     ...createSessionMessagingForwarderTools(client, sessionMessagingEnabled),
     ...createSessionReadForwarderTools(client),
     {

@@ -26,6 +26,7 @@ const captured = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('./account-trial-wiring', () => ({ startAccountTrial: async () => ({}) }));
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     get: vi.fn(() => 3),

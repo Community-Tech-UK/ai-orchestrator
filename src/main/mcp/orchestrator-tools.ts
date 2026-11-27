@@ -37,6 +37,7 @@ import {
 } from './orchestrator-node-exec-tools';
 import { createNodeConnectionToolDefinitions, type NodeConnectionToolContext } from './orchestrator-node-connection-tools';
 import { createHostProcessToolDefinitions, type HostProcessToolContext } from './orchestrator-host-process-tools';
+import { createAccountTrialToolDefinitions, type AccountTrialToolContext } from './orchestrator-account-trial-tools';
 import {
   createSessionMessagingToolDefinitions,
   type SessionMessagingToolService,
@@ -379,7 +380,7 @@ export function buildReadNodeOutputResult(opts: {
 }
 
 export interface OrchestratorToolRuntimeContext
-  extends FileTransferToolContext, NodeExecToolContext, NodeConnectionToolContext, HostProcessToolContext {
+  extends FileTransferToolContext, NodeExecToolContext, NodeConnectionToolContext, HostProcessToolContext, AccountTrialToolContext {
   db: SqliteDriver;
   instanceId?: string | null;
   /** Aborted when the calling socket disconnects mid-request (see orchestrator-tools-rpc-socket.ts). Long-polling handlers (e.g. read_node_output's waitMs) should stop early on abort rather than run out their full wait budget. */
@@ -764,6 +765,7 @@ export function createOrchestratorToolDefinitions(
     ...createNodeExecToolDefinitions(context),
     ...createNodeConnectionToolDefinitions(context),
     ...createHostProcessToolDefinitions(context),
+    ...createAccountTrialToolDefinitions(context),
     ...createSessionMessagingToolDefinitions({
       instanceId: context.instanceId,
       enabled: context.settingsManager?.get('interSessionMessaging').enabled === true,

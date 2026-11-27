@@ -64,6 +64,8 @@ import { getCrossSessionMessagingService } from '../instance/cross-session-messa
 import { flushChatTranscriptSource } from '../chats/chat-transcript-bridge';
 import { createDefaultHostProcessRuntime, listHostProcesses, stopLeftoverProcesses } from '../process/host-process-inspector';
 import { createInstanceManagerHostProcessHooks } from '../process/host-process-instance-hooks';
+import { startAccountTrial } from './account-trial-wiring';
+import { isResumingAfterDeferredPermission } from '../instance/lifecycle/deferred-permission-resume-registry';
 import { runAutomaticStartup } from '../work-admission/automatic-startup';
 import { reserveHelperAdmission } from '../work-admission/helper-admission';
 import { waitForRunOnNodeReadiness } from './run-on-node-readiness';
@@ -164,12 +166,21 @@ export function createOrchestratorToolsStep(
         });
       });
       const hostProcessRuntime = createDefaultHostProcessRuntime(createInstanceManagerHostProcessHooks(instanceManager));
+      // `account_trial`: reserve accounts and start chats on them.
+      // An unreadable lease file must not take every other orchestrator tool down with it.
+      const accountTrial = await startAccountTrial(instanceManager).catch((error: unknown) => {
+        logger.error('account_trial is unavailable', error instanceof Error ? error : new Error(String(error)));
+        return null;
+      });
       await initializeOrchestratorToolsRpcServer({
+        accountTrial,
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => {
           const instance = instanceManager.getInstance(instanceId);
+          // A call a person just approved is replayed by the restarted process while the instance is still `respawning`.
+          const resumingApprovedCall = instance?.status === 'respawning' && isResumingAfterDeferredPermission(instanceId);
           return Boolean(instance && instance.executionLocation.type === 'local' &&
-            !RPC_INACTIVE_STATUSES.has(instance.status) &&
+            (resumingApprovedCall || !RPC_INACTIVE_STATUSES.has(instance.status)) &&
             instance.waitReason?.kind !== 'terminating' && !instance.abortController?.signal.aborted);
         },
         getInstanceGeneration: (instanceId) => {

@@ -3,6 +3,7 @@ import type { ReadInstanceOutputFn } from '../mcp/orchestrator-tools';
 import type { Instance } from '../../shared/types/instance.types';
 
 const captured = vi.hoisted(() => ({ read: null as ReadInstanceOutputFn | null }));
+vi.mock('./account-trial-wiring', () => ({ startAccountTrial: async () => ({}) }));
 vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({ initializeOrchestratorToolsRpcServer: async (options: { readInstanceOutput: ReadInstanceOutputFn }) => { captured.read = options.readInstanceOutput; } }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => 0, getAll: () => ({ graphScopesJson: '[]', graphAgentWritableAccountsJson: '[]' }) }) }));
 vi.mock('../operator/operator-database', () => ({ defaultOperatorDbPath: () => '/fixture', getOperatorDatabase: () => ({ db: {} }) }));

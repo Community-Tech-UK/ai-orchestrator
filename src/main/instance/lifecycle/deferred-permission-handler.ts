@@ -22,6 +22,7 @@ import { applyProviderSessionDurability } from './provider-session-durability';
 import { livePermissionsOf, type ResumeDeferredOptions } from './deferred-permission-options';
 import { residentClaudeForSpawn } from './interrupt-utils';
 import { harnessRefusal } from '../../cli/adapters/claude-permission-response';
+import { clearDeferredPermissionResume, markDeferredPermissionResume } from './deferred-permission-resume-registry';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -273,6 +274,7 @@ export class DeferredPermissionHandler {
         // Only a person's own refusal pauses the loop; a saved rule or the
         // reviewer refusing (autoReason) is policy the loop can work around.
         if (!approved && !options?.autoReason) this.services.pauseLoopForDeclinedPermission?.(instanceId);
+        markDeferredPermissionResume(instanceId);
         this.ops.transitionState(instance, 'respawning');
         try {
           instance.processId = await oldAdapter.resumePendingResidentRequest(this.services.getDecisionDir(), instance.yoloMode);
@@ -291,6 +293,7 @@ export class DeferredPermissionHandler {
       }
 
       // 2. Terminate old adapter (process already exited, but clean up state)
+      markDeferredPermissionResume(instanceId);
       this.ops.transitionState(instance, 'respawning');
       await oldAdapter.terminate(true).catch(() => { /* already exited */ });
       this.deps.deleteAdapter(instanceId);
@@ -373,6 +376,7 @@ export class DeferredPermissionHandler {
       }
       throw error;
     } finally {
+      clearDeferredPermissionResume(instanceId);
       release?.();
     }
   }

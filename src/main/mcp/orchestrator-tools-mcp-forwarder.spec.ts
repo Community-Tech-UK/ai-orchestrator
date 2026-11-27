@@ -20,6 +20,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'restore_test_browser_extension',
       'list_host_processes',
       'stop_leftover_processes',
+      'account_trial',
       'read_session',
       'read_node_output',
       'terminate_node_instance',

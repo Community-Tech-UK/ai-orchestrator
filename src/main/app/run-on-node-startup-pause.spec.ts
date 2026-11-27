@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import { markAutomaticStartupInputDispatched } from '../work-admission/automatic-startup';
 
 const state = vi.hoisted(() => ({ options: undefined as undefined | { spawnRemoteInstance(args: { node: string; prompt: string; provider: string }): Promise<unknown> } }));
+vi.mock('./account-trial-wiring', () => ({ startAccountTrial: async () => ({}) }));
 vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({ initializeOrchestratorToolsRpcServer: async (options: typeof state.options) => { state.options = options; } }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => 3, getAll: () => ({ maxSpawnDepth: 3, maxTotalInstances: 20, defaultCli: 'codex' }) }) }));
 vi.mock('../operator/operator-database', () => ({ defaultOperatorDbPath: () => '/tmp/operator.db', getOperatorDatabase: () => ({ db: {} }) }));

@@ -60,6 +60,7 @@ import {
   type RestoreTestBrowserExtensionFn,
 } from './orchestrator-node-connection-tools';
 import type { HostProcessToolContext } from './orchestrator-host-process-tools';
+import type { AccountTrialOperations } from '../../shared/types/account-trial.types';
 import {
   ListMessageableSessionsArgsSchema,
   SendSessionMessageArgsSchema,
@@ -114,8 +115,8 @@ const logger = getLogger('OrchestratorToolsRpcServer');
 
 /** Per-surface tool scoping for spawn-depth defense-in-depth. */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'automation_result', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
-  { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'exec_on_node', 'account_trial', 'read_node_output', ...FILE_TRANSFER_TOOL_NAMES, 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'automation_result', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation', 'request_doc_review', 'get_doc_review_result', ...PLAN_QUEUE_TOOL_NAMES, 'evidence_list', 'evidence_search', 'evidence_read', 'evidence_compare', 'evidence_verify'] },
+  { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node', '!exec_on_node', '!account_trial'] },
 ]);
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -138,6 +139,8 @@ export interface ReleaseMutationAuthorizationRequest {
 }
 
 export interface OrchestratorToolsRpcServerOptions extends FileTransferToolContext, NodeConnectionToolContext, Omit<HostProcessToolContext, 'instanceId'> {
+  /** Backs `account_trial`; injected so the lease service and instance manager stay out of this module. */
+  accountTrial?: AccountTrialOperations | null;
   operatorDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
@@ -225,6 +228,7 @@ export class OrchestratorToolsRpcServer {
   private readonly installTestBrowserExtension: InstallTestBrowserExtensionFn | null;
   private readonly restoreTestBrowserExtension: RestoreTestBrowserExtensionFn | null;
   private readonly hostProcessTools: Omit<HostProcessToolContext, 'instanceId'>;
+  private readonly accountTrial: AccountTrialOperations | null;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
   private readonly updateNodeConfig: UpdateNodeConfigFn | null;
@@ -291,6 +295,7 @@ export class OrchestratorToolsRpcServer {
     this.installTestBrowserExtension = options.installTestBrowserExtension ?? null;
     this.restoreTestBrowserExtension = options.restoreTestBrowserExtension ?? null;
     this.hostProcessTools = { listHostProcesses: options.listHostProcesses ?? null, stopLeftoverProcesses: options.stopLeftoverProcesses ?? null };
+    this.accountTrial = options.accountTrial ?? null;
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
     this.updateNodeConfig = options.updateNodeConfig ?? null;
@@ -485,6 +490,7 @@ export class OrchestratorToolsRpcServer {
       }
       case 'orchestrator_tools.list_host_processes':
       case 'orchestrator_tools.stop_leftover_processes':
+      case 'orchestrator_tools.account_trial':
         return this.dispatchSameNameTool(request.method, params, abortSignal);
       case 'orchestrator_tools.send_session_message': {
         const validated = SendSessionMessageArgsSchema.parse(params.payload);
@@ -767,6 +773,7 @@ export class OrchestratorToolsRpcServer {
         installTestBrowserExtension: this.installTestBrowserExtension,
         restoreTestBrowserExtension: this.restoreTestBrowserExtension,
         ...this.hostProcessTools,
+        accountTrial: this.accountTrial,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
         updateNodeConfig: this.updateNodeConfig,
@@ -805,6 +812,7 @@ export class OrchestratorToolsRpcServer {
       installTestBrowserExtension: this.installTestBrowserExtension,
       restoreTestBrowserExtension: this.restoreTestBrowserExtension,
       ...this.hostProcessTools,
+      accountTrial: this.accountTrial,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,
       updateNodeConfig: this.updateNodeConfig,
