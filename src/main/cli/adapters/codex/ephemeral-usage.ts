@@ -11,10 +11,18 @@ const logger = getLogger('CodexEphemeralUsage');
 const safeId = (value: unknown): string | null => {
   const parsed = CodexUsageIdSchema.safeParse(value); return parsed.success ? parsed.data : null;
 };
+const addTokens = (a: CodexUsageTokens, b: CodexUsageTokens): CodexUsageTokens => {
+  const sum = empty();
+  for (const key of ['input', 'cache', 'output', 'reasoning', 'total'] as const) {
+    sum[key] = a[key] === null || b[key] === null ? null : a[key]! + b[key]!;
+  }
+  sum.estimated = a.estimated || b.estimated;
+  return sum;
+};
 const empty = (): CodexUsageTokens => ({ input: null, cache: null, output: null, reasoning: null, total: null, estimated: false });
 /** One receipt per root native thread; helper counters occupy a separate bucket. */
 export class CodexEphemeralUsageTracker {
-  private binding: { threadId: string; startedAt: number; exec: boolean } | null = null;
+  private binding: { threadId: string; startedAt: number; exec: boolean; prior: CodexEphemeralUsage | null } | null = null;
   private readonly finished = new Set<string>();
   private readonly baseline = new Map<string, CodexUsageTokens>();
   private readonly compactions = new Map<string, CodexCompactionSignalTracker>();
@@ -23,14 +31,15 @@ export class CodexEphemeralUsageTracker {
   private readonly completedCompactionItems = new Set<string>();
   constructor(private readonly config: CodexCliConfig, private readonly accounting: CodexUsageAccounting) {}
 
-  bind(threadId: string, exec = false): void {
+  /** `prior` is the receipt an earlier exec process wrote for this same resumed thread; the new row adds to it. */
+  bind(threadId: string, exec = false, prior: CodexEphemeralUsage | null = null): void {
     if (!this.config.ephemeral || this.binding?.threadId === threadId || this.finished.has(threadId)) return;
     this.finish('reopened');
     this.accounting.clearOwnership();
     this.baseline.clear();
     for (const id of this.accounting.accountedThreadIds()) this.baseline.set(id, this.accounting.threadTokens(id));
     this.accounting.trackThread(threadId);
-    this.binding = { threadId, startedAt: Date.now(), exec };
+    this.binding = { threadId, startedAt: Date.now(), exec, prior };
     this.compactions.clear(); this.nativeTurns.clear(); this.completedCompactionItems.clear(); this.compactionCount = 0;
   }
   observe(notification: AppServerNotification): void {
@@ -60,9 +69,10 @@ export class CodexEphemeralUsageTracker {
     }
     return tokens;
   }
-  finish(reason: CodexEphemeralUsage['finishReason']): void {
+  /** Returns the receipt it built so a caller that resumes the thread can carry it forward. */
+  finish(reason: CodexEphemeralUsage['finishReason']): CodexEphemeralUsage | null {
     const binding = this.binding;
-    if (!binding) return;
+    if (!binding) return null;
     // Drop ownership even if storage fails, so a dead runtime cannot keep charging.
     this.binding = null;
     this.finished.add(binding.threadId);
@@ -77,7 +87,7 @@ export class CodexEphemeralUsageTracker {
     helpers.estimated = helperTokens.some(tokens => tokens.estimated);
     const endedAt = Math.max(binding.startedAt, Date.now());
     const kind = this.config.sessionKind ?? 'chat';
-    const row: CodexEphemeralUsage = {
+    const own: CodexEphemeralUsage = {
       version: 1, threadId: binding.threadId,
       instanceId: safeId(this.config.instanceId ?? this.config.env?.['AI_ORCHESTRATOR_INSTANCE_ID'] ?? this.config.browserGatewayInstanceId),
       jobId: safeId(this.config.jobId),
@@ -88,15 +98,26 @@ export class CodexEphemeralUsageTracker {
       compactions: binding.exec ? null : this.compactionCount, startedAt: binding.startedAt, endedAt,
       durationMs: endedAt - binding.startedAt, finishReason: reason,
     };
+    const row = binding.prior ? this.addToPrior(binding.prior, own) : own;
     this.accounting.clearOwnership();
     if (this.config.onEphemeralUsage) {
       try { this.config.onEphemeralUsage(CodexEphemeralUsageSchema.parse(row)); }
       catch { logger.warn('Could not relay temporary Codex usage'); }
-      return;
+      return row;
     }
     // Plain Node unit tests must explicitly inject a scratch file. Production is Electron main.
-    if (!this.config.usageLogFile && !process.versions.electron) return;
+    if (!this.config.usageLogFile && !process.versions.electron) return row;
     try { appendCodexEphemeralUsage(row, this.config.usageLogFile); }
     catch { logger.warn('Could not save temporary Codex usage'); }
+    return row;
+  }
+  /** The log keeps only the newest row per thread, so a resumed exec thread's row must cover every turn so far. */
+  private addToPrior(prior: CodexEphemeralUsage, own: CodexEphemeralUsage): CodexEphemeralUsage {
+    const startedAt = Math.min(prior.startedAt, own.startedAt);
+    return {
+      ...own, startedAt, durationMs: own.endedAt - startedAt,
+      tokens: addTokens(prior.tokens, own.tokens),
+      helpers: { count: null, tokens: addTokens(prior.helpers.tokens, own.helpers.tokens) },
+    };
   }
 }

@@ -58,6 +58,24 @@ describe('Codex receipt metadata privacy and runtime identity', () => {
     const config = (adapter as unknown as { cliConfig: CodexCliConfig }).cliConfig;
     expect(receipt(config, false).row).toMatchObject({ instanceId: 'review-owner-placeholder', jobId: 'review-request-placeholder', kind: 'review' });
   });
+  it('adds each exec process on a resumed thread to one cumulative receipt, since the log keeps only the newest row', () => {
+    const dir = mkdtempSync(resolve('_scratch/step13-resume-'));
+    directories.push(dir);
+    const config: CodexCliConfig = { ephemeral: true, usageLogFile: join(dir, 'usage.jsonl') };
+    const receipts = new Map<string, CodexEphemeralUsage>();
+    for (const input of [10, 20]) {
+      const usage = codexExecUsage(config, receipts);
+      usage.observe({ type: 'thread.started', thread_id: 'thread-resumed' });
+      usage.observe({ type: 'turn.completed', usage: { input_tokens: input, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 } });
+      usage.finish();
+    }
+    const rows = readFileSync(config.usageLogFile!, 'utf8').trim().split('\n').map(line => JSON.parse(line) as CodexEphemeralUsage);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].tokens).toMatchObject({ input: 10, cache: 4, output: 3, reasoning: 1 });
+    expect(rows[1].tokens).toMatchObject({ input: 30, cache: 8, output: 6, reasoning: 2, total: 36 });
+    expect(rows[1].startedAt).toBe(rows[0].startedAt);
+    expect(rows[1].durationMs).toBe(rows[1].endedAt - rows[1].startedAt);
+  });
   it('does not invent missing ownership in the factory', () => {
     const adapter = createCliAdapter('codex', { ephemeral: true });
     const config = (adapter as unknown as { cliConfig: CodexCliConfig }).cliConfig;

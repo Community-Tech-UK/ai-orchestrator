@@ -44,6 +44,7 @@ import {
   type CodexExecProcessResult,
 } from './codex/exec-process-runner';
 import type { TurnInterruptCompletion } from './base-cli-adapter.types';
+import type { CodexEphemeralUsage } from '../../../shared/types/codex-ephemeral-usage.types';
 import { isCodexExecInputFailure, isUnacceptedCodexExecInputFailure, noteUnacceptedCodexExecInput, type CodexExecInputWritePhase } from './codex/exec-input-write';
 
 const logger = getLogger('CodexCliAdapter');
@@ -60,6 +61,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
   protected rtkAwarenessSent = false;
   /** Skills the turn being prepared names; written to the policy log once the native thread id is known. */
   private skillsNamedThisTurn: readonly string[] = [];
+  private readonly execUsageReceipts = new Map<string, CodexEphemeralUsage>();
   private execInputWrite: (CodexExecInputWritePhase & { completion: Promise<TurnInterruptCompletion> }) | null = null;
 
   override interrupt(): InterruptResult {
@@ -428,7 +430,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
     let settleInterrupt!: (result: TurnInterruptCompletion) => void;
     const writePhase = { accepted: false, cancelled: false, completion: new Promise<TurnInterruptCompletion>(resolve => { settleInterrupt = resolve; }) };
     this.execInputWrite = writePhase;
-    const usage = codexExecUsage(this.cliConfig);
+    const usage = codexExecUsage(this.cliConfig, this.execUsageReceipts);
     // The row carries the native Codex thread id, which exec reports on its first event. Before that the adapter's
     // session id is only a Harness-owned placeholder, unless this turn resumes a native thread.
     const skills = this.skillsNamedThisTurn;
